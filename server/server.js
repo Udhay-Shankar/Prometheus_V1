@@ -12,10 +12,38 @@ const PORT = process.env.PORT || 3001;
 
 // Middleware
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175', 'http://localhost:5176'],
+  origin: [
+    'http://localhost:5173', 
+    'http://localhost:5174', 
+    'http://localhost:5175', 
+    'http://localhost:5176',
+    'https://prometheus-v1.onrender.com',
+    'https://prometheus-frontend.onrender.com',
+    /\.vercel\.app$/  // Allow any Vercel deployment
+  ],
   credentials: true
 }));
 app.use(express.json());
+
+// Health check endpoint
+app.get('/', (req, res) => {
+  res.json({
+    status: 'healthy',
+    message: '🚀 Prometheus CEO Insight Engine API',
+    version: '1.0.0',
+    timestamp: new Date().toISOString(),
+    endpoints: {
+      auth: ['/api/auth/signup', '/api/auth/login', '/api/auth/refresh'],
+      assessment: ['/api/ddq/submit', '/api/ddq/latest'],
+      analysis: ['/api/analysis/swot', '/api/analysis/funding', '/api/analysis/competitors'],
+      chat: ['/api/chat/grok']
+    }
+  });
+});
+
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
 
 // MongoDB Connection
 const MONGO_URI = process.env.MONGO_URI || 'your_mongodb_uri_here';

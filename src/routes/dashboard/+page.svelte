@@ -3,6 +3,10 @@
 	import { goto } from '$app/navigation';
 	import { writable } from 'svelte/store';
 	import confetti from 'canvas-confetti';
+	import { env } from '$env/dynamic/public';
+
+	// API Configuration
+	const API_URL = env.PUBLIC_VITE_API_URL || import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 	let user: any = null;
 	let activeTab = 'overview';
@@ -373,7 +377,7 @@
 			const token = localStorage.getItem('accessToken');
 			console.log('Checking existing DDQ with token:', token ? 'Token exists' : 'No token');
 			
-			const response = await fetch('http://localhost:3001/api/ddq/latest', {
+			const response = await fetch(`${API_URL}/api/ddq/latest`, {
 				headers: {
 					Authorization: `Bearer ${token}`
 				}
@@ -492,7 +496,7 @@
 			const token = localStorage.getItem('accessToken');
 			
 			// Save DDQ responses
-			await fetch('http://localhost:3001/api/ddq/save', {
+			await fetch(`${API_URL}/api/ddq/save`, {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json',
@@ -546,7 +550,7 @@
 				competitiveScore: calculateCompetitiveScore()
 			};
 
-			const response = await fetch('http://localhost:3001/api/valuation/calculate', {
+			const response = await fetch(`${API_URL}/api/valuation/calculate`, {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json',
@@ -802,7 +806,7 @@
 				return;
 			}
 
-			const response = await fetch('http://localhost:3001/api/analysis/swot', {
+			const response = await fetch(`${API_URL}/api/analysis/swot`, {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json',
@@ -847,7 +851,7 @@
 			const totalInvestment = parseInt(ddqResponses[10]) || 0; // Q10: Total investment
 			const location = ddqResponses[19] || 'Pan India'; // Q19: Target market location
 
-			const response = await fetch('http://localhost:3001/api/analysis/funding-schemes', {
+			const response = await fetch(`${API_URL}/api/analysis/funding-schemes`, {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json',
@@ -893,7 +897,7 @@
 			const stage = ddqResponses[4] || 'Idea'; // Q4: Company stage
 			const revenue = parseInt(ddqResponses[12]) || 0; // Q12: Monthly revenue
 
-			const response = await fetch('http://localhost:3001/api/analysis/competitors', {
+			const response = await fetch(`${API_URL}/api/analysis/competitors`, {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json',
@@ -1001,7 +1005,7 @@
 				swot: swotAnalysis
 			};
 
-			const response = await fetch('http://localhost:3001/api/chat/grok', {
+			const response = await fetch(`${API_URL}/api/chat/grok`, {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json',
