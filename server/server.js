@@ -491,38 +491,6 @@ app.post('/api/analysis/swot', authenticateToken, async (req, res) => {
   try {
     const { companyData, industry, competitors } = req.body;
 
-    // Check if Grok API key is available
-    if (!GROK_API_KEY || GROK_API_KEY === 'your-grok-api-key-here') {
-      console.log('Grok API key not configured, returning mock SWOT data');
-      // Return mock data if API key not configured
-      return res.json({
-        strengths: [
-          'Strong technical team with domain expertise',
-          'Innovative product addressing market gap',
-          'Early traction with pilot customers',
-          'Scalable business model'
-        ],
-        weaknesses: [
-          'Limited market presence',
-          'Early stage with revenue uncertainty',
-          'Need to build brand recognition',
-          'Resource constraints for rapid scaling'
-        ],
-        opportunities: [
-          'Growing market demand in ' + industry,
-          'Potential for strategic partnerships',
-          'Government funding schemes available',
-          'Untapped geographic markets'
-        ],
-        threats: [
-          'Competition from established players',
-          'Regulatory changes in the industry',
-          'Market adoption challenges',
-          'Economic uncertainties affecting funding'
-        ]
-      });
-    }
-
     const prompt = `As a Senior Venture Capital Analyst, provide a comprehensive SWOT analysis for a ${industry} startup with the following profile:
     
 Company Stage: ${companyData.stage}
@@ -531,97 +499,62 @@ Product Score: ${companyData.productScore}/5
 Market Opportunity: ${companyData.marketScore}/5
 Current Revenue: ${companyData.revenue}
 Key Competitors: ${Array.isArray(competitors) ? competitors.join(', ') : (competitors || 'None specified')}
+Target Customer: ${companyData.targetCustomer || 'Not specified'}
+Has Revenue: ${companyData.hasRevenue ? 'Yes' : 'No'}
 
-Provide a detailed SWOT analysis in JSON format with the following structure:
+Provide a detailed, personalized SWOT analysis in JSON format. Be specific to THIS ${industry} company, mention their actual competitors (${Array.isArray(competitors) ? competitors.join(', ') : competitors}), and tailor strengths/weaknesses based on their ${companyData.stage} stage.
+
 {
-  "strengths": ["strength1", "strength2", ...],
-  "weaknesses": ["weakness1", "weakness2", ...],
-  "opportunities": ["opportunity1", "opportunity2", ...],
-  "threats": ["threat1", "threat2", ...]
+  "strengths": ["strength1", "strength2", "strength3", "strength4"],
+  "weaknesses": ["weakness1", "weakness2", "weakness3", "weakness4"],
+  "opportunities": ["opportunity1", "opportunity2", "opportunity3", "opportunity4"],
+  "threats": ["threat1", "threat2", "threat3", "threat4"]
 }`;
 
-    // Try Grok first
+    // Use Gemini API directly (Grok is deprecated)
     try {
-      const grokResponse = await fetch('https://api.x.ai/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${GROK_API_KEY}`
-        },
-        body: JSON.stringify({
-          messages: [
-            {
-              role: 'system',
-              content: 'You are a Senior Venture Capital Analyst specializing in early-stage startup evaluation. Return ONLY valid JSON.'
-            },
-            {
-              role: 'user',
-              content: prompt
-            }
-          ],
-          model: 'grok-beta',
-          temperature: 0.7
-        })
-      });
-
-      if (!grokResponse.ok) {
-        throw new Error(`Grok API error: ${grokResponse.status}`);
-      }
-
-      const grokData = await grokResponse.json();
-      const analysis = JSON.parse(grokData.choices[0].message.content);
+      const systemContext = 'You are a Senior Venture Capital Analyst specializing in early-stage startup evaluation. Return ONLY valid JSON, no markdown formatting, no explanations.';
+      const geminiResponse = await callGemini(prompt, systemContext);
       
-      console.log('✅ SWOT analysis from Grok API');
+      // Clean and parse
+      let content = geminiResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      const analysis = JSON.parse(content);
+      
+      console.log('✅ SWOT analysis from Gemini API for', industry);
       return res.json(analysis);
       
-    } catch (grokError) {
-      console.warn('Grok failed for SWOT, trying Gemini:', grokError.message);
-      
-      // Try Gemini as backup
-      try {
-        const systemContext = 'You are a Senior Venture Capital Analyst specializing in early-stage startup evaluation. Return ONLY valid JSON, no markdown.';
-        const geminiResponse = await callGemini(prompt, systemContext);
-        
-        // Clean and parse
-        let content = geminiResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-        const analysis = JSON.parse(content);
-        
-        console.log('✅ SWOT analysis from Gemini API');
-        return res.json(analysis);
-        
-      } catch (geminiError) {
-        console.warn('Gemini also failed for SWOT, using fallback:', geminiError.message);
-        throw geminiError;
-      }
+    } catch (geminiError) {
+      console.warn('Gemini failed for SWOT:', geminiError.message);
+      throw geminiError;
     }
 
   } catch (error) {
-    console.error('All AI backends failed for SWOT:', error.message);
-    // Return mock data on error
+    console.error('AI backend failed for SWOT:', error.message);
+    // Return personalized fallback data based on inputs
     res.json({
       strengths: [
-        'Strong technical team with domain expertise',
-        'Innovative product addressing market gap',
-        'Early traction with pilot customers',
-        'Scalable business model'
+        `${companyData.stage} stage ${industry} company with operational foundation`,
+        `Team expertise in ${industry} domain`,
+        companyData.hasRevenue ? 'Proven revenue generation capability' : 'Early product development focus',
+        `Product addressing ${companyData.targetCustomer || 'target market'} needs`
       ],
       weaknesses: [
-        'Limited market presence',
-        'Early stage with revenue uncertainty',
-        'Need to build brand recognition',
-        'Resource constraints for rapid scaling'
+        companyData.hasRevenue ? 'Revenue scale still developing' : 'Pre-revenue stage with market validation needed',
+        `Competing against established players like ${Array.isArray(competitors) ? competitors[0] : competitors}`,
+        'Brand recognition to be built',
+        'Resource optimization required for growth'
       ],
       opportunities: [
-        'Growing market demand',
-        'Potential for strategic partnerships',
-        'Government funding schemes available',
-        'Untapped geographic markets'
+        `Growing ${industry} market with expansion potential`,
+        'Strategic partnerships in ecosystem',
+        'Government funding schemes and grants available',
+        'Technology adoption acceleration post-pandemic'
       ],
       threats: [
-        'Competition from established players',
-        'Regulatory changes in the industry',
-        'Market adoption challenges',
-        'Economic uncertainties affecting funding'
+        `Direct competition from ${Array.isArray(competitors) ? competitors.join(', ') : competitors}`,
+        `Regulatory changes in ${industry} sector`,
+        'Market saturation and customer acquisition costs',
+        'Economic volatility affecting investment climate'
       ]
     });
   }
@@ -636,74 +569,14 @@ app.post('/api/analysis/funding-schemes', authenticateToken, async (req, res) =>
     const isEducationTech = category === 'Education' || category === 'E-learning';
     const isStateBased = location && location !== 'Pan India';
 
-    // Check if Grok API key is available
-    if (!GROK_API_KEY || GROK_API_KEY === 'your-grok-api-key-here') {
-      console.log('Grok API key not configured, returning personalized mock funding schemes data');
-      
-      const schemes = {
-        centralSchemes: [
-          {
-            name: 'Startup India Seed Fund Scheme (SISFS)',
-            amount: 'Up to ₹50 Lakhs',
-            eligibility: 'DPIIT recognized startups, incorporated < 2 years, working on innovative products',
-            benefits: 'Validation of proof of concept, prototype development, product trials, market entry',
-            eligible: isEligibleForSISFS,
-            eligibilityStatus: isEligibleForSISFS ? 'eligible' : 'partial'
-          },
-          {
-            name: 'Credit Guarantee Scheme for Startups (CGSS)',
-            amount: 'Up to ₹10 Crores',
-            eligibility: 'DPIIT recognized startups, valid business model, revenue generation potential',
-            benefits: 'Collateral-free credit guarantee, easier access to working capital loans',
-            eligible: stage === 'Growing' || stage === 'Established',
-            eligibilityStatus: (stage === 'Growing' || stage === 'Established') ? 'eligible' : 'partial'
-          }
-        ],
-        stateSchemes: [],
-        priority: 'SISFS is recommended as primary scheme due to its comprehensive support for early-stage startups with prototype development and market validation needs.'
-      };
+    const prompt = `As an expert on Indian Government funding schemes for startups, analyze eligibility for a ${category} startup:
 
-      // Add education-specific schemes
-      if (isEducationTech) {
-        schemes.centralSchemes.push({
-          name: 'Atal Innovation Mission - Ed-AII',
-          amount: 'Up to ₹2 Crores',
-          eligibility: 'Education technology startups with innovative learning solutions',
-          benefits: 'Grants for product development, mentorship, market access',
-          eligible: true,
-          eligibilityStatus: 'eligible'
-        });
-      }
-
-      // Add state-specific schemes
-      if (isStateBased) {
-        schemes.stateSchemes.push({
-          name: `${location || 'State'} Startup Fund`,
-          amount: 'Up to ₹25 Lakhs',
-          eligibility: `State-registered startups in ${location || 'your state'}`,
-          benefits: 'Seed funding, mentorship, incubation support',
-          eligible: true,
-          eligibilityStatus: 'eligible'
-        });
-      }
-
-      return res.json(schemes);
-    }
-
-    const prompt = `As a Government Funding Schemes Analyst, recommend suitable Indian government funding schemes for a startup with this profile:
-
-Stage: ${stage || companyProfile?.stage}
-Industry/Category: ${category || companyProfile?.industry}
-Total Investment: ₹${totalInvestment || 0}
-Incorporated Date: ${companyProfile?.incorporationDate}
-Revenue: ${companyProfile?.revenue}
-Technology Focus: ${companyProfile?.techFocus}
-Location: ${location || companyProfile?.location}
-
-Key Eligibility Factors:
-- Is eligible for SISFS (< ₹50L investment): ${isEligibleForSISFS ? 'YES' : 'NO'}
-- Is Education Tech sector: ${isEducationTech ? 'YES' : 'NO'}
-- State-based schemes applicable: ${isStateBased ? 'YES' : 'NO'}
+Company Profile:
+- Category: ${category}
+- Stage: ${stage}
+- Total Investment Needed: ₹${totalInvestment}
+- Location: ${location || 'Pan India'}
+- Description: ${companyProfile}
 
 Provide recommendations in JSON format with eligibility status:
 {
@@ -723,36 +596,23 @@ Provide recommendations in JSON format with eligibility status:
 
 Focus on schemes like SISFS, CGSS, GENESIS, Ed-AII (for education), state-level funds, and IP reimbursement programs. Mark eligibilityStatus as "eligible" (green) if all criteria met, "partial" (amber) if some criteria met, "not-eligible" (grey) otherwise.`;
 
-    const grokResponse = await fetch('https://api.x.ai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${GROK_API_KEY}`
-      },
-      body: JSON.stringify({
-        messages: [
-          {
-            role: 'system',
-            content: 'You are an expert on Indian Government funding schemes for startups with detailed knowledge of eligibility criteria.'
-          },
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        model: 'grok-beta',
-        temperature: 0.5
-      })
-    });
-
-    if (!grokResponse.ok) {
-      throw new Error(`Grok API error: ${grokResponse.status}`);
+    // Use Gemini API directly (Grok deprecated)
+    try {
+      const systemContext = 'You are an expert on Indian Government funding schemes for startups with detailed knowledge of eligibility criteria. Return ONLY valid JSON, no markdown.';
+      const geminiResponse = await callGemini(prompt, systemContext);
+      
+      // Clean and parse
+      let content = geminiResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      const schemes = JSON.parse(content);
+      
+      console.log('✅ Funding schemes from Gemini API for', category);
+      return res.json(schemes);
+      
+    } catch (geminiError) {
+      console.warn('Gemini failed for funding schemes:', geminiError.message);
+      throw geminiError;
     }
 
-    const grokData = await grokResponse.json();
-    const schemes = JSON.parse(grokData.choices[0].message.content);
-
-    res.json(schemes);
   } catch (error) {
     console.error('Funding schemes analysis error:', error);
     
@@ -832,61 +692,21 @@ Order: Next Achievable → Mid-tier → Mid-tier → Established → Summit/Big 
 
     let analysis;
     
-    // Try Grok first
+    // Use Gemini API directly (Grok deprecated)
     try {
-      const grokResponse = await fetch('https://api.x.ai/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${GROK_API_KEY}`
-        },
-        body: JSON.stringify({
-          messages: [
-            {
-              role: 'system',
-              content: 'You are a Market Research Analyst with expertise in competitive analysis and startup ecosystems.'
-            },
-            {
-              role: 'user',
-              content: prompt
-            }
-          ],
-          model: 'grok-beta',
-          temperature: 0.6
-        })
-      });
-
-      if (!grokResponse.ok) {
-        throw new Error(`Grok API error: ${grokResponse.status}`);
-      }
-
-      const grokData = await grokResponse.json();
-      let content = grokData.choices[0].message.content;
-      content = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      const systemContext = 'You are a Market Research Analyst with expertise in competitive analysis and startup ecosystems. Return ONLY valid JSON, no markdown.';
+      const geminiResponse = await callGemini(prompt, systemContext);
+      
+      // Clean and parse response
+      let content = geminiResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
       analysis = JSON.parse(content);
       
-      console.log('✅ Competitors fetched from Grok API');
+      console.log('✅ Competitors from Gemini API for', category);
       return res.json(analysis);
       
-    } catch (grokError) {
-      console.warn('Grok failed, trying Gemini backup:', grokError.message);
-      
-      // Try Gemini as backup
-      try {
-        const systemContext = 'You are a Market Research Analyst with expertise in competitive analysis and startup ecosystems. Return ONLY valid JSON, no markdown.';
-        const geminiResponse = await callGemini(prompt, systemContext);
-        
-        // Clean and parse response
-        let content = geminiResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-        analysis = JSON.parse(content);
-        
-        console.log('✅ Competitors fetched from Gemini API');
-        return res.json(analysis);
-        
-      } catch (geminiError) {
-        console.warn('Gemini also failed, using fallback data:', geminiError.message);
-        throw geminiError; // Will be caught by outer catch
-      }
+    } catch (geminiError) {
+      console.warn('Gemini failed for competitors:', geminiError.message);
+      throw geminiError;
     }
 
   } catch (error) {
@@ -897,6 +717,13 @@ Order: Next Achievable → Mid-tier → Mid-tier → Established → Summit/Big 
     
     // Category-specific competitor mapping
     const categoryCompetitors = {
+      'Marketplace': [
+        { name: 'Dunzo', stage: 'Series F', valuation: 23000000000, early: 800000000, growth: 420, revenue: 35000000, customers: 3000000 },
+        { name: 'Meesho', stage: 'Series F', valuation: 49000000000, early: 2000000000, growth: 500, revenue: 55000000, customers: 13000000 },
+        { name: 'BigBasket', stage: 'Acquired', valuation: 200000000000, early: 5000000000, growth: 450, revenue: 1800000000, customers: 20000000 },
+        { name: 'Zomato', stage: 'Public', valuation: 650000000000, early: 20000000000, growth: 480, revenue: 4800000000, customers: 80000000 },
+        { name: 'Swiggy', stage: 'Series J', valuation: 1050000000000, early: 25000000000, growth: 520, revenue: 6500000000, customers: 120000000 }
+      ],
       'SaaS': [
         { name: 'Freshworks', stage: 'Public', valuation: 350000000000, early: 10000000000, growth: 450, revenue: 500000000, customers: 50000 },
         { name: 'Chargebee', stage: 'Series G', valuation: 145000000000, early: 5000000000, growth: 380, revenue: 80000000, customers: 18000 },
@@ -1016,61 +843,31 @@ Keep responses concise, actionable, and personalized to ${context.company?.name 
     // Add current message
     messages.push({ role: 'user', content: message });
 
-    // Try Grok API first
+    // Use Gemini API directly (Grok is deprecated)
     try {
-      const grokResponse = await fetch('https://api.x.ai/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${GROK_API_KEY}`
-        },
-        body: JSON.stringify({
-          messages: messages,
-          model: 'grok-beta',
-          temperature: 0.7,
-          max_tokens: 500
-        })
-      });
-
-      if (!grokResponse.ok) {
-        throw new Error(`Grok API failed: ${grokResponse.status}`);
+      // Build conversation context for Gemini
+      let conversationText = systemPrompt + '\n\n';
+      
+      if (conversationHistory && conversationHistory.length > 0) {
+        conversationHistory.slice(-3).forEach(msg => {
+          conversationText += `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}\n\n`;
+        });
       }
-
-      const grokData = await grokResponse.json();
-      const aiResponse = grokData.choices[0].message.content;
       
-      console.log('✅ Chat response from Grok API');
-      return res.json({ response: aiResponse });
+      conversationText += `User: ${message}\n\nAssistant:`;
       
-    } catch (grokError) {
-      console.warn('Grok failed, trying Gemini backup:', grokError.message);
+      const geminiResponse = await callGemini(conversationText, systemPrompt);
       
-      // Try Gemini as backup
-      try {
-        // Build conversation context for Gemini
-        let conversationText = systemPrompt + '\n\n';
-        
-        if (conversationHistory && conversationHistory.length > 0) {
-          conversationHistory.slice(-3).forEach(msg => {
-            conversationText += `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}\n\n`;
-          });
-        }
-        
-        conversationText += `User: ${message}\n\nAssistant:`;
-        
-        const geminiResponse = await callGemini(conversationText, systemPrompt);
-        
-        console.log('✅ Chat response from Gemini API');
-        return res.json({ response: geminiResponse });
-        
-      } catch (geminiError) {
-        console.warn('Gemini also failed, using context-aware fallback:', geminiError.message);
-        throw geminiError; // Will be caught by outer catch
-      }
+      console.log('✅ Chat response from Gemini API for', context.company?.name || 'user');
+      return res.json({ response: geminiResponse });
+      
+    } catch (geminiError) {
+      console.warn('Gemini failed for chatbot:', geminiError.message);
+      throw geminiError;
     }
 
   } catch (error) {
-    console.error('All AI backends failed:', error.message);
+    console.error('AI backend failed for chatbot:', error.message);
     
     // Provide intelligent fallback response based on the question
     const { message, context } = req.body;
