@@ -4,6 +4,11 @@ import dotenv from 'dotenv';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { MongoClient } from 'mongodb';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 dotenv.config();
 
@@ -1096,10 +1101,24 @@ Try asking about specific aspects like funding, growth strategy, or competitive 
   }
 });
 
+// Serve static frontend files in production
+if (process.env.NODE_ENV === 'production') {
+  // Serve static files from the SvelteKit build directory
+  app.use(express.static(path.join(__dirname, '../build')));
+  
+  // Handle client-side routing - serve index.html for all non-API routes
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, '../build/index.html'));
+  });
+}
+
 // Start server
 connectDB().then(() => {
   app.listen(PORT, () => {
     console.log(`🚀 Server running on http://localhost:${PORT}`);
+    if (process.env.NODE_ENV === 'production') {
+      console.log(`✅ Serving frontend from /build directory`);
+    }
   });
 }).catch((error) => {
   console.error('❌ Failed to start server:', error);

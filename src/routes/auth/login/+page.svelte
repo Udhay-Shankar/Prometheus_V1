@@ -3,8 +3,10 @@
 	import { onMount } from 'svelte';
 	import { env } from '$env/dynamic/public';
 
-	// API Configuration
-	const API_URL = env.PUBLIC_VITE_API_URL || import.meta.env.VITE_API_URL || 'http://localhost:3001';
+	// API Configuration - use relative URLs in production (same domain)
+	const API_URL = typeof window !== 'undefined' && window.location.hostname !== 'localhost' 
+		? '' // Use relative URLs in production
+		: (env.PUBLIC_VITE_API_URL || import.meta.env.VITE_API_URL || 'http://localhost:3001');
 
 	let isLogin = true;
 	let email = '';

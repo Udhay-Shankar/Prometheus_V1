@@ -32,12 +32,12 @@
 - **Runtime**: `Node`
 - **Build Command**: 
   ```bash
-  npm install; cd server && npm install
+  npm install && npm run build && cd server && npm install
   ```
 
 - **Start Command**:
   ```bash
-  cd server && npm start
+  cd server && NODE_ENV=production npm start
   ```
 
 #### **Plan:**
@@ -63,6 +63,9 @@ JWT_REFRESH_SECRET=your-production-jwt-refresh-secret-change-this
 
 # Server Port (Render sets this automatically)
 PORT=3001
+
+# Node Environment (IMPORTANT!)
+NODE_ENV=production
 ```
 
 **⚠️ IMPORTANT:** For production, generate strong secrets:
@@ -73,82 +76,38 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 
 ---
 
-### 4. Deploy Backend
+### 4. Deploy Full Application
 
 1. Click **"Create Web Service"**
 2. Wait for deployment (5-10 minutes)
-3. Once deployed, you'll get a URL like: `https://prometheus-ceo-insight-engine.onrender.com`
+3. Once deployed, you'll get a URL like: `https://prometheus-v1.onrender.com`
+4. **Test it**: 
+   - Visit your URL - you should see your beautiful landing page! 🎉
+   - The backend API is also accessible at `/api/*` endpoints
+   - Everything runs from ONE service!
+
+**Note:** Render automatically redeploys when you push to GitHub!
 
 ---
 
-### 5. Deploy Frontend (Separate Service)
+## 🎯 How It Works
 
-#### Option A: Deploy Frontend on Render (Recommended)
+Your single Web Service now:
+- ✅ **Builds the frontend** during deployment (`npm run build`)
+- ✅ **Runs the backend** Express server
+- ✅ **Serves the frontend** from the `/build` directory
+- ✅ **Handles API calls** at `/api/*` endpoints
+- ✅ **Routes everything else** to the SvelteKit app
 
-1. Click **"New +"** → **"Static Site"**
-2. Select same repository: `Prometheus_V1`
-3. Configure:
-   - **Name**: `prometheus-frontend`
-   - **Branch**: `main`
-   - **Build Command**: 
-     ```bash
-     npm install; npm run build
-     ```
-   - **Publish Directory**: `build`
-
-4. **Environment Variables** (for frontend):
-   ```bash
-   # Point to your backend URL
-   VITE_API_URL=https://prometheus-ceo-insight-engine.onrender.com
-   ```
-
-#### Option B: Deploy Frontend on Vercel (Alternative)
-
-1. Go to https://vercel.com
-2. Import `Prometheus_V1` repository
-3. Configure:
-   - Framework: SvelteKit
-   - Build Command: `npm run build`
-   - Environment Variable: 
-     ```
-     VITE_API_URL=https://prometheus-ceo-insight-engine.onrender.com
-     ```
+All from **ONE URL**: https://prometheus-v1.onrender.com
 
 ---
 
-### 6. Update Frontend API Calls
+## ❌ Skip These Sections (Not Needed Anymore)
 
-You need to update your frontend to use environment variables instead of localhost. Let me update the dashboard component:
-
-**In `src/routes/dashboard/+page.svelte`**, replace all instances of:
-```javascript
-'http://localhost:3001/api/...'
-```
-
-With:
-```javascript
-`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/...`
-```
-
-This allows it to work both locally and in production.
-
----
-
-### 7. Update CORS Settings
-
-Your backend needs to allow requests from your frontend domain. In `server/server.js`, update the CORS configuration:
-
-```javascript
-app.use(cors({
-  origin: [
-    'http://localhost:5173',
-    'http://localhost:5174',
-    'https://prometheus-frontend.onrender.com',  // Add your frontend URL
-    'https://your-custom-domain.com'  // If you have a custom domain
-  ],
-  credentials: true
-}));
-```
+~~### 5. Deploy Frontend (Separate Service)~~ - **NOT NEEDED**  
+~~### 6. Update Frontend API Calls~~ - **ALREADY DONE**  
+~~### 7. Update CORS Settings~~ - **ALREADY CONFIGURED**
 
 ---
 
@@ -161,10 +120,12 @@ app.use(cors({
    - Or add specific Render IP ranges if available
 
 ### Test Your Deployment
-1. Visit your backend: `https://prometheus-ceo-insight-engine.onrender.com`
-2. Visit your frontend: `https://prometheus-frontend.onrender.com`
-3. Test login and assessment flow
-4. Check MongoDB for data persistence
+1. Visit your URL: `https://prometheus-v1.onrender.com`
+2. You should see the landing page with the royal theme
+3. Click "Get Started" and create an account
+4. Complete the assessment
+5. Test valuation, SWOT analysis, competitors, and chatbot
+6. Check MongoDB Atlas to verify data is being saved
 
 ---
 
@@ -185,13 +146,13 @@ app.use(cors({
 
 ## 🎯 Production Checklist
 
-- [ ] Backend deployed on Render
-- [ ] Frontend deployed (Render/Vercel)
-- [ ] Environment variables set
-- [ ] MongoDB whitelist updated
+- [ ] Web Service deployed on Render
+- [ ] Environment variables set (including NODE_ENV=production)
+- [ ] MongoDB whitelist updated (0.0.0.0/0)
 - [ ] CORS configured correctly
 - [ ] JWT secrets changed from defaults
-- [ ] Test complete user flow
+- [ ] Test complete user flow (signup → assessment → results)
+- [ ] Chatbot working with Gemini API
 - [ ] Monitor logs for errors
 - [ ] Set up custom domain (optional)
 
