@@ -422,22 +422,34 @@ app.post('/api/valuation/calculate', authenticateToken, async (req, res) => {
     const SAM = TAM * (marketEstimate.samPercent / 100);
     const SOM = SAM * (marketEstimate.somPercent / 100);
 
-    // Calculate CAGR (if we have historical revenue data, estimate based on stage)
+    // Calculate CAGR (estimate based on stage and sales performance)
     let CAGR = 0;
+    
+    // Base CAGR on stage
+    if (companyStage === 'Idea' || companyStage === 'MVP') CAGR = 150; // 150% for early stage
+    else if (companyStage === 'Launched') CAGR = 100; // 100% for launched
+    else if (companyStage === 'Beta') CAGR = 120; // 120% for beta
+    else if (companyStage === 'Growing') CAGR = 75; // 75% for growing
+    else if (companyStage === 'Established') CAGR = 40; // 40% for established
+    
+    // Adjust based on sales score (performance indicator)
+    CAGR *= (scores.salesScore / 5);
+    
+    // Further boost if revenue exists (proven traction)
     if (revenue && revenue > 0) {
-      // Estimate based on typical growth rates for stage
-      if (companyStage === 'Idea' || companyStage === 'MVP') CAGR = 150; // 150% for early stage
-      else if (companyStage === 'Launched') CAGR = 100; // 100% for launched
-      else if (companyStage === 'Growing') CAGR = 75; // 75% for growing
-      else if (companyStage === 'Established') CAGR = 40; // 40% for established
-      
-      // Adjust based on sales score
-      CAGR *= (scores.salesScore / 5);
+      CAGR *= 1.2; // 20% boost for having actual revenue
     }
 
     // Calculate Runway (months of operation remaining)
     let runway = 0;
     let burnRate = monthlyExpenses || 0;
+    
+    // For revenue businesses, estimate burn from expenses if not provided
+    if (revenue && revenue > 0 && burnRate === 0) {
+      // Assume 70% of revenue goes to expenses (conservative estimate)
+      burnRate = revenue * 0.7;
+    }
+    
     if (totalInvestment && burnRate > 0) {
       const netBurn = burnRate - (revenue || 0); // Revenue reduces burn
       if (netBurn > 0) {
@@ -445,6 +457,9 @@ app.post('/api/valuation/calculate', authenticateToken, async (req, res) => {
       } else {
         runway = 999; // Profitable, essentially infinite runway
       }
+    } else if (revenue && revenue > burnRate) {
+      // Profitable without needing investment
+      runway = 999;
     }
 
     // Return comprehensive valuation data
@@ -476,7 +491,7 @@ app.post('/api/valuation/calculate', authenticateToken, async (req, res) => {
       runway,
       burnRate,
       monthlyRevenue: revenue || 0,
-      isprofitable: revenue > burnRate,
+      isProfitable: revenue > burnRate,
       
       calculatedAt: new Date()
     });
