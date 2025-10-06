@@ -30,8 +30,16 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// Health check endpoint
-app.get('/', (req, res) => {
+// Serve static frontend files in production (BEFORE API routes!)
+if (process.env.NODE_ENV === 'production') {
+  console.log('🔧 Production mode: Setting up static file serving');
+  app.use(express.static(path.join(__dirname, '../build'), {
+    index: false  // Don't auto-serve index.html, we'll handle routing manually
+  }));
+}
+
+// Health check endpoint at /api/health instead of root
+app.get('/api/health', (req, res) => {
   res.json({
     status: 'healthy',
     message: '🚀 Prometheus CEO Insight Engine API',
@@ -1101,14 +1109,17 @@ Try asking about specific aspects like funding, growth strategy, or competitive 
   }
 });
 
-// Serve static frontend files in production
+// Catch-all route: Serve frontend for all non-API routes (MUST be last!)
 if (process.env.NODE_ENV === 'production') {
-  // Serve static files from the SvelteKit build directory
-  app.use(express.static(path.join(__dirname, '../build')));
-  
-  // Handle client-side routing - serve index.html for all non-API routes
   app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, '../build/index.html'));
+    const indexPath = path.join(__dirname, '../build/index.html');
+    console.log(`📄 Serving index.html for: ${req.path}`);
+    res.sendFile(indexPath, (err) => {
+      if (err) {
+        console.error('❌ Error serving index.html:', err);
+        res.status(500).send('Error loading application');
+      }
+    });
   });
 }
 
@@ -1116,8 +1127,10 @@ if (process.env.NODE_ENV === 'production') {
 connectDB().then(() => {
   app.listen(PORT, () => {
     console.log(`🚀 Server running on http://localhost:${PORT}`);
+    console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
     if (process.env.NODE_ENV === 'production') {
-      console.log(`✅ Serving frontend from /build directory`);
+      console.log(`✅ Static file serving enabled`);
+      console.log(`📂 Serving from: ${path.join(__dirname, '../build')}`);
     }
   });
 }).catch((error) => {
