@@ -5630,13 +5630,14 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 
 	.force-card.central {
 		grid-column: 1 / -1;
-		background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
-		color: white;
+		background: linear-gradient(135deg, rgba(212, 175, 55, 0.15) 0%, rgba(218, 165, 32, 0.1) 100%);
+		border: 2px solid var(--accent-primary);
+		color: var(--text-primary);
 	}
 
 	.force-card.central h4,
 	.force-card.central p {
-		color: white;
+		color: var(--text-primary);
 	}
 
 	.force-icon {
@@ -5651,7 +5652,7 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 	}
 
 	.force-card.central .force-icon {
-		background: rgba(255, 255, 255, 0.2);
+		background: var(--accent-primary);
 	}
 
 	.force-icon .material-symbols-outlined {
@@ -5698,17 +5699,25 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 		margin-bottom: 0.5rem;
 	}
 
+	.force-card.central .force-analysis {
+		color: var(--text-primary);
+	}
+
 	.competitive-advantage {
 		margin-top: 1rem;
 		padding: 1rem;
-		background: rgba(255, 255, 255, 0.1);
+		background: rgba(212, 175, 55, 0.15);
+		border: 1px solid var(--accent-primary);
 		border-radius: 12px;
 		font-size: 0.875rem;
+		color: var(--text-primary);
 	}
 
 	.competitive-advantage strong {
 		display: block;
 		margin-bottom: 0.5rem;
+		color: var(--accent-primary);
+		font-weight: 600;
 	}
 
 	/* VRIO Analysis Section */
