@@ -64,13 +64,29 @@
 		{
 			id: 4,
 			section: 'Business Foundation',
+			question: 'State/Location of your startup',
+			type: 'dropdown',
+			options: [
+				'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh',
+				'Goa', 'Gujarat', 'Haryana', 'Himachal Pradesh', 'Jharkhand',
+				'Karnataka', 'Kerala', 'Madhya Pradesh', 'Maharashtra', 'Manipur',
+				'Meghalaya', 'Mizoram', 'Nagaland', 'Odisha', 'Punjab',
+				'Rajasthan', 'Sikkim', 'Tamil Nadu', 'Telangana', 'Tripura',
+				'Uttar Pradesh', 'Uttarakhand', 'West Bengal',
+				'Delhi NCR', 'Chandigarh', 'Puducherry', 'Other'
+			],
+			required: true
+		},
+		{
+			id: 5,
+			section: 'Business Foundation',
 			question: 'Product stage',
 			type: 'dropdown',
 			options: ['Idea', 'MVP', 'Beta', 'Launched', 'Growing', 'Established'],
 			required: true
 		},
 		{
-			id: 5,
+			id: 6,
 			section: 'Business Foundation',
 			question: 'Main competitors (2-3 names)',
 			type: 'text',
@@ -78,7 +94,7 @@
 			required: true
 		},
 		{
-			id: 6,
+			id: 7,
 			section: 'Business Foundation',
 			question: 'Competitive differentiation',
 			type: 'textarea',
@@ -90,7 +106,7 @@
 	// SECTION 2: Market Validation (4 questions)
 	const section2Questions = [
 		{
-			id: 7,
+			id: 8,
 			section: 'Market Validation',
 			question: 'Target customer description',
 			type: 'textarea',
@@ -98,7 +114,7 @@
 			required: true
 		},
 		{
-			id: 8,
+			id: 9,
 			section: 'Market Validation',
 			question: 'Type of marketing preferred',
 			type: 'dropdown',
@@ -106,7 +122,7 @@
 			required: true
 		},
 		{
-			id: 9,
+			id: 10,
 			section: 'Market Validation',
 			question: 'Customer interviews completed',
 			type: 'dropdown',
@@ -114,7 +130,7 @@
 			required: true
 		},
 		{
-			id: 10,
+			id: 11,
 			section: 'Market Validation',
 			question: 'Total investment received till now',
 			type: 'number',
@@ -122,7 +138,7 @@
 			required: true
 		},
 		{
-			id: 11,
+			id: 12,
 			section: 'Market Validation',
 			question: 'Paying customers status',
 			type: 'dropdown',
@@ -132,10 +148,10 @@
 		}
 	];
 
-	// SECTION 3A: Revenue Businesses (if Q11 = Yes)
+	// SECTION 3A: Revenue Businesses (if Q12 = Yes)
 	const section3AQuestions = [
 		{
-			id: 12,
+			id: 13,
 			section: 'Revenue Metrics',
 			question: 'Current monthly revenue',
 			type: 'number',
@@ -143,7 +159,7 @@
 			required: true
 		},
 		{
-			id: 13,
+			id: 14,
 			section: 'Revenue Metrics',
 			question: 'Revenue 3 months ago',
 			type: 'number',
@@ -151,7 +167,7 @@
 			required: true
 		},
 		{
-			id: 14,
+			id: 15,
 			section: 'Revenue Metrics',
 			question: 'Total customer count',
 			type: 'number',
@@ -159,7 +175,7 @@
 			required: true
 		},
 		{
-			id: 15,
+			id: 16,
 			section: 'Revenue Metrics',
 			question: 'Average revenue per customer',
 			type: 'number',
@@ -168,10 +184,10 @@
 		}
 	];
 
-	// SECTION 3B: Pre-Revenue Businesses (if Q11 = No)
+	// SECTION 3B: Pre-Revenue Businesses (if Q12 = No)
 	const section3BQuestions = [
 		{
-			id: 12,
+			id: 13,
 			section: 'Pre-Revenue Planning',
 			question: 'Expected first customer timeline',
 			type: 'dropdown',
@@ -179,7 +195,7 @@
 			required: true
 		},
 		{
-			id: 13,
+			id: 14,
 			section: 'Pre-Revenue Planning',
 			question: 'Planned pricing model (monthly amount)',
 			type: 'number',
@@ -187,7 +203,7 @@
 			required: true
 		},
 		{
-			id: 14,
+			id: 15,
 			section: 'Pre-Revenue Planning',
 			question: 'Total investment to date',
 			type: 'number',
@@ -195,7 +211,7 @@
 			required: true
 		},
 		{
-			id: 15,
+			id: 16,
 			section: 'Pre-Revenue Planning',
 			question: 'Monthly expenses/burn rate',
 			type: 'number',
@@ -207,7 +223,7 @@
 	// SECTION 4: Team & Operations (3 questions)
 	const section4Questions = [
 		{
-			id: 16,
+			id: 17,
 			section: 'Team & Operations',
 			question: 'Team size including founder',
 			type: 'number',
@@ -215,7 +231,7 @@
 			required: true
 		},
 		{
-			id: 17,
+			id: 18,
 			section: 'Team & Operations',
 			question: 'Founder background',
 			type: 'dropdown',
@@ -223,7 +239,7 @@
 			required: true
 		},
 		{
-			id: 18,
+			id: 19,
 			section: 'Team & Operations',
 			question: 'Biggest current challenge',
 			type: 'dropdown',
@@ -232,10 +248,10 @@
 		}
 	];
 
-	// SECTION 5: Growth Strategy (4 questions) - Reduced to 2 for now
+	// SECTION 5: Growth Strategy (3 questions)
 	const section5Questions = [
 		{
-			id: 19,
+			id: 20,
 			section: 'Growth Strategy',
 			question: 'Customer acquisition strategy',
 			type: 'dropdown',
@@ -243,7 +259,7 @@
 			required: true
 		},
 		{
-			id: 20,
+			id: 21,
 			section: 'Growth Strategy',
 			question: '6-month primary goal',
 			type: 'text',
@@ -251,7 +267,7 @@
 			required: true
 		},
 		{
-			id: 21,
+			id: 22,
 			section: 'Growth Strategy',
 			question: 'Funding needed for goals',
 			type: 'dropdown',
@@ -263,7 +279,7 @@
 	// SECTION 6: Risk Assessment (1 question)
 	const section6Questions = [
 		{
-			id: 22,
+			id: 23,
 			section: 'Risk Assessment',
 			question: 'Primary business risk',
 			type: 'dropdown',
@@ -847,13 +863,14 @@
 			console.error('❌ Error generating SWOT:', error);
 			// INTELLIGENT fallback SWOT based on analyzing user's actual data
 			const industry = ddqResponses[3] || 'Technology';
-			const competitors = ddqResponses[5] || 'Market competitors';
-			const stage = ddqResponses[4] || 'Growing';
-			const teamSize = parseInt(ddqResponses[16]) || 1;
-			const founderBackground = ddqResponses[17] || '';
-			const uniqueValue = ddqResponses[6] || '';
-			const mainChallenge = ddqResponses[18] || '';
-			const acquisitionChannel = ddqResponses[19] || '';
+			const state = ddqResponses[4] || 'Other';
+			const stage = ddqResponses[5] || 'Growing';
+			const competitors = ddqResponses[6] || 'Market competitors';
+			const uniqueValue = ddqResponses[7] || '';
+			const teamSize = parseInt(ddqResponses[17]) || 1;
+			const founderBackground = ddqResponses[18] || '';
+			const mainChallenge = ddqResponses[19] || '';
+			const acquisitionChannel = ddqResponses[20] || '';
 			
 			console.log('🔍 Analyzing user data for intelligent SWOT fallback:', {
 				industry,
@@ -998,13 +1015,17 @@
 				return;
 			}
 
-			// Get personalization parameters from DDQ responses
+			// Get personalization parameters from DDQ responses (updated IDs)
 			const category = ddqResponses[3] || 'Technology'; // Q3: Business category
-			const stage = ddqResponses[4] || 'Idea'; // Q4: Company stage
-			const totalInvestment = parseInt(ddqResponses[10]) || 0; // Q10: Total investment
-			const location = ddqResponses[19] || 'Pan India'; // Q19: Target market location
+			const state = ddqResponses[4] || 'Other'; // Q4: State/Location (NEW!)
+			const stage = ddqResponses[5] || 'Idea'; // Q5: Product stage
+			const totalInvestment = parseInt(ddqResponses[11]) || 0; // Q11: Total investment
+			const fundingNeeded = ddqResponses[22] || 'Less than ₹10 Lakhs'; // Q22: Funding needed
+			const hasRevenue = ddqResponses[12] === 'Yes'; // Q12: Paying customers
+			const teamSize = parseInt(ddqResponses[17]) || 1; // Q17: Team size
+			const productDescription = ddqResponses[2] || ''; // Q2: Description
 
-			console.log('💰 Fetching funding schemes...', { category, stage, totalInvestment, location });
+			console.log('💰 Fetching funding schemes...', { category, state, stage, totalInvestment, hasRevenue });
 
 			const response = await fetch(`${API_URL}/api/analysis/funding-schemes`, {
 				method: 'POST',
@@ -1014,16 +1035,21 @@
 				},
 				body: JSON.stringify({
 					category,
+					state,
 					stage,
 					totalInvestment,
-					location,
+					location: state, // Send state as location too for backward compatibility
+					hasRevenue,
+					teamSize,
+					productDescription,
 					companyProfile: {
 						stage: stage,
 						industry: category,
 						incorporationDate: new Date(),
-						revenue: ddqResponses[12] || 0, // Q12: Monthly revenue
-						techFocus: 'Technology',
-						location: location
+						revenue: hasRevenue ? (parseInt(ddqResponses[13]) || 0) : 0, // Q13: Monthly revenue
+						techFocus: category,
+						location: state,
+						state: state
 					}
 				})
 			});
@@ -1041,12 +1067,13 @@
 			console.error('❌ Error getting funding schemes:', error);
 			// INTELLIGENT fallback based on analyzing user's eligibility
 			const category = ddqResponses[3] || 'Technology';
-			const stage = ddqResponses[4] || 'Idea';
-			const totalInvestment = parseInt(ddqResponses[10]) || 0;
-			const fundingNeeded = parseInt(ddqResponses[21]) || 0;
-			const location = ddqResponses[19] || 'Pan India';
-			const hasRevenue = ddqResponses[11] === 'Yes';
-			const teamSize = parseInt(ddqResponses[16]) || 1;
+			const state = ddqResponses[4] || 'Other';
+			const stage = ddqResponses[5] || 'Idea';
+			const totalInvestment = parseInt(ddqResponses[11]) || 0;
+			const fundingNeeded = parseInt(ddqResponses[22]) || 0;
+			const location = ddqResponses[4] || 'Pan India';
+			const hasRevenue = ddqResponses[12] === 'Yes';
+			const teamSize = parseInt(ddqResponses[17]) || 1;
 			
 			console.log('🔍 Analyzing eligibility for intelligent funding fallback:', {
 				category,
@@ -1184,8 +1211,8 @@
 			}
 
 			const category = ddqResponses[3] || 'SaaS'; // Q3: Business category
-			const stage = ddqResponses[4] || 'Idea'; // Q4: Company stage
-			const revenue = parseInt(ddqResponses[12]) || 0; // Q12: Monthly revenue
+			const stage = ddqResponses[5] || 'Idea'; // Q5: Product stage
+			const revenue = parseInt(ddqResponses[13]) || 0; // Q13: Monthly revenue
 
 			console.log('🏢 Fetching competitors...', { category, stage, revenue });
 
@@ -1215,10 +1242,10 @@
 			console.error('❌ Error getting competitors:', error);
 			// INTELLIGENT fallback based on user's actual data
 			const category = ddqResponses[3] || 'SaaS';
-			const userCompetitors = (ddqResponses[5] || '').toLowerCase(); // User's mentioned competitors
-			const stage = ddqResponses[4] || 'Idea';
-			const userRevenue = parseInt(ddqResponses[12]) || 0;
-			const userCustomers = parseInt(ddqResponses[14]) || 0;
+			const userCompetitors = (ddqResponses[6] || '').toLowerCase(); // Q6: User's mentioned competitors
+			const stage = ddqResponses[5] || 'Idea';
+			const userRevenue = parseInt(ddqResponses[13]) || 0; // Q13: Monthly revenue
+			const userCustomers = parseInt(ddqResponses[15]) || 0; // Q15: Total customers
 			
 			console.log('🔍 Analyzing user data for intelligent fallback:', {
 				category,
@@ -2252,20 +2279,20 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 							<p class="subsection-desc">Evaluate your resources for sustainable competitive advantage</p>
 							
 							{#if true}
-							{@const hasProprietaryTech = String(ddqResponses[17] || '').includes('Yes')}
-							{@const hasPreviousStartup = String(ddqResponses[17] || '').includes('Previous Startup')}
-							{@const hasIndustryExpert = String(ddqResponses[17] || '').includes('Industry Expert')}
-							{@const hasTechnicalFounder = String(ddqResponses[17] || '').includes('Technical')}
-							{@const teamSizeValue = Number(ddqResponses[16]) || 1}
+							{@const hasProprietaryTech = String(ddqResponses[18] || '').includes('Yes')}
+							{@const hasPreviousStartup = String(ddqResponses[18] || '').includes('Previous Startup')}
+							{@const hasIndustryExpert = String(ddqResponses[18] || '').includes('Industry Expert')}
+							{@const hasTechnicalFounder = String(ddqResponses[18] || '').includes('Technical')}
+							{@const teamSizeValue = Number(ddqResponses[17]) || 1}
 							{@const isOrganized = teamSizeValue > 1}
-							{@const uniqueValue = ddqResponses[6] || ''}
-							{@const hasRevenueCheck = ddqResponses[11] === 'Yes'}
+							{@const uniqueValue = ddqResponses[7] || ''}
+							{@const hasRevenueCheck = ddqResponses[12] === 'Yes'}
 							
 							{@const hasExpertise = hasIndustryExpert || hasPreviousStartup}
 							{@const expertiseRare = hasIndustryExpert && hasPreviousStartup}
-							{@const customerValue = hasRevenueCheck && Number(ddqResponses[14]) > 50}
-							{@const customerRare = Number(ddqResponses[14]) > 500}
-							{@const hardToSteal = Number(ddqResponses[14]) > 1000 || String(ddqResponses[18] || '').includes('Referrals')}
+							{@const customerValue = hasRevenueCheck && Number(ddqResponses[15]) > 50}
+							{@const customerRare = Number(ddqResponses[15]) > 500}
+							{@const hardToSteal = Number(ddqResponses[15]) > 1000 || String(ddqResponses[19] || '').includes('Referrals')}
 							
 							
 							<div class="vrio-grid">
@@ -2738,8 +2765,12 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 										<span class="info-value">{ddqResponses[3] || 'N/A'}</span>
 									</div>
 									<div class="info-row">
-										<span class="info-label">Stage</span>
+										<span class="info-label">State</span>
 										<span class="info-value">{ddqResponses[4] || 'N/A'}</span>
+									</div>
+									<div class="info-row">
+										<span class="info-label">Stage</span>
+										<span class="info-value">{ddqResponses[5] || 'N/A'}</span>
 									</div>
 								</div>
 							</div>

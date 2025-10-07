@@ -577,12 +577,57 @@ Provide a detailed, personalized SWOT analysis in JSON format. Be specific to TH
 
 app.post('/api/analysis/funding-schemes', authenticateToken, async (req, res) => {
   try {
-    const { companyProfile, category, stage, totalInvestment, location } = req.body;
+    const { companyProfile, category, stage, totalInvestment, location, state, productDescription, teamSize, hasRevenue } = req.body;
+
+    console.log('💰 Funding schemes request:', { category, stage, state: state || location, totalInvestment, hasRevenue });
+
+    // State-specific schemes database (major startup states)
+    const stateSchemes = {
+      'Karnataka': [
+        { name: 'Karnataka Startup Cell - Idea2PoC', amount: '₹50 Lakhs', eligibility: 'DPIIT recognized, Karnataka-based, Idea to Prototype stage', benefits: 'Grant for proof of concept development, no equity dilution', type: 'Grant' },
+        { name: 'Karnataka Elevate Program', amount: 'Up to ₹50 Lakhs', eligibility: 'Tech startups, post-revenue, Karnataka-based', benefits: 'Funding + mentorship for scaling, ecosystem connect', type: 'Grant' },
+        { name: 'KBITS Innovation Fund', amount: '₹25-50 Lakhs', eligibility: 'Bio-IT, AI/ML, IoT startups in Karnataka', benefits: 'Seed funding for innovative tech ventures', type: 'Equity' }
+      ],
+      'Maharashtra': [
+        { name: 'Maharashtra Start-up Week Funding', amount: '₹10-25 Lakhs', eligibility: 'Maharashtra-based, innovative startups, early stage', benefits: 'Seed funding and ecosystem support, networking', type: 'Grant' },
+        { name: 'MahaIT Innovation Fund', amount: 'Up to ₹1 Crore', eligibility: 'IT/Tech startups, Maharashtra-based, post-revenue', benefits: 'Scaling support, infrastructure access', type: 'Equity' }
+      ],
+      'Tamil Nadu': [
+        { name: 'Tamil Nadu Startup Fund', amount: '₹25-50 Lakhs', eligibility: 'TN-based startups, DPIIT recognized, innovative product', benefits: 'Seed funding, incubation support, mentorship', type: 'Grant' },
+        { name: 'TANSIM Startup Support', amount: 'Up to ₹10 Lakhs', eligibility: 'Manufacturing/hardware startups in TN', benefits: 'Infrastructure, testing facilities, grants', type: 'Grant' }
+      ],
+      'Telangana': [
+        { name: 'T-Hub Seed Fund', amount: '₹25 Lakhs', eligibility: 'Tech startups incubated at T-Hub, Telangana-based', benefits: 'Seed funding, mentorship, ecosystem access', type: 'Grant' },
+        { name: 'WE Hub Women Entrepreneur Fund', amount: '₹15-30 Lakhs', eligibility: 'Women-led startups, Telangana-based', benefits: 'Funding, incubation, women-focused support', type: 'Grant' }
+      ],
+      'Gujarat': [
+        { name: 'Gujarat Startup Fund', amount: 'Up to ₹50 Lakhs', eligibility: 'Gujarat-based, DPIIT recognized, early-stage', benefits: 'Seed capital, mentorship, infrastructure', type: 'Grant' },
+        { name: 'iCreate Seed Fund', amount: '₹10-25 Lakhs', eligibility: 'Product/hardware startups, Gujarat-based', benefits: 'Prototype development, market testing', type: 'Grant' }
+      ],
+      'Delhi NCR': [
+        { name: 'Delhi Startup Policy Fund', amount: '₹20-50 Lakhs', eligibility: 'Delhi-registered startups, innovative business model', benefits: 'Seed funding, subsidy on patent filing, office space', type: 'Grant' },
+        { name: 'Delhi Innovation Fund', amount: 'Up to ₹1 Crore', eligibility: 'Tech startups, post-revenue, Delhi-based', benefits: 'Growth capital, ecosystem access', type: 'Equity' }
+      ],
+      'Haryana': [
+        { name: 'Haryana Enterprise Promotion Center Fund', amount: '₹15-30 Lakhs', eligibility: 'Haryana-based startups, early stage', benefits: 'Seed funding, subsidy benefits', type: 'Grant' }
+      ],
+      'Kerala': [
+        { name: 'Kerala Startup Mission Fund', amount: '₹25-50 Lakhs', eligibility: 'Kerala-based, DPIIT recognized, innovative product', benefits: 'Seed funding, incubation facilities, mentorship', type: 'Grant' },
+        { name: 'Women Startup Fund - Kerala', amount: 'Up to ₹20 Lakhs', eligibility: 'Women-led startups in Kerala', benefits: 'Interest-free loans, mentorship', type: 'Loan' }
+      ],
+      'Rajasthan': [
+        { name: 'Rajasthan Startup Fest Funding', amount: '₹10-25 Lakhs', eligibility: 'Rajasthan-based, early stage startups', benefits: 'Seed grant, ecosystem support', type: 'Grant' }
+      ],
+      'Uttar Pradesh': [
+        { name: 'UP Startup Fund', amount: '₹25-50 Lakhs', eligibility: 'UP-based startups, DPIIT recognized', benefits: 'Seed funding, infrastructure support', type: 'Grant' }
+      ]
+    };
 
     // Personalized eligibility logic
     const isEligibleForSISFS = totalInvestment < 5000000; // < ₹50L
-    const isEducationTech = category === 'Education' || category === 'E-learning';
-    const isStateBased = location && location !== 'Pan India';
+    const isEducationTech = category === 'EdTech' || category === 'Education' || category === 'E-learning';
+    const userState = state || location || 'Other';
+    const stateSpecificSchemes = stateSchemes[userState] || [];
 
     const prompt = `As an expert on Indian Government funding schemes for startups, analyze eligibility for a ${category} startup:
 
@@ -590,37 +635,56 @@ Company Profile:
 - Category: ${category}
 - Stage: ${stage}
 - Total Investment Needed: ₹${totalInvestment}
-- Location: ${location || 'Pan India'}
-- Description: ${companyProfile}
+- Location/State: ${userState}
+- Team Size: ${teamSize || 'Not specified'}
+- Has Revenue: ${hasRevenue ? 'Yes' : 'No'}
+- Description: ${companyProfile || productDescription || 'Not provided'}
 
-Provide recommendations in JSON format with eligibility status:
+Provide recommendations in JSON format with detailed eligibility analysis:
 {
   "centralSchemes": [
     {
       "name": "scheme name",
       "amount": "funding amount",
-      "eligibility": "eligibility criteria",
-      "benefits": "key benefits",
+      "eligibility": "specific eligibility criteria",
+      "benefits": "key benefits and what funding covers",
       "eligible": true/false,
-      "eligibilityStatus": "eligible" or "partial" or "not-eligible"
+      "eligibilityStatus": "eligible" or "partial" or "not-eligible",
+      "reasoning": "why eligible/not eligible based on company profile",
+      "type": "Grant/Equity/Loan"
     }
   ],
   "stateSchemes": [similar structure],
-  "priority": "recommended priority scheme with reasoning"
+  "priority": "recommended priority scheme with detailed reasoning based on stage, category, and needs"
 }
 
-Focus on schemes like SISFS, CGSS, GENESIS, Ed-AII (for education), state-level funds, and IP reimbursement programs. Mark eligibilityStatus as "eligible" (green) if all criteria met, "partial" (amber) if some criteria met, "not-eligible" (grey) otherwise.`;
+Focus on Central schemes like:
+- SISFS (Startup India Seed Fund) - up to ₹50L for idea/prototype stage
+- CGSS (Credit Guarantee) - up to ₹10Cr for growing/established startups
+- GENESIS (GenNext Support for Innovative Startups) - for deep tech/AI-ML
+- Ed-AII - for EdTech/education startups
+- NIDHI (National Initiative for Developing and Harnessing Innovations)
+- Atal Innovation Mission grants
+
+For State Schemes in ${userState}, include specific state government programs available.
+
+Mark eligibilityStatus as:
+- "eligible" (green) if ALL criteria met
+- "partial" (amber) if SOME criteria met but needs minor adjustments
+- "not-eligible" (grey) if does not meet criteria
+
+Provide specific reasoning for each scheme based on the company's actual profile, stage, and category.`;
 
     // Use Gemini API directly (Grok deprecated)
     try {
-      const systemContext = 'You are an expert on Indian Government funding schemes for startups with detailed knowledge of eligibility criteria. Return ONLY valid JSON, no markdown.';
+      const systemContext = 'You are an expert on Indian Government funding schemes for startups with detailed knowledge of both Central and State-level programs. Analyze company profile and provide specific, personalized eligibility assessment. Return ONLY valid JSON, no markdown.';
       const geminiResponse = await callGemini(prompt, systemContext);
       
       // Clean and parse
       let content = geminiResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
       const schemes = JSON.parse(content);
       
-      console.log('✅ Funding schemes from Gemini API for', category);
+      console.log('✅ Funding schemes from Gemini API for', category, 'in', userState);
       return res.json(schemes);
       
     } catch (geminiError) {
@@ -631,10 +695,39 @@ Focus on schemes like SISFS, CGSS, GENESIS, Ed-AII (for education), state-level 
   } catch (error) {
     console.error('Funding schemes analysis error:', error);
     
-    // Return personalized mock data on error
-    const { category, stage, totalInvestment, location } = req.body;
+    // Return personalized mock data with state schemes on error
+    const { category, stage, totalInvestment, location, state, hasRevenue } = req.body;
     const isEligibleForSISFS = totalInvestment < 5000000;
-    const isEducationTech = category === 'Education' || category === 'E-learning';
+    const isEducationTech = category === 'EdTech' || category === 'Education' || category === 'E-learning';
+    const userState = state || location || 'Other';
+    
+    // State schemes database (same as above)
+    const stateSchemes = {
+      'Karnataka': [
+        { name: 'Karnataka Startup Cell - Idea2PoC', amount: '₹50 Lakhs', eligibility: 'DPIIT recognized, Karnataka-based, Idea to Prototype stage', benefits: 'Grant for proof of concept development', type: 'Grant', eligible: stage === 'Idea' || stage === 'MVP' || stage === 'Beta', eligibilityStatus: (stage === 'Idea' || stage === 'MVP' || stage === 'Beta') ? 'eligible' : 'partial', reasoning: 'Karnataka-based startups in early stage qualify for PoC funding' },
+        { name: 'Karnataka Elevate Program', amount: 'Up to ₹50 Lakhs', eligibility: 'Tech startups, post-revenue, Karnataka-based', benefits: 'Funding + mentorship for scaling', type: 'Grant', eligible: hasRevenue, eligibilityStatus: hasRevenue ? 'eligible' : 'not-eligible', reasoning: 'Requires revenue generation for eligibility' }
+      ],
+      'Maharashtra': [
+        { name: 'Maharashtra Start-up Week Funding', amount: '₹10-25 Lakhs', eligibility: 'Maharashtra-based, innovative startups', benefits: 'Seed funding and ecosystem support', type: 'Grant', eligible: true, eligibilityStatus: 'eligible', reasoning: 'Maharashtra-based startups with innovative ideas qualify' }
+      ],
+      'Tamil Nadu': [
+        { name: 'Tamil Nadu Startup Fund', amount: '₹25-50 Lakhs', eligibility: 'TN-based startups, DPIIT recognized', benefits: 'Seed funding, incubation support', type: 'Grant', eligible: true, eligibilityStatus: 'eligible', reasoning: 'TN-based startups with innovative products qualify' }
+      ],
+      'Telangana': [
+        { name: 'T-Hub Seed Fund', amount: '₹25 Lakhs', eligibility: 'Tech startups incubated at T-Hub', benefits: 'Seed funding, mentorship', type: 'Grant', eligible: category === 'SaaS' || category === 'AI/ML', eligibilityStatus: (category === 'SaaS' || category === 'AI/ML') ? 'eligible' : 'partial', reasoning: 'Tech-focused startups preferred for T-Hub incubation' }
+      ],
+      'Gujarat': [
+        { name: 'Gujarat Startup Fund', amount: 'Up to ₹50 Lakhs', eligibility: 'Gujarat-based, DPIIT recognized', benefits: 'Seed capital, mentorship', type: 'Grant', eligible: true, eligibilityStatus: 'eligible', reasoning: 'Gujarat-based startups qualify for state seed funding' }
+      ],
+      'Delhi NCR': [
+        { name: 'Delhi Startup Policy Fund', amount: '₹20-50 Lakhs', eligibility: 'Delhi-registered startups', benefits: 'Seed funding, subsidy on patents', type: 'Grant', eligible: true, eligibilityStatus: 'eligible', reasoning: 'Delhi-registered startups with innovative business models qualify' }
+      ],
+      'Kerala': [
+        { name: 'Kerala Startup Mission Fund', amount: '₹25-50 Lakhs', eligibility: 'Kerala-based, DPIIT recognized', benefits: 'Seed funding, incubation', type: 'Grant', eligible: true, eligibilityStatus: 'eligible', reasoning: 'Kerala-based startups with innovative products qualify' }
+      ]
+    };
+    
+    const userStateSchemes = stateSchemes[userState] || [];
     
     res.json({
       centralSchemes: [
@@ -644,26 +737,52 @@ Focus on schemes like SISFS, CGSS, GENESIS, Ed-AII (for education), state-level 
           eligibility: 'DPIIT recognized startups, incorporated < 2 years, working on innovative products',
           benefits: 'Validation of proof of concept, prototype development, product trials, market entry',
           eligible: isEligibleForSISFS,
-          eligibilityStatus: isEligibleForSISFS ? 'eligible' : 'partial'
+          eligibilityStatus: isEligibleForSISFS ? 'eligible' : 'partial',
+          reasoning: isEligibleForSISFS ? `Investment of ₹${(totalInvestment/100000).toFixed(1)}L < ₹50L qualifies for SISFS` : 'Funding needs exceed SISFS limit',
+          type: 'Grant'
         },
         {
           name: 'Credit Guarantee Scheme for Startups (CGSS)',
           amount: 'Up to ₹10 Crores',
           eligibility: 'DPIIT recognized startups, valid business model, revenue generation potential',
           benefits: 'Collateral-free credit guarantee, easier access to working capital loans',
-          eligible: stage === 'Growing' || stage === 'Established',
-          eligibilityStatus: (stage === 'Growing' || stage === 'Established') ? 'eligible' : 'partial'
+          eligible: hasRevenue || stage === 'Growing' || stage === 'Established',
+          eligibilityStatus: (hasRevenue || stage === 'Growing' || stage === 'Established') ? 'eligible' : 'partial',
+          reasoning: hasRevenue ? 'Revenue-generating startup qualifies for credit guarantee' : 'Focus on revenue generation to qualify',
+          type: 'Credit Guarantee'
+        },
+        {
+          name: 'GENESIS (GenNext Support for Innovative Startups)',
+          amount: '₹10 Lakhs - ₹1 Crore',
+          eligibility: 'Deep tech, AI/ML, IoT, Robotics startups',
+          benefits: 'Equity/debt funding for innovative tech products',
+          eligible: category === 'AI/ML' || category === 'SaaS' || category === 'Hardware',
+          eligibilityStatus: (category === 'AI/ML' || category === 'SaaS' || category === 'Hardware') ? 'eligible' : 'not-eligible',
+          reasoning: (category === 'AI/ML' || category === 'SaaS' || category === 'Hardware') ? 'Tech category qualifies for GENESIS' : 'GENESIS is for deep-tech startups only',
+          type: 'Equity/Debt'
+        },
+        {
+          name: 'Ed-AII (Education and Assessment Innovation Initiative)',
+          amount: 'Up to ₹50 Lakhs',
+          eligibility: 'EdTech, Education, E-learning startups',
+          benefits: 'Funding for educational innovation, assessment tools',
+          eligible: isEducationTech,
+          eligibilityStatus: isEducationTech ? 'eligible' : 'not-eligible',
+          reasoning: isEducationTech ? 'EdTech category qualifies for Ed-AII' : 'Ed-AII is for EdTech/Education startups only',
+          type: 'Grant'
         }
       ],
-      stateSchemes: location ? [{
-        name: `${location} Startup Fund`,
-        amount: 'Up to ₹25 Lakhs',
-        eligibility: `State-registered startups in ${location}`,
-        benefits: 'Seed funding, mentorship, incubation support',
+      stateSchemes: userStateSchemes.length > 0 ? userStateSchemes : [{
+        name: `${userState} State Startup Support`,
+        amount: 'Varies by state',
+        eligibility: `Startups registered in ${userState}`,
+        benefits: 'Seed funding, mentorship, incubation support - check state startup portal',
         eligible: true,
-        eligibilityStatus: 'eligible'
-      }] : [],
-      priority: 'SISFS is recommended as primary scheme due to its comprehensive support for early-stage startups with prototype development and market validation needs.'
+        eligibilityStatus: 'partial',
+        reasoning: `${userState}-based startups may qualify for state programs - verify with state startup cell`,
+        type: 'Grant'
+      }],
+      priority: `For ${stage} stage ${category} startup in ${userState}: ${isEligibleForSISFS ? 'SISFS is recommended as primary scheme for early-stage funding support. ' : ''}${userStateSchemes.length > 0 ? `Also explore ${userStateSchemes[0].name} for state-specific benefits. ` : ''}${hasRevenue ? 'CGSS can provide collateral-free working capital for growth.' : ''}`
     });
   }
 });
