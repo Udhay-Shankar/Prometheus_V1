@@ -572,21 +572,19 @@
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json',
-					Authorization: `Bearer ${token}`
-				},
-				body: JSON.stringify({
-					scores,
-					companyStage: ddqResponses[4], // Q4: Product stage
-					revenue: hasRevenue ? parseInt(ddqResponses[12]) : 0, // Q12: Current monthly revenue (if revenue business)
-					fundingNeeded: parseInt(ddqResponses[21]) || 0, // Q21: Funding needed for goals
-					category: ddqResponses[3], // Q3: Business category
-					totalInvestment: parseInt(ddqResponses[10]) || 0, // Q10: Total investment received
-					monthlyExpenses: hasRevenue ? 0 : (parseInt(ddqResponses[15]) || 0), // Q15: Monthly expenses (pre-revenue)
-					customerCount: hasRevenue ? (parseInt(ddqResponses[14]) || 0) : 0 // Q14: Total customer count
-				})
-			});
-
-			if (!response.ok) {
+				Authorization: `Bearer ${token}`
+			},
+			body: JSON.stringify({
+				scores,
+				companyStage: ddqResponses[5], // Q5: Product stage (was Q4)
+				revenue: hasRevenue ? parseInt(ddqResponses[13]) : 0, // Q13: Current monthly revenue (was Q12)
+				fundingNeeded: parseInt(ddqResponses[22]) || 0, // Q22: Funding needed for goals (was Q21)
+				category: ddqResponses[3], // Q3: Business category (unchanged)
+				totalInvestment: parseInt(ddqResponses[11]) || 0, // Q11: Total investment received (was Q10)
+				monthlyExpenses: hasRevenue ? 0 : (parseInt(ddqResponses[16]) || 0), // Q16: Monthly expenses (was Q15)
+				customerCount: hasRevenue ? (parseInt(ddqResponses[15]) || 0) : 0 // Q15: Total customer count (was Q14)
+			})
+		});			if (!response.ok) {
 				const errorData = await response.json();
 				console.error('Valuation API error:', response.status, errorData);
 				if (response.status === 403 || response.status === 401) {
@@ -645,10 +643,8 @@
 	// Score calculation functions (updated for new question structure)
 	function calculateTeamScore(): number {
 		let score = 3; // Base score
-		const teamSize = parseInt(ddqResponses[16]) || 1; // Q16: Team size including founder
-		const founderBackground = ddqResponses[17] || 'Other'; // Q17: Founder background
-
-		// Team size bonus
+	const teamSize = parseInt(ddqResponses[17]) || 1; // Q17: Team size including founder (was Q16)
+	const founderBackground = ddqResponses[18] || 'Other'; // Q18: Founder background (was Q17)		// Team size bonus
 		if (teamSize >= 20) score += 1.5;
 		else if (teamSize >= 11) score += 1.2;
 		else if (teamSize >= 6) score += 0.8;
@@ -709,12 +705,10 @@
 		
 		if (hasRevenue) {
 			// Revenue business path
-			const currentRevenue = parseInt(ddqResponses[12]) || 0; // Q12: Current monthly revenue
-			const revenue3mo = parseInt(ddqResponses[13]) || 0; // Q13: Revenue 3 months ago
-			const totalCustomers = parseInt(ddqResponses[14]) || 0; // Q14: Total customer count
-			const avgRevenuePerCustomer = parseInt(ddqResponses[15]) || 0; // Q15: Average revenue per customer
-
-			// Current revenue scoring
+		const currentRevenue = parseInt(ddqResponses[13]) || 0; // Q13: Current monthly revenue (was Q12)
+		const revenue3mo = parseInt(ddqResponses[14]) || 0; // Q14: Revenue 3 months ago (was Q13)
+		const totalCustomers = parseInt(ddqResponses[15]) || 0; // Q15: Total customer count (was Q14)
+		const avgRevenuePerCustomer = parseInt(ddqResponses[16]) || 0; // Q16: Average revenue per customer (was Q15)			// Current revenue scoring
 			if (currentRevenue >= 1000000) score += 2; // 10L+/month
 			else if (currentRevenue >= 500000) score += 1.5; // 5L+/month
 			else if (currentRevenue >= 100000) score += 1; // 1L+/month
@@ -733,12 +727,10 @@
 			else if (totalCustomers >= 50) score += 0.3;
 			if (avgRevenuePerCustomer >= 10000) score += 0.5; // High ARPU
 
-		} else {
-			// Pre-revenue business path
-			const firstCustomerTimeline = ddqResponses[12] || 'Uncertain'; // Q12: Expected first customer timeline
-			const plannedPricing = parseInt(ddqResponses[13]) || 0; // Q13: Planned pricing model
-
-			// Timeline to revenue bonus
+	} else {
+		// Pre-revenue business path
+		const firstCustomerTimeline = ddqResponses[13] || 'Uncertain'; // Q13: Expected first customer timeline (was Q12)
+		const plannedPricing = parseInt(ddqResponses[14]) || 0; // Q14: Planned pricing model (was Q13)			// Timeline to revenue bonus
 			if (firstCustomerTimeline === 'Already have some') score += 1.5;
 			else if (firstCustomerTimeline === '<1 month') score += 1.2;
 			else if (firstCustomerTimeline === '1-3 months') score += 0.8;
@@ -755,18 +747,16 @@
 
 	function calculateFinancingScore(): number {
 		let score = 2.5; // Base score
-		const totalInvestment = parseInt(ddqResponses[10]) || 0; // Q10: Total investment received till now
+		const totalInvestment = parseInt(ddqResponses[11]) || 0; // Q11: Total investment received till now (was Q10)
 		
 		// Check burn rate based on revenue status
 		let burnRate = 0;
-		if (hasRevenue) {
-			// For revenue businesses, burn might not be explicitly asked, estimate from current operations
-			burnRate = parseInt(ddqResponses[15]) || 0; // Could be avg revenue per customer as proxy
-		} else {
-			burnRate = parseInt(ddqResponses[15]) || 0; // Q15: Monthly expenses/burn rate (pre-revenue)
-		}
-
-		// Funding raised bonus
+	if (hasRevenue) {
+		// For revenue businesses, burn might not be explicitly asked, estimate from current operations
+		burnRate = parseInt(ddqResponses[16]) || 0; // Q16: Could be avg revenue per customer as proxy (was Q15)
+	} else {
+		burnRate = parseInt(ddqResponses[16]) || 0; // Q16: Monthly expenses/burn rate (pre-revenue) (was Q15)
+	}		// Funding raised bonus
 		if (totalInvestment >= 10000000) score += 1.5; // 1Cr+
 		else if (totalInvestment >= 5000000) score += 1.2; // 50L+
 		else if (totalInvestment >= 1000000) score += 0.8; // 10L+
@@ -775,7 +765,7 @@
 
 		// Runway calculation (if we have burn rate)
 		if (hasRevenue) {
-			const currentRevenue = parseInt(ddqResponses[12]) || 0;
+			const currentRevenue = parseInt(ddqResponses[13]) || 0; // Q13 (was Q12)
 			// Assume profitability is good
 			if (currentRevenue > burnRate) score += 1.0;
 		} else {
@@ -795,7 +785,7 @@
 		let score = 3; // Base score
 		const competitors = (ddqResponses[5] || '').toLowerCase(); // Q5: Main competitors
 		const differentiation = ddqResponses[6] || ''; // Q6: Competitive differentiation
-		const biggestChallenge = ddqResponses[18] || ''; // Q18: Biggest current challenge
+		const biggestChallenge = ddqResponses[19] || ''; // Q19: Biggest current challenge (was Q18)
 
 		// First mover advantage
 		if (competitors.includes('none') || competitors.includes('no competitor')) {
@@ -824,32 +814,30 @@
 				return;
 			}
 
-			console.log('📊 Generating SWOT analysis...', {
-				industry: ddqResponses[3],
-				competitors: ddqResponses[5],
-				stage: ddqResponses[4]
-			});
+		console.log('📊 Generating SWOT analysis...', {
+			industry: ddqResponses[3],
+			competitors: ddqResponses[6], // Q6 (was Q5)
+			stage: ddqResponses[5] // Q5 (was Q4)
+		});
 
-			const response = await fetch(`${API_URL}/api/analysis/swot`, {
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json',
-					Authorization: `Bearer ${token}`
+		const response = await fetch(`${API_URL}/api/analysis/swot`, {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				Authorization: `Bearer ${token}`
+			},
+			body: JSON.stringify({
+				companyData: {
+					name: ddqResponses[1],
+					category: ddqResponses[3],
+					stage: ddqResponses[5], // Q5 (was Q4)
+					hasRevenue,
+					targetCustomer: ddqResponses[8] // Q8 (was Q7)
 				},
-				body: JSON.stringify({
-					companyData: {
-						name: ddqResponses[1],
-						category: ddqResponses[3],
-						stage: ddqResponses[4],
-						hasRevenue,
-						targetCustomer: ddqResponses[7]
-					},
-					industry: ddqResponses[3],
-					competitors: ddqResponses[5]
-				})
-			});
-
-			if (!response.ok) {
+				industry: ddqResponses[3],
+				competitors: ddqResponses[6] // Q6 (was Q5)
+			})
+		});			if (!response.ok) {
 				const errorData = await response.json().catch(() => ({}));
 				console.error('❌ SWOT API error:', response.status, errorData);
 				// Don't return early - use fallback data
@@ -861,18 +849,16 @@
 			swotAnalysis = data;
 		} catch (error) {
 			console.error('❌ Error generating SWOT:', error);
-			// INTELLIGENT fallback SWOT based on analyzing user's actual data
-			const industry = ddqResponses[3] || 'Technology';
-			const state = ddqResponses[4] || 'Other';
-			const stage = ddqResponses[5] || 'Growing';
-			const competitors = ddqResponses[6] || 'Market competitors';
-			const uniqueValue = ddqResponses[7] || '';
-			const teamSize = parseInt(ddqResponses[17]) || 1;
-			const founderBackground = ddqResponses[18] || '';
-			const mainChallenge = ddqResponses[19] || '';
-			const acquisitionChannel = ddqResponses[20] || '';
-			
-			console.log('🔍 Analyzing user data for intelligent SWOT fallback:', {
+		// INTELLIGENT fallback SWOT based on analyzing user's actual data
+		const industry = ddqResponses[3] || 'Technology';
+		const state = ddqResponses[4] || 'Other'; // Q4: State (NEW)
+		const stage = ddqResponses[5] || 'Growing'; // Q5 (was Q4)
+		const competitors = ddqResponses[6] || 'Market competitors'; // Q6 (was Q5)
+		const uniqueValue = ddqResponses[7] || ''; // Q7 (was Q6)
+		const teamSize = parseInt(ddqResponses[17]) || 1; // Q17 (was Q16) - CORRECT NOW
+		const founderBackground = ddqResponses[18] || ''; // Q18 (was Q17) - CORRECT NOW
+		const mainChallenge = ddqResponses[19] || ''; // Q19 (was Q18) - CORRECT NOW
+		const acquisitionChannel = ddqResponses[20] || ''; // Q20 (was Q19)			console.log('🔍 Analyzing user data for intelligent SWOT fallback:', {
 				industry,
 				competitors,
 				stage,
