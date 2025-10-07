@@ -5145,8 +5145,15 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 	.bar-value {
 		font-size: 0.75rem;
 		font-weight: 600;
-		color: white;
+		color: rgba(255, 255, 255, 0.98);
+		text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
 		white-space: nowrap;
+	}
+
+	[data-theme='light'] .bar-value {
+		color: rgba(0, 0, 0, 0.85);
+		text-shadow: 0 1px 2px rgba(255, 255, 255, 0.8);
+		font-weight: 700;
 	}
 
 	.competitors-grid {
