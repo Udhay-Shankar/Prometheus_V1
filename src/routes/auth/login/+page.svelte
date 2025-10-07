@@ -158,7 +158,7 @@
 		<div class="auth-card minimal-card">
 			<div class="auth-header">
 				<div class="logo-section">
-					<span class="material-symbols-outlined logo-icon">rocket_launch</span>
+					<span class="material-symbols-outlined logo-icon">multimodal_hand_eye</span>
 					<h1 class="logo-text">CoFounder</h1>
 				</div>
 				<h2 class="auth-title">{isLogin ? 'Welcome Back' : 'Start Your Journey'}</h2>

@@ -1242,7 +1242,7 @@
 			console.error('❌ Error getting competitors:', error);
 			// INTELLIGENT fallback based on user's actual data
 			const category = ddqResponses[3] || 'SaaS';
-			const userCompetitors = (ddqResponses[6] || '').toLowerCase(); // Q6: User's mentioned competitors
+			const userCompetitors = String(ddqResponses[6] || '').toLowerCase(); // Q6: User's mentioned competitors
 			const stage = ddqResponses[5] || 'Idea';
 			const userRevenue = parseInt(ddqResponses[13]) || 0; // Q13: Monthly revenue
 			const userCustomers = parseInt(ddqResponses[15]) || 0; // Q15: Total customers
@@ -3175,7 +3175,7 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 				<div class="footer-left">
 					<span class="footer-logo">CoFounder</span>
 					<span class="footer-separator">•</span>
-					<span class="footer-copyright">© 2024 All rights reserved</span>
+					<span class="footer-copyright">© 2025 All rights reserved</span>
 				</div>
 				<div class="footer-right">
 					<a href="mailto:reach@stratschool.org" class="footer-contact">
