@@ -2987,8 +2987,10 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 						<div class="minimal-card">
 							<div class="card-header">
 								<span class="material-symbols-outlined icon-large">account_balance</span>
-								<h2 class="section-title">Government Funding Schemes</h2>
-								<p class="section-subtitle">Personalized recommendations based on your startup profile</p>
+								<div>
+									<h2 class="section-title">Government Funding Schemes</h2>
+									<p class="section-subtitle">Personalized recommendations based on your startup profile</p>
+								</div>
 							</div>
 							
 							{#if fundingSchemes.priority}
@@ -3001,56 +3003,26 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 								</div>
 							{/if}
 
-							<div class="schemes-section">
-								<h3 class="schemes-title">
-									<span class="material-symbols-outlined">flag</span>
-									Central Government Schemes
-								</h3>
-								<div class="schemes-grid">
-									{#each fundingSchemes.centralSchemes || [] as scheme}
-										<div class="scheme-card">
-											<div class="scheme-header">
-												<h4>{scheme.name}</h4>
-												{#if scheme.eligibilityStatus}
-													<span class="eligibility-badge {scheme.eligibilityStatus}">
-														{#if scheme.eligibilityStatus === 'eligible'}
-															<span class="material-symbols-outlined">check_circle</span>
-															Eligible
-														{:else if scheme.eligibilityStatus === 'partial'}
-															<span class="material-symbols-outlined">info</span>
-															Partially Eligible
-														{:else}
-															<span class="material-symbols-outlined">cancel</span>
-															Not Eligible
-														{/if}
-													</span>
-												{/if}
-											</div>
-											<p class="scheme-amount">
-												<span class="material-symbols-outlined">currency_rupee</span>
-												{scheme.amount}
-											</p>
-											<p class="scheme-benefits">{scheme.benefits}</p>
-											<p class="scheme-eligibility">
-												<span class="material-symbols-outlined">verified</span>
-												{scheme.eligibility}
-											</p>
+							<div class="schemes-container">
+								<!-- Central Government Schemes -->
+								<div class="schemes-section central-schemes">
+									<div class="section-header">
+										<div class="section-title-row">
+											<span class="material-symbols-outlined section-icon">flag</span>
+											<h3 class="schemes-title">Central Government Schemes</h3>
 										</div>
-									{/each}
-								</div>
-							</div>
-
-							{#if fundingSchemes.stateSchemes && fundingSchemes.stateSchemes.length > 0}
-								<div class="schemes-section">
-									<h3 class="schemes-title">
-										<span class="material-symbols-outlined">location_city</span>
-										State Government Schemes
-									</h3>
+										<span class="schemes-count">{fundingSchemes.centralSchemes?.length || 0} schemes</span>
+									</div>
 									<div class="schemes-grid">
-										{#each fundingSchemes.stateSchemes || [] as scheme}
+										{#each fundingSchemes.centralSchemes || [] as scheme}
 											<div class="scheme-card">
 												<div class="scheme-header">
-													<h4>{scheme.name}</h4>
+													<div class="scheme-title-row">
+														<h4 class="scheme-name">{scheme.name}</h4>
+														{#if scheme.type}
+															<span class="scheme-type-badge {scheme.type.toLowerCase()}">{scheme.type}</span>
+														{/if}
+													</div>
 													{#if scheme.eligibilityStatus}
 														<span class="eligibility-badge {scheme.eligibilityStatus}">
 															{#if scheme.eligibilityStatus === 'eligible'}
@@ -3066,20 +3038,110 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 														</span>
 													{/if}
 												</div>
-												<p class="scheme-amount">
+												
+												<div class="scheme-amount-row">
 													<span class="material-symbols-outlined">currency_rupee</span>
-													{scheme.amount}
-												</p>
-												<p class="scheme-benefits">{scheme.benefits}</p>
-												<p class="scheme-eligibility">
-													<span class="material-symbols-outlined">verified</span>
-													{scheme.eligibility}
-												</p>
+													<span class="amount-text">{scheme.amount}</span>
+												</div>
+												
+												{#if scheme.reasoning}
+													<div class="scheme-reasoning">
+														<span class="material-symbols-outlined">lightbulb</span>
+														<p>{scheme.reasoning}</p>
+													</div>
+												{/if}
+												
+												<div class="scheme-details">
+													<div class="detail-item">
+														<span class="material-symbols-outlined">workspace_premium</span>
+														<div>
+															<strong>Benefits:</strong>
+															<p>{scheme.benefits}</p>
+														</div>
+													</div>
+													<div class="detail-item">
+														<span class="material-symbols-outlined">verified</span>
+														<div>
+															<strong>Eligibility:</strong>
+															<p>{scheme.eligibility}</p>
+														</div>
+													</div>
+												</div>
 											</div>
 										{/each}
 									</div>
 								</div>
-							{/if}
+
+								<!-- State Government Schemes -->
+								{#if fundingSchemes.stateSchemes && fundingSchemes.stateSchemes.length > 0}
+									<div class="schemes-section state-schemes">
+										<div class="section-header">
+											<div class="section-title-row">
+												<span class="material-symbols-outlined section-icon">location_city</span>
+												<h3 class="schemes-title">State Government Schemes</h3>
+											</div>
+											<span class="schemes-count">{fundingSchemes.stateSchemes?.length || 0} schemes</span>
+										</div>
+										<div class="schemes-grid">
+											{#each fundingSchemes.stateSchemes || [] as scheme}
+												<div class="scheme-card">
+													<div class="scheme-header">
+														<div class="scheme-title-row">
+															<h4 class="scheme-name">{scheme.name}</h4>
+															{#if scheme.type}
+																<span class="scheme-type-badge {scheme.type.toLowerCase()}">{scheme.type}</span>
+															{/if}
+														</div>
+														{#if scheme.eligibilityStatus}
+															<span class="eligibility-badge {scheme.eligibilityStatus}">
+																{#if scheme.eligibilityStatus === 'eligible'}
+																	<span class="material-symbols-outlined">check_circle</span>
+																	Eligible
+																{:else if scheme.eligibilityStatus === 'partial'}
+																	<span class="material-symbols-outlined">info</span>
+																	Partially Eligible
+																{:else}
+																	<span class="material-symbols-outlined">cancel</span>
+																	Not Eligible
+																{/if}
+															</span>
+														{/if}
+													</div>
+													
+													<div class="scheme-amount-row">
+														<span class="material-symbols-outlined">currency_rupee</span>
+														<span class="amount-text">{scheme.amount}</span>
+													</div>
+													
+													{#if scheme.reasoning}
+														<div class="scheme-reasoning">
+															<span class="material-symbols-outlined">lightbulb</span>
+															<p>{scheme.reasoning}</p>
+														</div>
+													{/if}
+													
+													<div class="scheme-details">
+														<div class="detail-item">
+															<span class="material-symbols-outlined">workspace_premium</span>
+															<div>
+																<strong>Benefits:</strong>
+																<p>{scheme.benefits}</p>
+															</div>
+														</div>
+														<div class="detail-item">
+															<span class="material-symbols-outlined">verified</span>
+															<div>
+																<strong>Eligibility:</strong>
+																<p>{scheme.eligibility}</p>
+															</div>
+														</div>
+													</div>
+												</div>
+											{/each}
+										</div>
+									</div>
+								{/if}
+							</div>
 						</div>
 					</div>
 				{:else}
@@ -4710,64 +4772,156 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 		line-height: 1.6;
 	}
 
+	.schemes-container {
+		display: flex;
+		flex-direction: column;
+		gap: 3rem;
+	}
+
 	.schemes-section {
-		margin-bottom: 2.5rem;
+		background: var(--bg-secondary);
+		padding: 2rem;
+		border-radius: 16px;
+		border: 1px solid var(--border-color);
+	}
+
+	.schemes-section.central-schemes {
+		border-left: 4px solid #4caf50;
+	}
+
+	.schemes-section.state-schemes {
+		border-left: 4px solid #2196f3;
+	}
+
+	.section-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		margin-bottom: 1.5rem;
+		padding-bottom: 1rem;
+		border-bottom: 2px solid var(--border-color);
+	}
+
+	.section-title-row {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+	}
+
+	.section-icon {
+		font-size: 1.75rem;
+		color: var(--accent-primary);
 	}
 
 	.schemes-title {
-		font-size: 1.25rem;
-		font-weight: 600;
+		font-size: 1.5rem;
+		font-weight: 700;
 		color: var(--text-primary);
-		margin-bottom: 1.5rem;
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
+		margin: 0;
 	}
 
-	.schemes-title .material-symbols-outlined {
-		color: rgba(255, 215, 0, 0.8);
+	.schemes-count {
+		background: rgba(212, 175, 55, 0.15);
+		color: var(--accent-primary);
+		padding: 0.5rem 1rem;
+		border-radius: 20px;
+		font-size: 0.875rem;
+		font-weight: 600;
 	}
 
 	.schemes-grid {
 		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+		grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
 		gap: 1.5rem;
 	}
 
 	.scheme-card {
 		background: var(--card-bg);
-		padding: 1.5rem;
+		padding: 1.75rem;
 		border-radius: 12px;
 		border: 1px solid var(--border-color);
 		transition: all 0.3s ease;
+		position: relative;
+		overflow: hidden;
+	}
+
+	.scheme-card::before {
+		content: '';
+		position: absolute;
+		top: 0;
+		left: 0;
+		right: 0;
+		height: 3px;
+		background: linear-gradient(90deg, rgba(212, 175, 55, 0.5), rgba(212, 175, 55, 0.1));
+		opacity: 0;
+		transition: opacity 0.3s ease;
 	}
 
 	.scheme-card:hover {
 		transform: translateY(-4px);
 		box-shadow: 0 12px 32px rgba(0, 0, 0, 0.15);
-		border-color: rgba(255, 215, 0, 0.3);
+		border-color: rgba(212, 175, 55, 0.4);
+	}
+
+	.scheme-card:hover::before {
+		opacity: 1;
 	}
 
 	.scheme-header {
+		margin-bottom: 1.25rem;
+	}
+
+	.scheme-title-row {
 		display: flex;
 		align-items: flex-start;
 		justify-content: space-between;
 		gap: 1rem;
-		margin-bottom: 1rem;
+		margin-bottom: 0.75rem;
 	}
 
-	.scheme-card h4 {
+	.scheme-name {
 		font-size: 1.125rem;
 		color: var(--text-primary);
 		font-weight: 600;
 		flex: 1;
+		line-height: 1.4;
+	}
+
+	.scheme-type-badge {
+		padding: 0.35rem 0.75rem;
+		border-radius: 6px;
+		font-size: 0.7rem;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		white-space: nowrap;
+	}
+
+	.scheme-type-badge.grant {
+		background: linear-gradient(135deg, #4caf50, #66bb6a);
+		color: white;
+	}
+
+	.scheme-type-badge.equity {
+		background: linear-gradient(135deg, #ff9800, #ffa726);
+		color: white;
+	}
+
+	.scheme-type-badge.loan {
+		background: linear-gradient(135deg, #2196f3, #42a5f5);
+		color: white;
+	}
+
+	.scheme-type-badge.credit {
+		background: linear-gradient(135deg, #9c27b0, #ba68c8);
+		color: white;
 	}
 
 	.eligibility-badge {
-		display: flex;
+		display: inline-flex;
 		align-items: center;
-		gap: 0.25rem;
-		padding: 0.5rem 0.75rem;
+		gap: 0.35rem;
+		padding: 0.5rem 0.85rem;
 		border-radius: 20px;
 		font-size: 0.75rem;
 		font-weight: 600;
@@ -4781,11 +4935,13 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 	.eligibility-badge.eligible {
 		background: linear-gradient(135deg, #4caf50, #66bb6a);
 		color: white;
+		box-shadow: 0 2px 8px rgba(76, 175, 80, 0.3);
 	}
 
 	.eligibility-badge.partial {
 		background: linear-gradient(135deg, #ff9800, #ffa726);
 		color: white;
+		box-shadow: 0 2px 8px rgba(255, 152, 0, 0.3);
 	}
 
 	.eligibility-badge.not-eligible {
@@ -4793,41 +4949,91 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 		color: rgba(255, 255, 255, 0.5);
 	}
 
-	.scheme-amount {
+	.scheme-amount-row {
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
-		font-size: 1.125rem;
-		color: rgba(255, 215, 0, 0.9);
-		font-weight: 700;
 		margin-bottom: 1rem;
+		padding: 1rem;
+		background: linear-gradient(135deg, rgba(212, 175, 55, 0.1), rgba(212, 175, 55, 0.05));
+		border-radius: 8px;
 	}
 
-	.scheme-amount .material-symbols-outlined {
+	.scheme-amount-row .material-symbols-outlined {
+		font-size: 1.5rem;
+		color: var(--accent-primary);
+	}
+
+	.amount-text {
 		font-size: 1.25rem;
+		color: var(--accent-primary);
+		font-weight: 700;
 	}
 
-	.scheme-benefits {
-		color: var(--text-secondary);
-		font-size: 0.9rem;
-		line-height: 1.6;
-		margin-bottom: 1rem;
-	}
-
-	.scheme-eligibility {
+	.scheme-reasoning {
 		display: flex;
 		align-items: flex-start;
-		gap: 0.5rem;
+		gap: 0.75rem;
+		padding: 1rem;
+		background: rgba(33, 150, 243, 0.08);
+		border-left: 3px solid #2196f3;
+		border-radius: 8px;
+		margin-bottom: 1rem;
+	}
+
+	.scheme-reasoning .material-symbols-outlined {
+		font-size: 1.25rem;
+		color: #2196f3;
+		flex-shrink: 0;
+		margin-top: 0.125rem;
+	}
+
+	.scheme-reasoning p {
+		color: var(--text-secondary);
 		font-size: 0.875rem;
-		color: var(--text-tertiary);
+		line-height: 1.6;
+		margin: 0;
+		font-style: italic;
+	}
+
+	.scheme-details {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+	}
+
+	.detail-item {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.75rem;
 		padding-top: 1rem;
 		border-top: 1px solid var(--border-color);
 	}
 
-	.scheme-eligibility .material-symbols-outlined {
-		font-size: 1rem;
+	.detail-item:first-child {
+		border-top: none;
+		padding-top: 0;
+	}
+
+	.detail-item .material-symbols-outlined {
+		font-size: 1.25rem;
+		color: var(--accent-primary);
 		flex-shrink: 0;
 		margin-top: 0.125rem;
+	}
+
+	.detail-item strong {
+		color: var(--text-primary);
+		font-size: 0.875rem;
+		display: block;
+		margin-bottom: 0.25rem;
+	}
+
+	.detail-item p {
+		color: var(--text-secondary);
+		font-size: 0.875rem;
+		line-height: 1.6;
+		margin: 0;
 	}
 
 	/* Marketing Trends Section */
