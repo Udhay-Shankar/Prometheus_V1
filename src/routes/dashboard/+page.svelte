@@ -1412,24 +1412,25 @@
 					name: ddqResponses[1] || 'Your Company', // Q1: Product/service name
 					description: ddqResponses[2], // Q2: Description
 					category: ddqResponses[3], // Q3: Business category
-					stage: ddqResponses[4], // Q4: Product stage
-					competitors: ddqResponses[5], // Q5: Main competitors
-					uniqueValue: ddqResponses[6], // Q6: Competitive differentiation
-					targetCustomer: ddqResponses[7], // Q7: Target customer description
-					marketingType: ddqResponses[8], // Q8: Type of marketing preferred
-					interviews: ddqResponses[9], // Q9: Customer interviews completed
-					totalInvestment: ddqResponses[10], // Q10: Total investment received
-					monthlyRevenue: hasRevenue ? ddqResponses[12] : 0, // Q12: Current monthly revenue
-					expenses: hasRevenue ? 0 : ddqResponses[15], // Q15: Monthly expenses (pre-revenue)
-					funding: ddqResponses[10], // Q10: Total investment (same as totalInvestment)
-					customers: hasRevenue ? ddqResponses[14] : 0, // Q14: Total customer count
-					teamSize: ddqResponses[16], // Q16: Team size
-					founderBackground: ddqResponses[17], // Q17: Founder background
-					challenge: ddqResponses[18], // Q18: Biggest current challenge
-					acquisitionStrategy: ddqResponses[19], // Q19: Customer acquisition strategy
-					primaryGoal: ddqResponses[20], // Q20: 6-month primary goal
-					fundingNeeded: ddqResponses[21], // Q21: Funding needed for goals
-					primaryRisk: ddqResponses[22] // Q22: Primary business risk
+					state: ddqResponses[4], // Q4: State location (NEW)
+					stage: ddqResponses[5], // Q5: Product stage (was Q4)
+					competitors: ddqResponses[6], // Q6: Main competitors (was Q5)
+					uniqueValue: ddqResponses[7], // Q7: Competitive differentiation (was Q6)
+					targetCustomer: ddqResponses[8], // Q8: Target customer description (was Q7)
+					marketingType: ddqResponses[9], // Q9: Type of marketing preferred (was Q8)
+					interviews: ddqResponses[10], // Q10: Customer interviews completed (was Q9)
+					totalInvestment: ddqResponses[11], // Q11: Total investment received (was Q10)
+					monthlyRevenue: hasRevenue ? ddqResponses[13] : 0, // Q13: Current monthly revenue (was Q12)
+					expenses: hasRevenue ? 0 : ddqResponses[16], // Q16: Monthly expenses (was Q15)
+					funding: ddqResponses[11], // Q11: Total investment (same as totalInvestment)
+					customers: hasRevenue ? ddqResponses[15] : 0, // Q15: Total customer count (was Q14)
+					teamSize: ddqResponses[17], // Q17: Team size (was Q16)
+					founderBackground: ddqResponses[18], // Q18: Founder background (was Q17)
+					challenge: ddqResponses[19], // Q19: Biggest current challenge (was Q18)
+					acquisitionStrategy: ddqResponses[20], // Q20: Customer acquisition strategy (was Q19)
+					primaryGoal: ddqResponses[21], // Q21: 6-month primary goal (was Q20)
+					fundingNeeded: ddqResponses[22], // Q22: Funding needed for goals (was Q21)
+					primaryRisk: ddqResponses[23] // Q23: Primary business risk (was Q22)
 				},
 				valuation: valuation ? {
 					finalValuationINR: valuation.finalValuationINR,
