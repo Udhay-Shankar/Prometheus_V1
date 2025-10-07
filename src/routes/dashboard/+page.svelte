@@ -2070,7 +2070,7 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 						</h3>
 					<div class="forces-grid">
 						{#if true}
-						{@const hasProprietaryTech = ddqResponses[17]?.includes('Yes')}
+						{@const hasProprietaryTech = String(ddqResponses[17] || '').includes('Yes')}
 						{@const teamSize = ddqResponses[15] || '1 (Solo founder)'}
 						{@const channels = ddqResponses[18] || []}
 						{@const stage = ddqResponses[4] || 'Idea'}
@@ -2394,13 +2394,13 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 									</div>
 								{/if}
 
-									<!-- Unique Value Proposition -->
-									{#if true}
-									{@const uvpStrong = uniqueValue.length > 50}
-									{@const uvpDifferentiated = !ddqResponses[5]?.toLowerCase().includes('none')}
-									{@const uvpAdvantage = uvpStrong && isOrganized ? 'Temporary Advantage' : uvpStrong ? 'Competitive Parity' : 'Competitive Disadvantage'}
-									
-									<div class="vrio-card {uvpAdvantage.toLowerCase().replace(/\s+/g, '-')}">
+
+								<!-- Unique Value Proposition -->
+								{#if true}
+								{@const uvpStrong = uniqueValue.length > 50}
+								{@const uvpDifferentiated = !String(ddqResponses[5] || '').toLowerCase().includes('none')}
+								{@const uvpAdvantage = uvpStrong && isOrganized ? 'Temporary Advantage' : uvpStrong ? 'Competitive Parity' : 'Competitive Disadvantage'}
+																	<div class="vrio-card {uvpAdvantage.toLowerCase().replace(/\s+/g, '-')}">
 										<div class="vrio-resource">
 											<span class="material-symbols-outlined">auto_awesome</span>
 											<h4>Unique Value Proposition</h4>
