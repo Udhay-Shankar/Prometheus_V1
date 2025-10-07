@@ -1582,24 +1582,17 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 					<span class="nav-text">Profile</span>
 				{/if}
 			</button>
-		</nav>
-
-		<div class="sidebar-footer">
-			<button class="theme-toggle-btn" on:click={toggleTheme} title="Toggle theme">
-				<span class="material-symbols-outlined">
-					{theme === 'light' ? 'flashlight_off' : 'flashlight_on'}
-				</span>
-				{#if !sidebarMinimized}
-					<span class="nav-text">{theme === 'light' ? 'Dark Mode' : 'Light Mode'}</span>
-				{/if}
-			</button>
-			<button class="logout-btn" on:click={logout} title="Logout">
+			<button
+				class="nav-item logout-nav-item"
+				on:click={logout}
+				title="Logout"
+			>
 				<span class="material-symbols-outlined nav-icon">logout</span>
 				{#if !sidebarMinimized}
 					<span class="nav-text">Logout</span>
 				{/if}
 			</button>
-		</div>
+		</nav>
 	</aside>
 
 	<!-- Main Content -->
@@ -1608,6 +1601,13 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 			<div>
 				<h1 class="dashboard-title">Welcome back, {user?.name || 'CEO'}</h1>
 				<p class="dashboard-subtitle">{user?.companyName || 'Your Company'}</p>
+			</div>
+			<div class="header-actions">
+				<button class="header-theme-toggle" on:click={toggleTheme} title="Toggle {theme === 'light' ? 'Dark' : 'Light'} Mode">
+					<span class="material-symbols-outlined">
+						{theme === 'light' ? 'dark_mode' : 'light_mode'}
+					</span>
+				</button>
 			</div>
 		</header>
 
@@ -2841,6 +2841,20 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 								</div>
 							</div>
 
+							<!-- Account Actions -->
+							<div class="profile-card full-width">
+								<h3 class="profile-card-title">
+									<span class="material-symbols-outlined">settings</span>
+									Account Actions
+								</h3>
+								<div class="account-actions">
+									<button class="btn-danger logout-profile-btn" on:click={logout}>
+										<span class="material-symbols-outlined">logout</span>
+										Logout from Account
+									</button>
+								</div>
+							</div>
+
 							<!-- DDQ Answers -->
 							{#if Object.keys(ddqResponses).length > 0}
 								<div class="profile-card full-width">
@@ -3519,54 +3533,6 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 		color: var(--accent-primary);
 	}
 
-	.sidebar-footer {
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
-		padding: 1.5rem 0.75rem 0;
-		border-top: 1px solid var(--border-color);
-		margin-top: 1.5rem;
-	}
-
-	.theme-toggle-btn,
-	.logout-btn {
-		display: flex;
-		align-items: center;
-		gap: 0.875rem;
-		padding: 0.875rem 1rem;
-		background: none;
-		border: none;
-		border-radius: 8px;
-		color: var(--text-secondary);
-		cursor: pointer;
-		transition: all 0.2s ease;
-		text-align: left;
-		font-size: 0.95rem;
-		font-weight: 500;
-		white-space: nowrap;
-	}
-
-	.sidebar.minimized .theme-toggle-btn,
-	.sidebar.minimized .logout-btn {
-		justify-content: center;
-		padding: 0.875rem;
-	}
-
-	.theme-toggle-btn:hover,
-	.logout-btn:hover {
-		background: var(--bg-hover);
-		color: var(--text-primary);
-	}
-
-	.theme-toggle-btn .material-symbols-outlined,
-	.logout-btn .material-symbols-outlined {
-		font-size: 1.5rem;
-	}
-
-	.logout-btn:hover {
-		color: #ff6b6b;
-	}
-
 	/* Overview */
 	.overview-section {
 		display: grid;
@@ -3691,6 +3657,43 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 		padding: 2rem;
 		border-bottom: 1px solid var(--border-color);
 		background: var(--bg-secondary);
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 2rem;
+	}
+
+	.header-actions {
+		display: flex;
+		align-items: center;
+		gap: 1rem;
+	}
+
+	.header-theme-toggle {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 48px;
+		height: 48px;
+		background: var(--bg-primary);
+		border: 2px solid var(--border-color);
+		border-radius: 12px;
+		color: var(--text-secondary);
+		cursor: pointer;
+		transition: all 0.3s ease;
+		padding: 0;
+	}
+
+	.header-theme-toggle:hover {
+		background: var(--bg-hover);
+		color: var(--accent-primary);
+		border-color: var(--accent-primary);
+		transform: translateY(-2px);
+		box-shadow: 0 4px 12px rgba(212, 175, 55, 0.2);
+	}
+
+	.header-theme-toggle .material-symbols-outlined {
+		font-size: 1.5rem;
 	}
 
 	.dashboard-title {
@@ -5650,6 +5653,41 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 		margin-top: 1rem;
 	}
 
+	/* Account Actions */
+	.account-actions {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+		padding: 1rem 0;
+	}
+
+	.logout-profile-btn {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.75rem;
+		padding: 1rem 1.5rem;
+		background: transparent;
+		border: 2px solid #ff6b6b;
+		border-radius: 8px;
+		color: #ff6b6b;
+		font-size: 1rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.3s ease;
+	}
+
+	.logout-profile-btn:hover {
+		background: #ff6b6b;
+		color: white;
+		transform: translateY(-2px);
+		box-shadow: 0 4px 12px rgba(255, 107, 107, 0.3);
+	}
+
+	.logout-profile-btn .material-symbols-outlined {
+		font-size: 1.25rem;
+	}
+
 	/* DDQ Answers */
 	.ddq-answers {
 		display: flex;
@@ -5813,6 +5851,17 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 		font-size: 0.875rem;
 		font-weight: 500;
 		transition: all 0.2s ease;
+	}
+
+	.nav-item.logout-nav-item {
+		margin-top: auto;
+		border-top: 1px solid var(--border-color);
+		padding-top: 1rem;
+	}
+
+	.nav-item.logout-nav-item:hover {
+		background: rgba(255, 107, 107, 0.1);
+		color: #ff6b6b;
 	}
 
 	.footer-contact:hover {
