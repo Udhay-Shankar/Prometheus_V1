@@ -132,10 +132,16 @@ async function callGemini(prompt, systemContext = '') {
     });
 
     if (!response.ok) {
-      throw new Error(`Gemini API error: ${response.status}`);
+      const errorData = await response.json().catch(() => ({}));
+      console.error('❌ Gemini API Error:', response.status, errorData);
+      throw new Error(`Gemini API error: ${response.status} - ${JSON.stringify(errorData)}`);
     }
 
     const data = await response.json();
+    if (!data.candidates || !data.candidates[0] || !data.candidates[0].content) {
+      console.error('❌ Invalid Gemini response structure:', JSON.stringify(data));
+      throw new Error('Invalid Gemini API response structure');
+    }
     return data.candidates[0].content.parts[0].text;
   } catch (error) {
     console.error('Gemini API error:', error);
