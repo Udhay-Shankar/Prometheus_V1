@@ -22,11 +22,34 @@
 	let showConfetti = false;
 	let toast = { show: false, message: '', type: 'error' }; // error, success, info
 
-	onMount(() => {
-		// Check if user is already logged in
+	onMount(async () => {
+		// Check if user is already logged in with a valid token
 		const token = localStorage.getItem('accessToken');
 		if (token) {
-			goto('/dashboard');
+			// Validate token by making a quick API call
+			try {
+				const response = await fetch(`${API_URL}/api/auth/validate`, {
+					headers: {
+						'Authorization': `Bearer ${token}`
+					}
+				});
+				
+				if (response.ok) {
+					// Token is valid, redirect to dashboard
+					goto('/dashboard');
+				} else {
+					// Token is invalid, clear it
+					localStorage.removeItem('accessToken');
+					localStorage.removeItem('refreshToken');
+					localStorage.removeItem('user');
+				}
+			} catch (error) {
+				// Network error or invalid token, clear it
+				console.log('Token validation failed, clearing storage');
+				localStorage.removeItem('accessToken');
+				localStorage.removeItem('refreshToken');
+				localStorage.removeItem('user');
+			}
 		}
 	});
 

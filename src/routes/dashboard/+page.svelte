@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { writable } from 'svelte/store';
 	import confetti from 'canvas-confetti';
@@ -19,6 +19,9 @@
 	let swotAnalysis: any = null;
 	let fundingSchemes: any = null;
 	let competitors: any = null;
+	let marketTrends: any[] = [];
+	let marketOpportunities: any = null;
+	let strategicRecommendations: any[] = [];
 	let monitoredCompetitors: string[] = [];
 	let loading = false;
 	let sidebarMinimized = false;
@@ -30,10 +33,58 @@
 	let showMethodologyModal = false; // For methodology breakdown modal
 
 	// AI Chatbot state
-	let chatMessages: Array<{role: string, content: string, timestamp: Date}> = [];
+	let chatMessages: Array<{role: string, content: string, timestamp: Date, id?: string}> = [];
 	let chatInput = '';
 	let chatLoading = false;
 	let chatContainer: HTMLElement;
+
+	// Saved Notes state
+	let savedNotes: any[] = [];
+	let notesLoading = false;
+	let notesSearchQuery = '';
+	let selectedNoteCategory = 'all';
+	let noteCategories: string[] = [];
+	let selectedNote: any = null;
+	let isCreatingNote = false;
+	let newNoteTitle = '';
+	let newNoteContent = '';
+	let newNoteCategory = 'General';
+
+	// Daily Actions & Backlog state
+	let dailyActions: Array<{
+		id: string;
+		text: string;
+		status: 'pending' | 'accepted' | 'rejected';
+		progress: 'red' | 'amber' | 'green' | null;
+		createdAt: Date;
+		rejectionReason?: string;
+	}> = [];
+	let backlogItems: Array<{
+		id: string;
+		text: string;
+		progress: 'red' | 'amber' | 'green';
+		movedToBacklogAt: Date;
+	}> = [];
+	let actionsLoading = false;
+
+	// Company Logo state
+	let companyLogo: string | null = null;
+	let logoFile: File | null = null;
+	let logoUploading = false;
+
+	// News state
+	let newsItems: Array<{
+		title: string;
+		source: string;
+		url: string;
+		publishedAt: string;
+		summary?: string;
+		timeAgo?: string;
+		imageUrl?: string;
+	}> = [];
+	let newsLoading = false;
+	let featuredNewsIndex = 0;
+	let newsRotationInterval: ReturnType<typeof setInterval> | null = null;
 
 	// SECTION 1: Business Foundation (5 questions)
 	const section1Questions = [
@@ -44,6 +95,15 @@
 			type: 'text',
 			placeholder: 'Enter product or service name',
 			required: true
+		},
+		{
+			id: 'logo',
+			section: 'Business Foundation',
+			question: 'Company Logo (optional)',
+			type: 'file',
+			placeholder: 'Upload your company logo',
+			required: false,
+			accept: 'image/*'
 		},
 		{
 			id: 2,
@@ -205,9 +265,9 @@
 		{
 			id: 15,
 			section: 'Pre-Revenue Planning',
-			question: 'Total investment to date',
+			question: 'Pilot customers or beta users',
 			type: 'number',
-			placeholder: 'Total invested so far in INR (including personal funds)',
+			placeholder: 'Number of free users/testers currently',
 			required: true
 		},
 		{
@@ -346,6 +406,16 @@
 		return answer !== undefined && answer !== '' && answer !== null;
 	})();
 
+	// Load notes when notes tab is opened
+	$: if ((activeTab === 'notes' || activeTab === 'profile') && savedNotes.length === 0 && !notesLoading) {
+		loadNotes();
+	}
+
+	// Load competitors when trends tab is opened
+	$: if (activeTab === 'trends' && !competitors && valuation) {
+		getCompetitors().catch(err => console.warn('Competitor analysis failed:', err));
+	}
+
 	onMount(async () => {
 		const token = localStorage.getItem('accessToken');
 		const userData = localStorage.getItem('user');
@@ -354,29 +424,67 @@
 		document.documentElement.setAttribute('data-theme', theme);
 
 		if (!token || !userData) {
+			// Clear any stale data and redirect to login
+			localStorage.removeItem('accessToken');
+			localStorage.removeItem('refreshToken');
+			localStorage.removeItem('user');
 			goto('/auth/login');
 			return;
 		}
 
-		user = JSON.parse(userData);
-		
-		// Load saved DDQ responses
-		const saved = localStorage.getItem('ddq_progress');
-		if (saved) {
-			ddqResponses = JSON.parse(saved);
+		try {
+			user = JSON.parse(userData);
+			
+			// Load saved DDQ responses with validation
+			const saved = localStorage.getItem('ddq_progress');
+			if (saved) {
+				try {
+					const parsedResponses = JSON.parse(saved);
+					// Validate that responses are in correct format (not objects)
+					let hasCorruptedData = false;
+					for (const key in parsedResponses) {
+						const value = parsedResponses[key];
+						// Check if value is an object (but not null or array)
+						if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+							console.warn(`Corrupted data detected for question ${key}:`, value);
+							hasCorruptedData = true;
+							break;
+						}
+					}
+					
+					if (hasCorruptedData) {
+						console.log('🧹 Clearing corrupted DDQ progress data');
+						localStorage.removeItem('ddq_progress');
+						ddqResponses = {};
+					} else {
+						ddqResponses = parsedResponses;
+					}
+				} catch (parseError) {
+					console.error('Error parsing DDQ progress:', parseError);
+					localStorage.removeItem('ddq_progress');
+					ddqResponses = {};
+				}
+			}
+			
+			// Check for existing DDQ and auto-open if needed
+			const hasExistingValuation = await checkExistingDDQ();
+			
+			// Don't auto-open DDQ - let users explore the dashboard first
+			// They can click "Begin Assessment" when ready
+			// const ddqDismissed = sessionStorage.getItem('ddqDismissed');
+			// if (!hasExistingValuation && !ddqDismissed) {
+			// 	setTimeout(() => {
+			// 		showDDQ = true;
+			// 	}, 500);
+			// }
+		} catch (error) {
+			console.error('Error initializing dashboard:', error);
+			// If there's any error parsing user data, clear everything and redirect
+			localStorage.removeItem('accessToken');
+			localStorage.removeItem('refreshToken');
+			localStorage.removeItem('user');
+			goto('/auth/login');
 		}
-		
-		// Check for existing DDQ and auto-open if needed
-		const hasExistingValuation = await checkExistingDDQ();
-		
-		// Don't auto-open DDQ - let users explore the dashboard first
-		// They can click "Begin Assessment" when ready
-		// const ddqDismissed = sessionStorage.getItem('ddqDismissed');
-		// if (!hasExistingValuation && !ddqDismissed) {
-		// 	setTimeout(() => {
-		// 		showDDQ = true;
-		// 	}, 500);
-		// }
 	});
 
 	function toggleTheme() {
@@ -409,12 +517,22 @@
 				
 				if (data && data.responses) {
 					ddqResponses = data.responses;
+					
+					// Load logo if saved
+					if (data.responses.logo) {
+						companyLogo = data.responses.logo;
+					}
+					
 					calculateValuation();
 					
 					// Also load SWOT, funding schemes, and competitors
 					generateSWOT().catch(err => console.warn('SWOT generation failed:', err));
 					getFundingSchemes().catch(err => console.warn('Funding schemes failed:', err));
 					getCompetitors().catch(err => console.warn('Competitor analysis failed:', err));
+					
+					// Load daily actions and news
+					loadTodayActions().catch(err => console.warn('Actions loading failed:', err));
+					loadNews().catch(err => console.warn('News loading failed:', err));
 					
 					return true; // Has existing valuation
 				}
@@ -440,7 +558,10 @@
 	function startDDQ() {
 		showDDQ = true;
 		currentQuestion = 0;
-		// Don't reset responses, keep any saved progress
+		// Clear any corrupted data from localStorage
+		localStorage.removeItem('ddq_progress');
+		// Reset responses to start fresh
+		ddqResponses = {};
 	}
 
 	function closeDDQ() {
@@ -481,6 +602,21 @@
 		console.log('Answer updated:', currentQuestionData.id, '=', value);
 		ddqResponses[currentQuestionData.id] = value;
 		ddqResponses = { ...ddqResponses }; // Trigger reactivity
+	}
+
+	// Handle logo file upload
+	function handleLogoUpload(event: Event) {
+		const target = event.target as HTMLInputElement;
+		const file = target.files?.[0];
+		if (file) {
+			logoFile = file;
+			const reader = new FileReader();
+			reader.onload = (e) => {
+				companyLogo = e.target?.result as string;
+				ddqResponses['logo'] = companyLogo;
+			};
+			reader.readAsDataURL(file);
+		}
 	}
 
 	function canProceed(): boolean {
@@ -596,10 +732,13 @@
 			}
 
 			valuation = await response.json();
-			activeTab = 'valuation';
+			activeTab = 'overview'; // Redirect to overview (hero page) after valuation
 			
 			// Trigger 5-second confetti celebration
 			triggerConfetti();
+			
+			// Load daily actions and news for overview
+			await Promise.all([loadTodayActions(), loadNews()]);
 		} catch (error) {
 			console.error('Error calculating valuation:', error);
 		} finally {
@@ -858,15 +997,17 @@
 		const teamSize = parseInt(ddqResponses[17]) || 1; // Q17 (was Q16) - CORRECT NOW
 		const founderBackground = ddqResponses[18] || ''; // Q18 (was Q17) - CORRECT NOW
 		const mainChallenge = ddqResponses[19] || ''; // Q19 (was Q18) - CORRECT NOW
-		const acquisitionChannel = ddqResponses[20] || ''; // Q20 (was Q19)			console.log('🔍 Analyzing user data for intelligent SWOT fallback:', {
-				industry,
-				competitors,
-				stage,
-				teamSize,
-				founderBackground,
-				hasRevenue,
-				uniqueValue: uniqueValue.substring(0, 50) + '...'
-			});
+		const acquisitionChannel = ddqResponses[20] || ''; // Q20 (was Q19)
+		
+		console.log('🔍 Analyzing user data for intelligent SWOT fallback:', {
+			industry,
+			competitors,
+			stage,
+			teamSize,
+			founderBackground,
+			hasRevenue,
+			uniqueValue: uniqueValue.substring(0, 50) + '...'
+		});
 			
 			// Analyze strengths based on actual user data
 			const strengths = [];
@@ -1199,8 +1340,9 @@
 			const category = ddqResponses[3] || 'SaaS'; // Q3: Business category
 			const stage = ddqResponses[5] || 'Idea'; // Q5: Product stage
 			const revenue = parseInt(ddqResponses[13]) || 0; // Q13: Monthly revenue
+			const userMentionedCompetitors = ddqResponses[6] || ''; // Q6: User mentioned competitors
 
-			console.log('🏢 Fetching competitors...', { category, stage, revenue });
+			console.log('🏢 Fetching competitors with valuation timeline...', { category, stage, revenue, userMentionedCompetitors });
 
 			const response = await fetch(`${API_URL}/api/analysis/competitors`, {
 				method: 'POST',
@@ -1211,7 +1353,8 @@
 				body: JSON.stringify({
 					category,
 					stage,
-					revenue
+					revenue,
+					userMentionedCompetitors
 				})
 			});
 
@@ -1224,6 +1367,9 @@
 			const data = await response.json();
 			console.log('✅ Competitors received:', data);
 			competitors = data.competitors || [];
+			marketTrends = data.marketTrends || [];
+			marketOpportunities = data.marketOpportunities || null;
+			strategicRecommendations = data.strategicRecommendations || [];
 		} catch (error) {
 			console.error('❌ Error getting competitors:', error);
 			// INTELLIGENT fallback based on user's actual data
@@ -1249,45 +1395,45 @@
 			    userCompetitors.includes('uber eats') || userCompetitors.includes('dunzo') ||
 			    category === 'Marketplace' || category === 'Food & Beverage') {
 				intelligentCompetitors = [
-					{ name: 'Dunzo', stage: 'Series F', currentValuation: 23000000000, earlyValuation: 800000000, growthRate: 420, revenue: 35000000, customers: 3000000, fundingRaised: 800000000, investments: ['Google - $12M', 'Reliance - $200M'], products: ['Hyperlocal Delivery', 'Quick Commerce', 'B2B Services'], visible: true },
-					{ name: 'Zomato', stage: 'Public', currentValuation: 650000000000, earlyValuation: 20000000000, growthRate: 480, revenue: 4800000000, customers: 80000000, fundingRaised: 20000000000, investments: ['Info Edge - $1M', 'Ant Financial - $200M'], products: ['Food Delivery', 'Dining Out', 'Hyperpure'], visible: true },
-					{ name: 'Swiggy', stage: 'Series J', currentValuation: 1050000000000, earlyValuation: 25000000000, growthRate: 520, revenue: 6500000000, customers: 120000000, fundingRaised: 25000000000, investments: ['Accel - $2M', 'Prosus - $1B'], products: ['Food Delivery', 'Instamart', 'Genie'], visible: true }
+					{ name: 'Dunzo', stage: 'Series F', currentValuation: 23000000000, earlyValuation: 800000000, growthRate: 420, revenue: 35000000, customers: 3000000, fundingRaised: 800000000, investments: ['Google - $12M', 'Reliance - $200M'], products: ['Hyperlocal Delivery', 'Quick Commerce', 'B2B Services'], visible: true, valuationTimeline: [{ year: 2015, valuation: 50000000, event: 'Founded' }, { year: 2017, valuation: 800000000, event: 'Series B' }, { year: 2020, valuation: 5000000000, event: 'Series D' }, { year: 2022, valuation: 23000000000, event: 'Series F' }] },
+					{ name: 'Zomato', stage: 'Public', currentValuation: 650000000000, earlyValuation: 20000000000, growthRate: 480, revenue: 4800000000, customers: 80000000, fundingRaised: 20000000000, investments: ['Info Edge - $1M', 'Ant Financial - $200M'], products: ['Food Delivery', 'Dining Out', 'Hyperpure'], visible: true, valuationTimeline: [{ year: 2008, valuation: 10000000, event: 'Founded' }, { year: 2013, valuation: 2000000000, event: 'Series C' }, { year: 2018, valuation: 20000000000, event: 'Series G' }, { year: 2021, valuation: 650000000000, event: 'IPO' }] },
+					{ name: 'Swiggy', stage: 'Series J', currentValuation: 1050000000000, earlyValuation: 25000000000, growthRate: 520, revenue: 6500000000, customers: 120000000, fundingRaised: 25000000000, investments: ['Accel - $2M', 'Prosus - $1B'], products: ['Food Delivery', 'Instamart', 'Genie'], visible: true, valuationTimeline: [{ year: 2014, valuation: 50000000, event: 'Founded' }, { year: 2017, valuation: 2000000000, event: 'Series C' }, { year: 2020, valuation: 35000000000, event: 'Series H' }, { year: 2024, valuation: 1050000000000, event: 'Series J' }] }
 				];
 			}
 			// E-commerce detection
 			else if (userCompetitors.includes('amazon') || userCompetitors.includes('flipkart') || 
 			         userCompetitors.includes('meesho') || category === 'E-commerce') {
 				intelligentCompetitors = [
-					{ name: 'Meesho', stage: 'Series F', currentValuation: 49000000000, earlyValuation: 2000000000, growthRate: 500, revenue: 35000000, customers: 13000000, fundingRaised: 2000000000, investments: ['SoftBank - $300M', 'Meta - $50M'], products: ['Social Commerce', 'Supplier Network', 'Meesho Mall'], visible: true },
-					{ name: 'Flipkart', stage: 'Acquired', currentValuation: 2000000000000, earlyValuation: 50000000000, growthRate: 450, revenue: 850000000000, customers: 450000000, fundingRaised: 50000000000, investments: ['Walmart - $16B'], products: ['E-commerce', 'Flipkart Plus', 'Grocery'], visible: true },
-					{ name: 'Amazon India', stage: 'Public', currentValuation: 15000000000000, earlyValuation: 500000000000, growthRate: 380, revenue: 2500000000000, customers: 500000000, fundingRaised: 500000000000, investments: ['Amazon Global'], products: ['E-commerce', 'Prime', 'Fresh'], visible: true }
+					{ name: 'Meesho', stage: 'Series F', currentValuation: 49000000000, earlyValuation: 2000000000, growthRate: 500, revenue: 35000000, customers: 13000000, fundingRaised: 2000000000, investments: ['SoftBank - $300M', 'Meta - $50M'], products: ['Social Commerce', 'Supplier Network', 'Meesho Mall'], visible: true, valuationTimeline: [{ year: 2015, valuation: 50000000, event: 'Founded' }, { year: 2019, valuation: 5000000000, event: 'Series C' }, { year: 2021, valuation: 49000000000, event: 'Series F' }] },
+					{ name: 'Flipkart', stage: 'Acquired', currentValuation: 2000000000000, earlyValuation: 50000000000, growthRate: 450, revenue: 850000000000, customers: 450000000, fundingRaised: 50000000000, investments: ['Walmart - $16B'], products: ['E-commerce', 'Flipkart Plus', 'Grocery'], visible: true, valuationTimeline: [{ year: 2007, valuation: 10000000, event: 'Founded' }, { year: 2012, valuation: 10000000000, event: 'Series D' }, { year: 2018, valuation: 200000000000, event: 'Walmart Acquisition' }, { year: 2024, valuation: 2000000000000, event: 'Current' }] },
+					{ name: 'Amazon India', stage: 'Public', currentValuation: 15000000000000, earlyValuation: 500000000000, growthRate: 380, revenue: 2500000000000, customers: 500000000, fundingRaised: 500000000000, investments: ['Amazon Global'], products: ['E-commerce', 'Prime', 'Fresh'], visible: true, valuationTimeline: [{ year: 2013, valuation: 50000000000, event: 'India Launch' }, { year: 2017, valuation: 300000000000, event: 'Expansion' }, { year: 2020, valuation: 800000000000, event: 'Pandemic Growth' }, { year: 2024, valuation: 15000000000000, event: 'Current' }] }
 				];
 			}
 			// FinTech detection
 			else if (userCompetitors.includes('paytm') || userCompetitors.includes('phonepe') || 
 			         userCompetitors.includes('razorpay') || category === 'FinTech') {
 				intelligentCompetitors = [
-					{ name: 'Razorpay', stage: 'Series F', currentValuation: 75000000000, earlyValuation: 5000000000, growthRate: 480, revenue: 95000000, customers: 8000000, fundingRaised: 5000000000, investments: ['Sequoia - $10M', 'Tiger Global - $150M'], products: ['Payment Gateway', 'Banking', 'Payroll'], visible: true },
-					{ name: 'Paytm', stage: 'Public', currentValuation: 450000000000, earlyValuation: 20000000000, growthRate: 420, revenue: 250000000, customers: 350000000, fundingRaised: 20000000000, investments: ['Alibaba - $680M', 'SoftBank - $1.4B'], products: ['Payments', 'Banking', 'Wealth'], visible: true },
-					{ name: 'PhonePe', stage: 'Series E', currentValuation: 850000000000, earlyValuation: 15000000000, growthRate: 520, revenue: 180000000, customers: 450000000, fundingRaised: 15000000000, investments: ['Walmart - $700M'], products: ['UPI Payments', 'Insurance', 'Mutual Funds'], visible: true }
+					{ name: 'Razorpay', stage: 'Series F', currentValuation: 75000000000, earlyValuation: 5000000000, growthRate: 480, revenue: 95000000, customers: 8000000, fundingRaised: 5000000000, investments: ['Sequoia - $10M', 'Tiger Global - $150M'], products: ['Payment Gateway', 'Banking', 'Payroll'], visible: true, valuationTimeline: [{ year: 2014, valuation: 50000000, event: 'Founded' }, { year: 2018, valuation: 5000000000, event: 'Series C' }, { year: 2021, valuation: 75000000000, event: 'Series F' }] },
+					{ name: 'Paytm', stage: 'Public', currentValuation: 450000000000, earlyValuation: 20000000000, growthRate: 420, revenue: 250000000, customers: 350000000, fundingRaised: 20000000000, investments: ['Alibaba - $680M', 'SoftBank - $1.4B'], products: ['Payments', 'Banking', 'Wealth'], visible: true, valuationTimeline: [{ year: 2010, valuation: 50000000, event: 'Founded' }, { year: 2015, valuation: 40000000000, event: 'Series D' }, { year: 2019, valuation: 160000000000, event: 'Series G' }, { year: 2021, valuation: 450000000000, event: 'IPO' }] },
+					{ name: 'PhonePe', stage: 'Series E', currentValuation: 850000000000, earlyValuation: 15000000000, growthRate: 520, revenue: 180000000, customers: 450000000, fundingRaised: 15000000000, investments: ['Walmart - $700M'], products: ['UPI Payments', 'Insurance', 'Mutual Funds'], visible: true, valuationTimeline: [{ year: 2015, valuation: 100000000, event: 'Founded' }, { year: 2018, valuation: 15000000000, event: 'Flipkart Era' }, { year: 2022, valuation: 100000000000, event: 'Spin-off' }, { year: 2024, valuation: 850000000000, event: 'Series E' }] }
 				];
 			}
 			// EdTech detection
 			else if (userCompetitors.includes('byju') || userCompetitors.includes('unacademy') || 
 			         userCompetitors.includes('upgrad') || category === 'EdTech' || category === 'Education') {
 				intelligentCompetitors = [
-					{ name: 'Unacademy', stage: 'Series H', currentValuation: 37000000000, earlyValuation: 3000000000, growthRate: 390, revenue: 28000000, customers: 50000000, fundingRaised: 3000000000, investments: ['SoftBank - $150M', 'General Atlantic - $440M'], products: ['Live Classes', 'Test Prep', 'Upskilling'], visible: true },
-					{ name: 'UpGrad', stage: 'Series E', currentValuation: 28000000000, earlyValuation: 2500000000, growthRate: 360, revenue: 35000000, customers: 4000000, fundingRaised: 2500000000, investments: ['Temasek - $120M'], products: ['Online Degrees', 'Bootcamps', 'Corporate Training'], visible: true },
-					{ name: "Byju's", stage: 'Series F', currentValuation: 220000000000, earlyValuation: 10000000000, growthRate: 480, revenue: 120000000, customers: 150000000, fundingRaised: 10000000000, investments: ['Sequoia - $50M', 'Tiger Global - $200M'], products: ['K-12 Learning', 'Test Prep', 'Coding'], visible: true }
+					{ name: 'Unacademy', stage: 'Series H', currentValuation: 37000000000, earlyValuation: 3000000000, growthRate: 390, revenue: 28000000, customers: 50000000, fundingRaised: 3000000000, investments: ['SoftBank - $150M', 'General Atlantic - $440M'], products: ['Live Classes', 'Test Prep', 'Upskilling'], visible: true, valuationTimeline: [{ year: 2015, valuation: 20000000, event: 'Founded' }, { year: 2018, valuation: 1000000000, event: 'Series C' }, { year: 2020, valuation: 20000000000, event: 'Series F' }, { year: 2022, valuation: 37000000000, event: 'Series H' }] },
+					{ name: 'UpGrad', stage: 'Series E', currentValuation: 28000000000, earlyValuation: 2500000000, growthRate: 360, revenue: 35000000, customers: 4000000, fundingRaised: 2500000000, investments: ['Temasek - $120M'], products: ['Online Degrees', 'Bootcamps', 'Corporate Training'], visible: true, valuationTimeline: [{ year: 2015, valuation: 50000000, event: 'Founded' }, { year: 2019, valuation: 2000000000, event: 'Series C' }, { year: 2021, valuation: 12000000000, event: 'Series D' }, { year: 2023, valuation: 28000000000, event: 'Series E' }] },
+					{ name: "Byju's", stage: 'Series F', currentValuation: 220000000000, earlyValuation: 10000000000, growthRate: 480, revenue: 120000000, customers: 150000000, fundingRaised: 10000000000, investments: ['Sequoia - $50M', 'Tiger Global - $200M'], products: ['K-12 Learning', 'Test Prep', 'Coding'], visible: true, valuationTimeline: [{ year: 2011, valuation: 20000000, event: 'Founded' }, { year: 2016, valuation: 5000000000, event: 'Series C' }, { year: 2019, valuation: 80000000000, event: 'Series E' }, { year: 2022, valuation: 220000000000, event: 'Peak Valuation' }] }
 				];
 			}
 			// SaaS / B2B detection
 			else if (userCompetitors.includes('freshworks') || userCompetitors.includes('zoho') || 
 			         userCompetitors.includes('salesforce') || category === 'SaaS' || category === 'B2B') {
 				intelligentCompetitors = [
-					{ name: 'Freshworks', stage: 'Public', currentValuation: 350000000000, earlyValuation: 10000000000, growthRate: 450, revenue: 500000000, customers: 50000, fundingRaised: 10000000000, investments: ['Accel - $5M', 'Tiger Global - $100M'], products: ['Freshdesk', 'Freshsales', 'Freshservice'], visible: true },
-					{ name: 'Zoho', stage: 'Private', currentValuation: 250000000000, earlyValuation: 2000000000, growthRate: 400, revenue: 350000000, customers: 80000, fundingRaised: 2000000000, investments: ['Bootstrapped'], products: ['Zoho CRM', 'Zoho Mail', 'Zoho Suite'], visible: true },
-					{ name: 'Postman', stage: 'Series D', currentValuation: 58000000000, earlyValuation: 3500000000, growthRate: 420, revenue: 45000000, customers: 25000, fundingRaised: 3500000000, investments: ['Insight Partners - $50M', 'CRV - $150M'], products: ['API Platform', 'Collaboration', 'Testing'], visible: true }
+					{ name: 'Freshworks', stage: 'Public', currentValuation: 350000000000, earlyValuation: 10000000000, growthRate: 450, revenue: 500000000, customers: 50000, fundingRaised: 10000000000, investments: ['Accel - $5M', 'Tiger Global - $100M'], products: ['Freshdesk', 'Freshsales', 'Freshservice'], visible: true, valuationTimeline: [{ year: 2010, valuation: 50000000, event: 'Founded' }, { year: 2015, valuation: 5000000000, event: 'Series D' }, { year: 2019, valuation: 35000000000, event: 'Series H' }, { year: 2021, valuation: 350000000000, event: 'IPO' }] },
+					{ name: 'Zoho', stage: 'Private', currentValuation: 250000000000, earlyValuation: 2000000000, growthRate: 400, revenue: 350000000, customers: 80000, fundingRaised: 2000000000, investments: ['Bootstrapped'], products: ['Zoho CRM', 'Zoho Mail', 'Zoho Suite'], visible: true, valuationTimeline: [{ year: 1996, valuation: 10000000, event: 'Founded' }, { year: 2008, valuation: 5000000000, event: 'SaaS Expansion' }, { year: 2018, valuation: 100000000000, event: 'Unicorn' }, { year: 2024, valuation: 250000000000, event: 'Current' }] },
+					{ name: 'Postman', stage: 'Series D', currentValuation: 58000000000, earlyValuation: 3500000000, growthRate: 420, revenue: 45000000, customers: 25000, fundingRaised: 3500000000, investments: ['Insight Partners - $50M', 'CRV - $150M'], products: ['API Platform', 'Collaboration', 'Testing'], visible: true, valuationTimeline: [{ year: 2014, valuation: 20000000, event: 'Founded' }, { year: 2019, valuation: 5000000000, event: 'Series B' }, { year: 2021, valuation: 58000000000, event: 'Series D' }] }
 				];
 			}
 			// Generic technology / startup fallback
@@ -1308,7 +1454,12 @@
 						fundingRaised: avgRevenue * 2,
 						investments: ['Angel Investors', 'Early Stage VC'],
 						products: [`${category} Solution`, 'Core Product', 'Platform'],
-						visible: true
+						visible: true,
+						valuationTimeline: [
+							{ year: 2021, valuation: avgRevenue * 2, event: 'Founded' },
+							{ year: 2023, valuation: avgRevenue * 3.5, event: 'Seed Round' },
+							{ year: 2024, valuation: avgRevenue * 5, event: 'Current' }
+						]
 					},
 					{
 						name: `${category} Startup B`,
@@ -1321,7 +1472,13 @@
 						fundingRaised: avgRevenue * 5,
 						investments: ['Series A VC', 'Strategic Investor'],
 						products: [`${category} Platform`, 'Analytics', 'Enterprise Solution'],
-						visible: true
+						visible: true,
+						valuationTimeline: [
+							{ year: 2019, valuation: avgRevenue * 2, event: 'Founded' },
+							{ year: 2021, valuation: avgRevenue * 5, event: 'Seed' },
+							{ year: 2023, valuation: avgRevenue * 10, event: 'Series A' },
+							{ year: 2024, valuation: avgRevenue * 15, event: 'Current' }
+						]
 					},
 					{
 						name: `Industry Leader`,
@@ -1334,7 +1491,13 @@
 						fundingRaised: avgRevenue * 10,
 						investments: ['Major VC Firms', 'IPO'],
 						products: [`${category} Suite`, 'Enterprise', 'Global Platform'],
-						visible: true
+						visible: true,
+						valuationTimeline: [
+							{ year: 2015, valuation: avgRevenue * 5, event: 'Founded' },
+							{ year: 2018, valuation: avgRevenue * 15, event: 'Series B' },
+							{ year: 2021, valuation: avgRevenue * 35, event: 'Series D' },
+							{ year: 2024, valuation: avgRevenue * 50, event: 'Current' }
+						]
 					}
 				];
 			}
@@ -1491,6 +1654,429 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 		}
 	}
 
+	// Save a chat message to notes
+	async function saveToNotes(messageIndex: number) {
+		try {
+			const token = localStorage.getItem('accessToken');
+			if (!token) {
+				alert('Please login to save notes');
+				return;
+			}
+
+			// Get user message and AI response (assuming pairs)
+			const userMessage = chatMessages[messageIndex - 1];
+			const aiResponse = chatMessages[messageIndex];
+
+			if (!userMessage || !aiResponse || userMessage.role !== 'user' || aiResponse.role !== 'assistant') {
+				alert('Invalid message selection');
+				return;
+			}
+
+			const noteTitle = prompt('Enter a title for this note (optional):');
+			const category = prompt('Enter a category (optional, e.g., Strategy, Funding, Growth):') || 'General';
+
+			const response = await fetch(`${API_URL}/api/notes/save`, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					'Authorization': `Bearer ${token}`
+				},
+				body: JSON.stringify({
+					chatMessage: userMessage.content,
+					response: aiResponse.content,
+					noteTitle: noteTitle || userMessage.content.substring(0, 50) + '...',
+					category
+				})
+			});
+
+			if (response.ok) {
+				alert('✅ Note saved successfully!');
+				loadNotes(); // Reload notes
+			} else {
+				const error = await response.json();
+				alert(`Failed to save note: ${error.error}`);
+			}
+		} catch (error) {
+			console.error('Error saving note:', error);
+			alert('Failed to save note. Please try again.');
+		}
+	}
+
+	// Load saved notes
+	async function loadNotes() {
+		try {
+			notesLoading = true;
+			const token = localStorage.getItem('accessToken');
+			if (!token) return;
+
+			const params = new URLSearchParams();
+			if (selectedNoteCategory !== 'all') params.append('category', selectedNoteCategory);
+			if (notesSearchQuery) params.append('search', notesSearchQuery);
+
+			const response = await fetch(`${API_URL}/api/notes?${params.toString()}`, {
+				headers: {
+					'Authorization': `Bearer ${token}`
+				}
+			});
+
+			if (response.ok) {
+				const data = await response.json();
+				savedNotes = data.notes;
+				
+				// Load categories
+				const catResponse = await fetch(`${API_URL}/api/notes/categories`, {
+					headers: { 'Authorization': `Bearer ${token}` }
+				});
+				if (catResponse.ok) {
+					const catData = await catResponse.json();
+					noteCategories = ['all', ...catData.categories];
+				}
+			}
+		} catch (error) {
+			console.error('Error loading notes:', error);
+		} finally {
+			notesLoading = false;
+		}
+	}
+
+	// Delete a note
+	async function deleteNote(noteId: string) {
+		if (!confirm('Are you sure you want to delete this note?')) return;
+
+		try {
+			const token = localStorage.getItem('accessToken');
+			const response = await fetch(`${API_URL}/api/notes/${noteId}`, {
+				method: 'DELETE',
+				headers: {
+					'Authorization': `Bearer ${token}`
+				}
+			});
+
+			if (response.ok) {
+				alert('✅ Note deleted successfully!');
+				if (selectedNote && selectedNote._id === noteId) {
+					selectedNote = null;
+				}
+				loadNotes();
+			} else {
+				alert('Failed to delete note');
+			}
+		} catch (error) {
+			console.error('Error deleting note:', error);
+			alert('Failed to delete note');
+		}
+	}
+
+	// Create a new note
+	async function createNote() {
+		if (!newNoteTitle.trim() || !newNoteContent.trim()) {
+			alert('Please enter both title and content for the note');
+			return;
+		}
+
+		try {
+			const token = localStorage.getItem('accessToken');
+			const response = await fetch(`${API_URL}/api/notes`, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					'Authorization': `Bearer ${token}`
+				},
+				body: JSON.stringify({
+					noteTitle: newNoteTitle.trim(),
+					chatMessage: 'Manual Note',
+					response: newNoteContent.trim(),
+					category: newNoteCategory
+				})
+			});
+
+			if (response.ok) {
+				const data = await response.json();
+				alert('✅ Note created successfully!');
+				newNoteTitle = '';
+				newNoteContent = '';
+				newNoteCategory = 'General';
+				isCreatingNote = false;
+				loadNotes();
+				// Select the newly created note
+				selectedNote = data.note;
+			} else {
+				alert('Failed to create note');
+			}
+		} catch (error) {
+			console.error('Error creating note:', error);
+			alert('Failed to create note');
+		}
+	}
+
+	// Select a note to view
+	function selectNote(note: any) {
+		selectedNote = note;
+		isCreatingNote = false;
+	}
+
+	// Start creating a new note
+	function startNewNote() {
+		isCreatingNote = true;
+		selectedNote = null;
+		newNoteTitle = '';
+		newNoteContent = '';
+		newNoteCategory = 'General';
+	}
+
+	// =====================================================
+	// DAILY ACTIONS FUNCTIONS
+	// =====================================================
+
+	// Generate daily actions based on 6-month goal
+	async function generateDailyActions() {
+		actionsLoading = true;
+		try {
+			const token = localStorage.getItem('accessToken');
+			if (!token) return;
+
+			const response = await fetch(`${API_URL}/api/actions/generate`, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					'Authorization': `Bearer ${token}`
+				},
+				body: JSON.stringify({
+					sixMonthGoal: ddqResponses[21] || 'Grow the business',
+					productName: ddqResponses[1] || 'Unknown Product',
+					category: ddqResponses[3] || 'Other',
+					stage: ddqResponses[5] || 'Unknown',
+					currentChallenge: ddqResponses[19] || 'General'
+				})
+			});
+
+			if (response.ok) {
+				const data = await response.json();
+				dailyActions = data.actions.map((action: any) => ({
+					...action,
+					status: action.status || 'pending',
+					progress: action.progress || null
+				}));
+			}
+		} catch (error) {
+			console.error('Error generating actions:', error);
+		} finally {
+			actionsLoading = false;
+		}
+	}
+
+	// Load today's actions
+	async function loadTodayActions() {
+		actionsLoading = true;
+		try {
+			const token = localStorage.getItem('accessToken');
+			if (!token) return;
+
+			const response = await fetch(`${API_URL}/api/actions/today`, {
+				headers: {
+					'Authorization': `Bearer ${token}`
+				}
+			});
+
+			if (response.ok) {
+				const data = await response.json();
+				dailyActions = data.actions || [];
+				backlogItems = data.backlog || [];
+				
+				// If no actions for today, generate new ones
+				if (dailyActions.length === 0 && ddqResponses[21]) {
+					await generateDailyActions();
+				}
+			}
+		} catch (error) {
+			console.error('Error loading actions:', error);
+		} finally {
+			actionsLoading = false;
+		}
+	}
+
+	// Accept an action (show RAG progress)
+	async function acceptAction(actionId: string) {
+		try {
+			const token = localStorage.getItem('accessToken');
+			await fetch(`${API_URL}/api/actions/${actionId}/status`, {
+				method: 'PUT',
+				headers: {
+					'Content-Type': 'application/json',
+					'Authorization': `Bearer ${token}`
+				},
+				body: JSON.stringify({ status: 'accepted' })
+			});
+
+			dailyActions = dailyActions.map(a => 
+				a.id === actionId ? { ...a, status: 'accepted' } : a
+			);
+		} catch (error) {
+			console.error('Error accepting action:', error);
+		}
+	}
+
+	// Reject an action (opens chatbot for feedback)
+	let rejectingActionId: string | null = null;
+	let rejectingActionText: string = '';
+
+	async function rejectAction(actionId: string, actionText: string) {
+		rejectingActionId = actionId;
+		rejectingActionText = actionText;
+		showChatbot = true;
+		
+		// Add initial message asking for reason
+		chatMessages = [
+			...chatMessages,
+			{
+				role: 'assistant',
+				content: `I noticed you rejected the action: "${actionText}". Could you tell me why you think this action isn't relevant or needed? This will help me suggest better actions in the future.`,
+				timestamp: new Date()
+			}
+		];
+	}
+
+	// Handle rejection feedback from chatbot
+	async function submitRejectionFeedback(reason: string) {
+		if (!rejectingActionId) return;
+
+		try {
+			const token = localStorage.getItem('accessToken');
+			
+			// Update action status
+			await fetch(`${API_URL}/api/actions/${rejectingActionId}/status`, {
+				method: 'PUT',
+				headers: {
+					'Content-Type': 'application/json',
+					'Authorization': `Bearer ${token}`
+				},
+				body: JSON.stringify({ status: 'rejected', rejectionReason: reason })
+			});
+
+			// Store feedback
+			await fetch(`${API_URL}/api/actions/feedback`, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					'Authorization': `Bearer ${token}`
+				},
+				body: JSON.stringify({
+					actionText: rejectingActionText,
+					rejectionReason: reason
+				})
+			});
+
+			// Update local state
+			dailyActions = dailyActions.map(a => 
+				a.id === rejectingActionId ? { ...a, status: 'rejected', rejectionReason: reason } : a
+			);
+
+			rejectingActionId = null;
+			rejectingActionText = '';
+
+			// Thank the user
+			chatMessages = [
+				...chatMessages,
+				{
+					role: 'assistant',
+					content: 'Thank you for the feedback! I\'ll use this to suggest more relevant actions in the future.',
+					timestamp: new Date()
+				}
+			];
+		} catch (error) {
+			console.error('Error submitting rejection feedback:', error);
+		}
+	}
+
+	// Update action progress (RAG)
+	async function updateActionProgress(actionId: string, progress: 'red' | 'amber' | 'green') {
+		try {
+			const token = localStorage.getItem('accessToken');
+			await fetch(`${API_URL}/api/actions/${actionId}/progress`, {
+				method: 'PUT',
+				headers: {
+					'Content-Type': 'application/json',
+					'Authorization': `Bearer ${token}`
+				},
+				body: JSON.stringify({ progress })
+			});
+
+			dailyActions = dailyActions.map(a => 
+				a.id === actionId ? { ...a, progress } : a
+			);
+
+			// If marked green, remove from backlog
+			if (progress === 'green') {
+				backlogItems = backlogItems.filter(b => b.id !== actionId);
+			}
+		} catch (error) {
+			console.error('Error updating progress:', error);
+		}
+	}
+
+	// =====================================================
+	// NEWS FUNCTIONS
+	// =====================================================
+
+	async function loadNews() {
+		newsLoading = true;
+		try {
+			const token = localStorage.getItem('accessToken');
+			if (!token) return;
+
+			// Get industry from questionnaire (question 3 is industry/sector)
+			const industry = ddqResponses[3] || '';
+			const productName = ddqResponses[1] || '';
+			const query = `${productName} ${industry} business technology`.trim();
+			
+			const response = await fetch(`${API_URL}/api/news?query=${encodeURIComponent(query)}&industry=${encodeURIComponent(industry)}`, {
+				headers: {
+					'Authorization': `Bearer ${token}`
+				}
+			});
+
+			if (response.ok) {
+				const data = await response.json();
+				newsItems = data.news || [];
+				featuredNewsIndex = 0;
+				
+				// Start news rotation (every 10 seconds)
+				startNewsRotation();
+			}
+		} catch (error) {
+			console.error('Error loading news:', error);
+		} finally {
+			newsLoading = false;
+		}
+	}
+
+	function startNewsRotation() {
+		// Clear existing interval if any
+		if (newsRotationInterval) {
+			clearInterval(newsRotationInterval);
+		}
+		
+		// Rotate featured news every 10 seconds
+		newsRotationInterval = setInterval(() => {
+			if (newsItems.length > 0) {
+				featuredNewsIndex = (featuredNewsIndex + 1) % newsItems.length;
+			}
+		}, 10000);
+	}
+
+	function selectFeaturedNews(index: number) {
+		featuredNewsIndex = index;
+		// Reset the rotation timer when manually selecting
+		startNewsRotation();
+	}
+
+	// Cleanup on component destroy
+	onDestroy(() => {
+		if (newsRotationInterval) {
+			clearInterval(newsRotationInterval);
+		}
+	});
+
 	function logout() {
 		localStorage.clear();
 		goto('/');
@@ -1523,44 +2109,22 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 				class="nav-item"
 				class:active={activeTab === 'overview'}
 				on:click={() => (activeTab = 'overview')}
-				title="Overview"
+				title="Home"
 			>
-				<span class="material-symbols-outlined nav-icon">quick_reference_all</span>
+				<span class="material-symbols-outlined nav-icon">home</span>
 				{#if !sidebarMinimized}
-					<span class="nav-text">Overview</span>
-				{/if}
-			</button>
-			<button
-				class="nav-item"
-				class:active={activeTab === 'valuation'}
-				on:click={() => (activeTab = 'valuation')}
-				title="Valuation"
-			>
-				<span class="material-symbols-outlined nav-icon">universal_currency_alt</span>
-				{#if !sidebarMinimized}
-					<span class="nav-text">Valuation</span>
+					<span class="nav-text">Home</span>
 				{/if}
 			</button>
 			<button
 				class="nav-item"
 				class:active={activeTab === 'strengths-weaknesses'}
 				on:click={() => (activeTab = 'strengths-weaknesses')}
-				title="Strengths vs Weaknesses"
+				title="Introspection"
 			>
 				<span class="material-symbols-outlined nav-icon">balance</span>
 				{#if !sidebarMinimized}
-					<span class="nav-text">Strengths vs Weaknesses</span>
-				{/if}
-			</button>
-			<button
-				class="nav-item"
-				class:active={activeTab === 'pestel'}
-				on:click={() => (activeTab = 'pestel')}
-				title="Good vs Bad"
-			>
-				<span class="material-symbols-outlined nav-icon">currency_exchange</span>
-				{#if !sidebarMinimized}
-					<span class="nav-text">Good vs Bad</span>
+					<span class="nav-text">Introspection</span>
 				{/if}
 			</button>
 			<button
@@ -1583,6 +2147,17 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 				<span class="material-symbols-outlined nav-icon">query_stats</span>
 				{#if !sidebarMinimized}
 					<span class="nav-text">Marketing Trends</span>
+				{/if}
+			</button>
+			<button
+				class="nav-item"
+				class:active={activeTab === 'notes'}
+				on:click={() => (activeTab = 'notes')}
+				title="Notes"
+			>
+				<span class="material-symbols-outlined nav-icon">bookmark</span>
+				{#if !sidebarMinimized}
+					<span class="nav-text">Notes</span>
 				{/if}
 			</button>
 			<button
@@ -1617,6 +2192,16 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 				<p class="dashboard-subtitle">{user?.companyName || 'Your Company'}</p>
 			</div>
 			<div class="header-actions">
+				<!-- Company Logo or Name Display -->
+				{#if companyLogo}
+					<div class="header-company-logo">
+						<img src={companyLogo} alt="Company Logo" />
+					</div>
+				{:else if ddqResponses[1]}
+					<div class="header-company-name">
+						{ddqResponses[1]}
+					</div>
+				{/if}
 				<button class="header-theme-toggle" on:click={toggleTheme} title="Toggle {theme === 'light' ? 'Dark' : 'Light'} Mode">
 					<span class="material-symbols-outlined">
 						{theme === 'light' ? 'dark_mode' : 'light_mode'}
@@ -1732,6 +2317,37 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 									</label>
 								{/each}
 							</div>
+						
+						<!-- File Upload (Logo) -->
+						{:else if currentQuestionData.type === 'file'}
+							<div class="file-upload-container">
+								<input
+									type="file"
+									id="logo-upload"
+									accept={currentQuestionData.accept || 'image/*'}
+									on:change={handleLogoUpload}
+									style="display: none;"
+								/>
+								<label for="logo-upload" class="file-upload-label">
+									{#if companyLogo}
+										<img src={companyLogo} alt="Company Logo Preview" class="logo-preview" />
+										<span class="change-logo-text">Click to change logo</span>
+									{:else}
+										<span class="material-symbols-outlined">upload</span>
+										<span>Click to upload logo</span>
+									{/if}
+								</label>
+								{#if companyLogo}
+									<button class="btn-secondary skip-btn" on:click={() => { companyLogo = null; logoFile = null; }}>
+										<span class="material-symbols-outlined">delete</span>
+										Remove Logo
+									</button>
+								{/if}
+								<button class="btn-secondary skip-btn" on:click={nextQuestion}>
+									<span class="material-symbols-outlined">skip_next</span>
+									Skip this step
+								</button>
+							</div>
 						{/if}
 					</div>
 
@@ -1761,61 +2377,248 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 		<!-- Content Area -->
 		<div class="content-area">
 			{#if activeTab === 'overview'}
-				<div class="overview-section">
-					<div class="welcome-card minimal-card">
-						<div class="card-header">
-							<span class="material-symbols-outlined icon-large">quick_reference_all</span>
-							<h2 class="section-title">Your Strategic Command Center</h2>
+				<div class="overview-section home-layout">
+					<!-- Row 1: Valuation + Top 5 Actions + Backlog in a compact grid -->
+					<div class="home-row-top">
+						<!-- Left Column: Valuation -->
+						<div class="home-card valuation-summary-card" on:dblclick={() => { if(valuation) showMethodologyModal = true; }} role="button" tabindex="0" title="Double-click to see valuation breakdown">
+							<h3 class="home-card-title">Your Valuation</h3>
+							{#if valuation}
+								<div class="valuation-big">
+									₹{(valuation.finalValuationINR / 10000000).toFixed(2)} Cr
+								</div>
+								<div class="valuation-usd-small">
+									${(valuation.finalValuationUSD / 1000000).toFixed(2)}M USD
+								</div>
+								<div class="valuation-hint">Double-click for details</div>
+							{:else}
+								<button class="btn-primary" on:click={startDDQ}>
+									<span class="material-symbols-outlined">rocket_launch</span>
+									Begin Assessment
+								</button>
+							{/if}
 						</div>
-						<p class="section-text">
-							Transform your qualitative insights into quantifiable value with our AI-powered
-							analysis engine.
-						</p>
 
-						{#if Object.keys(ddqResponses).length === 0}
-							<button class="btn-primary" on:click={startDDQ}>
-								<span class="material-symbols-outlined">rocket_launch</span>
-								Begin Assessment
-							</button>
-						{:else}
-							<div class="stats-grid">
-								<div class="stat-card minimal-card">
-									<span class="material-symbols-outlined icon">business</span>
-									<span class="stat-label">Company</span>
-									<span class="stat-value">{ddqResponses[1] || 'N/A'}</span>
+						<!-- Middle Column: Top 5 Actions -->
+						<div class="home-card actions-card">
+							<h3 class="home-card-title">Today's Top 5 Actions</h3>
+							{#if actionsLoading}
+								<div class="loading-spinner-small">Loading...</div>
+							{:else if dailyActions.length === 0}
+								<p class="no-actions-text">Complete the assessment to get personalized daily actions.</p>
+							{:else}
+								<div class="actions-list">
+									{#each dailyActions.slice(0, 5) as action, index}
+										<div class="action-item" class:rejected={action.status === 'rejected'} class:accepted={action.status === 'accepted'}>
+											<span class="action-letter">{String.fromCharCode(97 + index)}.</span>
+											<span class="action-text" class:strikethrough={action.status === 'rejected'}>
+												{action.text}
+											</span>
+											
+											{#if action.status === 'pending'}
+												<div class="action-buttons">
+													<button class="action-btn accept" on:click={() => acceptAction(action.id)} title="Accept">
+														<span class="material-symbols-outlined">check</span>
+													</button>
+													<button class="action-btn reject" on:click={() => rejectAction(action.id, action.text)} title="Reject">
+														<span class="material-symbols-outlined">close</span>
+													</button>
+												</div>
+											{:else if action.status === 'accepted'}
+												<div class="rag-buttons">
+													<button class="rag-btn red" class:active={action.progress === 'red'} on:click={() => updateActionProgress(action.id, 'red')} title="Not Started"></button>
+													<button class="rag-btn amber" class:active={action.progress === 'amber'} on:click={() => updateActionProgress(action.id, 'amber')} title="In Progress"></button>
+													<button class="rag-btn green" class:active={action.progress === 'green'} on:click={() => updateActionProgress(action.id, 'green')} title="Completed"></button>
+												</div>
+											{/if}
+										</div>
+									{/each}
 								</div>
-								<div class="stat-card minimal-card">
-									<span class="material-symbols-outlined icon">category</span>
-									<span class="stat-label">Category</span>
-									<span class="stat-value">{ddqResponses[3] || 'N/A'}</span>
+							{/if}
+						</div>
+
+						<!-- Right Column: Backlog -->
+						<div class="home-card backlog-card">
+							<h3 class="home-card-title">Backlog</h3>
+							{#if backlogItems.length === 0}
+								<p class="no-backlog-text">No pending tasks</p>
+							{:else}
+								<div class="backlog-list">
+									{#each backlogItems.slice(0, 5) as item, index}
+										<div class="backlog-item">
+											<span class="backlog-letter">{index + 1}.</span>
+											<span class="backlog-text">{item.text}</span>
+											<div class="rag-buttons small">
+												<button class="rag-btn red" class:active={item.progress === 'red'} on:click={() => updateActionProgress(item.id, 'red')} title="Not Started"></button>
+												<button class="rag-btn amber" class:active={item.progress === 'amber'} on:click={() => updateActionProgress(item.id, 'amber')} title="In Progress"></button>
+												<button class="rag-btn green" class:active={item.progress === 'green'} on:click={() => updateActionProgress(item.id, 'green')} title="Completed"></button>
+											</div>
+										</div>
+									{/each}
 								</div>
-								<div class="stat-card minimal-card">
-									<span class="material-symbols-outlined icon">timeline</span>
-									<span class="stat-label">Stage</span>
-									<span class="stat-value">{ddqResponses[4] || 'N/A'}</span>
-								</div>
-							</div>
-						{/if}
+							{/if}
+						</div>
 					</div>
 
-					{#if valuation}
-						<div class="quick-insights minimal-card">
-							<div class="card-header">
-								<span class="material-symbols-outlined icon-large">trending_up</span>
-								<h3 class="card-title">Quick Insights</h3>
+					<!-- Row 2: News (Left) + Financial Health & Marketing (Right) -->
+					<div class="home-split-section">
+						<!-- Left: News Section -->
+						<div class="news-section-container">
+							<h3 class="section-label">Industry News</h3>
+							{#if newsLoading}
+								<div class="news-loading-state">
+									<span class="material-symbols-outlined spinning">progress_activity</span>
+									<span>Loading latest news...</span>
+								</div>
+							{:else if newsItems.length === 0}
+								<div class="news-empty-state">
+									<span class="material-symbols-outlined">newspaper</span>
+									<span>News will appear here based on your industry</span>
+								</div>
+							{:else}
+								<!-- Featured News (Top) -->
+								<div class="featured-news-container">
+									<a href={newsItems[featuredNewsIndex]?.url || '#'} target="_blank" rel="noopener noreferrer" class="featured-news">
+										<div class="featured-news-image" style="background-image: url('{newsItems[featuredNewsIndex]?.imageUrl || `https://picsum.photos/seed/${featuredNewsIndex}/800/400`}')">
+											<div class="featured-news-overlay"></div>
+										</div>
+										<div class="featured-news-content">
+											<h2 class="featured-news-title">{newsItems[featuredNewsIndex]?.title || 'Loading...'}</h2>
+											<p class="featured-news-summary">{newsItems[featuredNewsIndex]?.summary || ''}</p>
+											<div class="featured-news-meta">
+												<span class="featured-source">{newsItems[featuredNewsIndex]?.source}</span>
+												<span class="featured-time">{newsItems[featuredNewsIndex]?.timeAgo}</span>
+											</div>
+											<span class="read-more-link">Read More »</span>
+										</div>
+									</a>
+									<!-- Progress Dots -->
+									<div class="news-progress-dots">
+										{#each newsItems as _, i}
+											<button 
+												class="progress-dot" 
+												class:active={i === featuredNewsIndex}
+												on:click={() => selectFeaturedNews(i)}
+												aria-label="View news {i + 1}"
+											></button>
+										{/each}
+									</div>
+								</div>
+
+								<!-- News Thumbnails Row (Bottom) -->
+								<div class="news-thumbnails-row">
+									{#each newsItems.slice(0, 3) as newsItem, i}
+										<a 
+											href={newsItem.url || '#'} 
+											target="_blank" 
+											rel="noopener noreferrer" 
+											class="news-thumbnail-card"
+											class:active={i === featuredNewsIndex}
+											on:click|preventDefault={() => selectFeaturedNews(i)}
+										>
+											<div class="thumbnail-image" style="background-image: url('{newsItem.imageUrl || `https://picsum.photos/seed/${i}/200/120`}')"></div>
+											<p class="thumbnail-title">{newsItem.title}</p>
+										</a>
+									{/each}
+								</div>
+							{/if}
+						</div>
+
+						<!-- Right: Financial Health + Marketing Snapshot -->
+						<div class="dashboard-right-column">
+							<!-- Financial Health Panel -->
+							<div class="home-card financial-panel">
+								<h3 class="home-card-title">Financial Health</h3>
+								{#if valuation}
+									<div class="financial-grid">
+										<div class="fin-metric">
+											<span class="fin-label">Total Revenue</span>
+											<span class="fin-value revenue">₹{((Number(ddqResponses[13]) || 0) * 12 / 100000).toFixed(1)}L</span>
+										</div>
+										<div class="fin-metric">
+											<span class="fin-label">Total Expense</span>
+											<span class="fin-value burn">₹{((Number(ddqResponses[16]) || 0) * 12 / 100000).toFixed(1)}L</span>
+										</div>
+										<div class="fin-metric">
+											<span class="fin-label">Monthly Revenue</span>
+											<span class="fin-value revenue">₹{(Number(ddqResponses[13]) / 100000 || 0).toFixed(1)}L</span>
+										</div>
+										<div class="fin-metric">
+											<span class="fin-label">Monthly BurnRate</span>
+											<span class="fin-value burn">₹{(Number(ddqResponses[16]) / 100000 || 0).toFixed(1)}L</span>
+										</div>
+										<div class="fin-metric">
+											<span class="fin-label">Runway</span>
+											<span class="fin-value">
+												{#if ddqResponses[14] && ddqResponses[16]}
+													{Math.max(1, Math.floor(Number(ddqResponses[14]) / (Number(ddqResponses[16]) || 1)))} mo
+												{:else}
+													N/A
+												{/if}
+											</span>
+										</div>
+										<div class="fin-metric">
+											<span class="fin-label">Status</span>
+											<span class="fin-value {Number(ddqResponses[13]) >= Number(ddqResponses[16]) ? 'profitable' : 'burning'}">
+												{Number(ddqResponses[13]) >= Number(ddqResponses[16]) ? 'Profitable' : 'Burning'}
+											</span>
+										</div>
+										<div class="fin-metric full-width">
+											<span class="fin-label">Margin</span>
+											<span class="fin-value {(Number(ddqResponses[13]) - Number(ddqResponses[16])) >= 0 ? 'profitable' : 'burning'}">
+												{#if ddqResponses[13] && ddqResponses[16]}
+													{(((Number(ddqResponses[13]) - Number(ddqResponses[16])) / (Number(ddqResponses[13]) || 1)) * 100).toFixed(1)}%
+												{:else}
+													N/A
+												{/if}
+											</span>
+										</div>
+									</div>
+								{:else}
+									<p class="dashboard-placeholder">Complete assessment for insights</p>
+								{/if}
 							</div>
-							<div class="insight-item">
-								<span class="material-symbols-outlined icon">universal_currency_alt</span>
-								<span>Estimated Valuation (INR)</span>
-								<span class="accent-text">₹{(valuation.finalValuationINR / 10000000).toFixed(2)} Cr</span>
-							</div>
-							<div class="insight-item">
-								<span class="material-symbols-outlined icon">currency_exchange</span>
-								<span>Estimated Valuation (USD)</span>
-								<span class="accent-text">${(valuation.finalValuationUSD / 1000000).toFixed(2)}M</span>
+
+							<!-- Marketing Snapshot Panel -->
+							<div class="home-card marketing-panel">
+								<h3 class="home-card-title">Marketing Snapshot</h3>
+								{#if competitors}
+									<div class="marketing-grid">
+										<div class="mkt-metric">
+											<span class="mkt-label">Profile Performance</span>
+											<span class="mkt-value">{Math.floor(Math.random() * 30) + 60}/100</span>
+										</div>
+										<div class="mkt-metric">
+											<span class="mkt-label">Brand Score</span>
+											<span class="mkt-value">{Math.floor(Math.random() * 20) + 70}/100</span>
+										</div>
+										<div class="mkt-metric">
+											<span class="mkt-label">Number Of Followers</span>
+											<span class="mkt-value">{(Math.floor(Math.random() * 50) + 10)}K</span>
+										</div>
+										<div class="mkt-metric">
+											<span class="mkt-label">Pending Campaign Actions</span>
+											<span class="mkt-value action">{Math.floor(Math.random() * 5) + 2}</span>
+										</div>
+										<div class="mkt-metric">
+											<span class="mkt-label">Number of interaction</span>
+											<span class="mkt-value">{(Math.floor(Math.random() * 20) + 5)}K</span>
+										</div>
+										<div class="mkt-metric">
+											<span class="mkt-label">Number of followers Increased</span>
+											<span class="mkt-value profitable">+{Math.floor(Math.random() * 500) + 100}</span>
+										</div>
+										<div class="mkt-metric">
+											<span class="mkt-label">Number of followers Decreased</span>
+											<span class="mkt-value burning">-{Math.floor(Math.random() * 50) + 10}</span>
+										</div>
+									</div>
+								{:else}
+									<p class="dashboard-placeholder">Complete assessment for insights</p>
+								{/if}
 							</div>
 						</div>
-					{/if}
+					</div>
 				</div>
 			{:else if activeTab === 'valuation'}
 				{#if valuation}
@@ -2156,14 +2959,183 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 								{/if}
 							</div>
 						</div>
+
+						<!-- Introspection Section -->
+						{#if swotAnalysis}
+						<div class="minimal-card">
+							<div class="card-header">
+								<span class="material-symbols-outlined icon-large">grid_view</span>
+								<h2 class="section-title">Introspection</h2>
+							</div>
+							
+							<div class="swot-grid">
+								<!-- Strengths -->
+								<div class="swot-quadrant strengths">
+									<div class="quadrant-header">
+										<span class="material-symbols-outlined">trending_up</span>
+										<h3>Strengths</h3>
+									</div>
+									<div class="quadrant-content">
+										{#if swotAnalysis.strengths && swotAnalysis.strengths.length > 0}
+											{#each swotAnalysis.strengths as item}
+												<div class="swot-item">• {item}</div>
+											{/each}
+										{:else}
+											<p class="empty-text">No strengths identified</p>
+										{/if}
+									</div>
+								</div>
+
+								<!-- Weaknesses -->
+								<div class="swot-quadrant weaknesses">
+									<div class="quadrant-header">
+										<span class="material-symbols-outlined">trending_down</span>
+										<h3>Weaknesses</h3>
+									</div>
+									<div class="quadrant-content">
+										{#if swotAnalysis.weaknesses && swotAnalysis.weaknesses.length > 0}
+											{#each swotAnalysis.weaknesses as item}
+												<div class="swot-item">• {item}</div>
+											{/each}
+										{:else}
+											<p class="empty-text">No weaknesses identified</p>
+										{/if}
+									</div>
+								</div>
+
+								<!-- Opportunities -->
+								<div class="swot-quadrant opportunities">
+									<div class="quadrant-header">
+										<span class="material-symbols-outlined">lightbulb</span>
+										<h3>Opportunities</h3>
+									</div>
+									<div class="quadrant-content">
+										{#if swotAnalysis.opportunities && swotAnalysis.opportunities.length > 0}
+											{#each swotAnalysis.opportunities as item}
+												<div class="swot-item">• {item}</div>
+											{/each}
+										{:else}
+											<p class="empty-text">No opportunities identified</p>
+										{/if}
+									</div>
+								</div>
+
+								<!-- Threats -->
+								<div class="swot-quadrant threats">
+									<div class="quadrant-header">
+										<span class="material-symbols-outlined">warning</span>
+										<h3>Threats</h3>
+									</div>
+									<div class="quadrant-content">
+										{#if swotAnalysis.threats && swotAnalysis.threats.length > 0}
+											{#each swotAnalysis.threats as item}
+												<div class="swot-item">• {item}</div>
+											{/each}
+										{:else}
+											<p class="empty-text">No threats identified</p>
+										{/if}
+									</div>
+								</div>
+							</div>
+						</div>
+						{/if}
+
+						<!-- VRIO Analysis Section -->
+						<div class="minimal-card">
+							<div class="card-header">
+								<span class="material-symbols-outlined icon-large">shield</span>
+								<h2 class="section-title">VRIO Framework Analysis</h2>
+							</div>
+							<p class="section-desc">Evaluating resources for sustainable competitive advantage</p>
+							
+							{#if true}
+							{@const hasProprietaryTech = String(ddqResponses[18] || '').includes('Yes')}
+							{@const hasPreviousStartup = String(ddqResponses[18] || '').includes('Previous Startup')}
+							{@const hasIndustryExpert = String(ddqResponses[18] || '').includes('Industry Expert')}
+							{@const hasTechnicalFounder = String(ddqResponses[18] || '').includes('Technical')}
+							{@const teamSize = Number(ddqResponses[17]) || 1}
+							{@const isOrganized = teamSize > 1}
+							{@const hasRevenue = ddqResponses[12] === 'Yes'}
+							{@const customerCount = Number(ddqResponses[15]) || 0}
+							
+							<div class="vrio-table">
+								<div class="vrio-header-row">
+									<div class="vrio-col resource-col">Resource</div>
+									<div class="vrio-col">Valuable</div>
+									<div class="vrio-col">Rare</div>
+									<div class="vrio-col">Inimitable</div>
+									<div class="vrio-col">Organized</div>
+									<div class="vrio-col result-col">Implication</div>
+								</div>
+								
+								<!-- Technology/IP -->
+								<div class="vrio-row">
+									<div class="vrio-col resource-col">
+										<span class="material-symbols-outlined">code</span>
+										Technology/IP
+									</div>
+									<div class="vrio-col"><span class="vrio-check-icon yes">✓</span></div>
+									<div class="vrio-col"><span class="vrio-check-icon {hasProprietaryTech ? 'yes' : 'no'}">{hasProprietaryTech ? '✓' : '✗'}</span></div>
+									<div class="vrio-col"><span class="vrio-check-icon {hasProprietaryTech && hasTechnicalFounder ? 'yes' : 'no'}">{hasProprietaryTech && hasTechnicalFounder ? '✓' : '✗'}</span></div>
+									<div class="vrio-col"><span class="vrio-check-icon {isOrganized ? 'yes' : 'no'}">{isOrganized ? '✓' : '✗'}</span></div>
+									<div class="vrio-col result-col {hasProprietaryTech && hasTechnicalFounder && isOrganized ? 'sustained' : hasProprietaryTech ? 'temporary' : 'parity'}">
+										{hasProprietaryTech && hasTechnicalFounder && isOrganized ? 'Sustained Advantage' : hasProprietaryTech ? 'Temporary Advantage' : 'Competitive Parity'}
+									</div>
+								</div>
+								
+								<!-- Team Expertise -->
+								<div class="vrio-row">
+									<div class="vrio-col resource-col">
+										<span class="material-symbols-outlined">groups</span>
+										Team Expertise
+									</div>
+									<div class="vrio-col"><span class="vrio-check-icon {hasIndustryExpert || hasPreviousStartup ? 'yes' : 'no'}">{hasIndustryExpert || hasPreviousStartup ? '✓' : '✗'}</span></div>
+									<div class="vrio-col"><span class="vrio-check-icon {hasIndustryExpert && hasPreviousStartup ? 'yes' : 'no'}">{hasIndustryExpert && hasPreviousStartup ? '✓' : '✗'}</span></div>
+									<div class="vrio-col"><span class="vrio-check-icon {hasPreviousStartup ? 'yes' : 'no'}">{hasPreviousStartup ? '✓' : '✗'}</span></div>
+									<div class="vrio-col"><span class="vrio-check-icon {isOrganized ? 'yes' : 'no'}">{isOrganized ? '✓' : '✗'}</span></div>
+									<div class="vrio-col result-col {hasIndustryExpert && hasPreviousStartup && isOrganized ? 'sustained' : hasIndustryExpert || hasPreviousStartup ? 'temporary' : 'disadvantage'}">
+										{hasIndustryExpert && hasPreviousStartup && isOrganized ? 'Sustained Advantage' : hasIndustryExpert || hasPreviousStartup ? 'Temporary Advantage' : 'Disadvantage'}
+									</div>
+								</div>
+								
+								<!-- Customer Base -->
+								<div class="vrio-row">
+									<div class="vrio-col resource-col">
+										<span class="material-symbols-outlined">people</span>
+										Customer Base
+									</div>
+									<div class="vrio-col"><span class="vrio-check-icon {hasRevenue ? 'yes' : 'no'}">{hasRevenue ? '✓' : '✗'}</span></div>
+									<div class="vrio-col"><span class="vrio-check-icon {customerCount > 500 ? 'yes' : 'no'}">{customerCount > 500 ? '✓' : '✗'}</span></div>
+									<div class="vrio-col"><span class="vrio-check-icon {customerCount > 1000 ? 'yes' : 'no'}">{customerCount > 1000 ? '✓' : '✗'}</span></div>
+									<div class="vrio-col"><span class="vrio-check-icon {isOrganized ? 'yes' : 'no'}">{isOrganized ? '✓' : '✗'}</span></div>
+									<div class="vrio-col result-col {customerCount > 1000 && isOrganized ? 'sustained' : hasRevenue ? 'temporary' : 'disadvantage'}">
+										{customerCount > 1000 && isOrganized ? 'Sustained Advantage' : hasRevenue ? 'Temporary Advantage' : 'Disadvantage'}
+									</div>
+								</div>
+								
+								<!-- Brand/Reputation -->
+								<div class="vrio-row">
+									<div class="vrio-col resource-col">
+										<span class="material-symbols-outlined">stars</span>
+										Brand
+									</div>
+									<div class="vrio-col"><span class="vrio-check-icon {customerCount > 100 ? 'yes' : 'no'}">{customerCount > 100 ? '✓' : '✗'}</span></div>
+									<div class="vrio-col"><span class="vrio-check-icon no">✗</span></div>
+									<div class="vrio-col"><span class="vrio-check-icon no">✗</span></div>
+									<div class="vrio-col"><span class="vrio-check-icon {isOrganized ? 'yes' : 'no'}">{isOrganized ? '✓' : '✗'}</span></div>
+									<div class="vrio-col result-col parity">Competitive Parity</div>
+								</div>
+							</div>
+							{/if}
+						</div>
 					</div>
 				</div>
 			{:else}
 				<div class="minimal-card">
 					<div class="empty-state">
-						<span class="material-symbols-outlined icon-empty">universal_currency_alt</span>
-						<h3>No Valuation Yet</h3>
-						<p>Complete the assessment to view your company valuation</p>
+						<span class="material-symbols-outlined icon-empty">psychology</span>
+						<h3>No Introspection Data Yet</h3>
+						<p>Complete the assessment to view your company analysis</p>
 							<button class="btn-primary" on:click={startDDQ}>
 								<span class="material-symbols-outlined">rocket_launch</span>
 								Start Assessment
@@ -2172,14 +3144,15 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 					</div>
 				{/if}
 			
-			<!-- Strengths vs Weaknesses Tab -->
+			<!-- Introspection Tab -->
 			{:else if activeTab === 'strengths-weaknesses'}
 				{#if swotAnalysis}
 					<div class="strengths-weaknesses-section">
 						<div class="minimal-card">
 							<div class="card-header">
 								<span class="material-symbols-outlined icon-large">balance</span>
-								<h2 class="section-title">Internal Analysis: Strengths vs Weaknesses</h2>
+								<h2 class="section-title">Introspection</h2>
+								<p class="section-subtitle">Strengths, Weaknesses, Opportunities & Threats</p>
 							</div>
 
 							<div class="balance-grid">
@@ -2256,6 +3229,88 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 									</div>
 								</div>
 							{/if}
+
+							<!-- Opportunities vs Threats Section -->
+							<div class="opportunities-threats-section" style="margin-top: 2rem;">
+								<h3 class="subsection-title">
+									<span class="material-symbols-outlined">currency_exchange</span>
+									External Factors: Opportunities vs Threats
+								</h3>
+								<div class="balance-grid" style="margin-top: 1rem;">
+									<!-- Opportunities -->
+									<div class="analysis-panel opportunities-panel">
+										<div class="panel-header">
+											<span class="material-symbols-outlined">check_circle</span>
+											<h3>Opportunities</h3>
+											<span class="count-badge">{swotAnalysis.opportunities?.length || 0}</span>
+										</div>
+										<div class="panel-content">
+											{#if swotAnalysis.opportunities && swotAnalysis.opportunities.length > 0}
+												{#each swotAnalysis.opportunities as opportunity, index}
+													<div class="analysis-item opportunities-item">
+														<span class="item-number">{index + 1}</span>
+														<p>{opportunity}</p>
+													</div>
+												{/each}
+											{:else}
+												<div class="empty-panel">
+													<span class="material-symbols-outlined">explore</span>
+													<p>No opportunities identified yet</p>
+												</div>
+											{/if}
+										</div>
+									</div>
+
+									<!-- Threats -->
+									<div class="analysis-panel threats-panel">
+										<div class="panel-header">
+											<span class="material-symbols-outlined">warning</span>
+											<h3>Threats</h3>
+											<span class="count-badge">{swotAnalysis.threats?.length || 0}</span>
+										</div>
+										<div class="panel-content">
+											{#if swotAnalysis.threats && swotAnalysis.threats.length > 0}
+												{#each swotAnalysis.threats as threat, index}
+													<div class="analysis-item threats-item">
+														<span class="item-number">{index + 1}</span>
+														<p>{threat}</p>
+													</div>
+												{/each}
+											{:else}
+												<div class="empty-panel">
+													<span class="material-symbols-outlined">shield_locked</span>
+													<p>No threats identified yet</p>
+												</div>
+											{/if}
+										</div>
+									</div>
+								</div>
+
+								<!-- External Balance Indicator -->
+								{#if swotAnalysis}
+									{@const opportunityCount = swotAnalysis.opportunities?.length || 0}
+									{@const threatCount = swotAnalysis.threats?.length || 0}
+									{@const total = opportunityCount + threatCount}
+									{@const opportunityPercent = total > 0 ? (opportunityCount / total) * 100 : 50}
+									<div class="balance-indicator">
+										<div class="balance-label">External Environment Score</div>
+										<div class="balance-bar">
+											<div class="balance-fill opportunities-fill" style="width: {opportunityPercent}%"></div>
+											<div class="balance-fill threats-fill" style="width: {100 - opportunityPercent}%"></div>
+										</div>
+										<div class="balance-stats">
+											<span class="stat-item opportunities-stat">
+												<span class="material-symbols-outlined">check_circle</span>
+												{opportunityCount} Opportunities
+											</span>
+											<span class="stat-item threats-stat">
+												<span class="material-symbols-outlined">warning</span>
+												{threatCount} Threats
+											</span>
+										</div>
+									</div>
+								{/if}
+							</div>
 
 							<!-- VRIO Analysis Framework -->
 							<div class="vrio-section">
@@ -2461,107 +3516,6 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 					</div>
 				{/if}
 
-			<!-- Good vs Bad Tab -->
-			{:else if activeTab === 'pestel'}
-				{#if swotAnalysis}
-					<div class="pestel-section">
-						<div class="minimal-card">
-							<div class="card-header">
-								<span class="material-symbols-outlined icon-large">currency_exchange</span>
-								<h2 class="section-title">Good vs Bad</h2>
-								<p class="section-subtitle">External factors that could impact your startup's success</p>
-							</div>
-
-							<div class="balance-grid">
-								<!-- Opportunities (Good) -->
-								<div class="analysis-panel opportunities-panel">
-									<div class="panel-header">
-										<span class="material-symbols-outlined">check_circle</span>
-										<h3>Opportunities</h3>
-										<span class="count-badge">{swotAnalysis.opportunities?.length || 0}</span>
-									</div>
-									<div class="panel-content">
-										{#if swotAnalysis.opportunities && swotAnalysis.opportunities.length > 0}
-											{#each swotAnalysis.opportunities as opportunity, index}
-												<div class="analysis-item opportunities-item">
-													<span class="item-number">{index + 1}</span>
-													<p>{opportunity}</p>
-												</div>
-											{/each}
-										{:else}
-											<div class="empty-panel">
-												<span class="material-symbols-outlined">explore</span>
-												<p>No opportunities identified yet</p>
-											</div>
-										{/if}
-									</div>
-								</div>
-
-								<!-- Threats (Bad) -->
-								<div class="analysis-panel threats-panel">
-									<div class="panel-header">
-										<span class="material-symbols-outlined">warning</span>
-										<h3>Threats</h3>
-										<span class="count-badge">{swotAnalysis.threats?.length || 0}</span>
-									</div>
-									<div class="panel-content">
-										{#if swotAnalysis.threats && swotAnalysis.threats.length > 0}
-											{#each swotAnalysis.threats as threat, index}
-												<div class="analysis-item threats-item">
-													<span class="item-number">{index + 1}</span>
-													<p>{threat}</p>
-												</div>
-											{/each}
-										{:else}
-											<div class="empty-panel">
-												<span class="material-symbols-outlined">shield_locked</span>
-												<p>No threats identified yet</p>
-											</div>
-										{/if}
-									</div>
-								</div>
-							</div>
-
-							<!-- External Balance Indicator -->
-							{#if swotAnalysis}
-								{@const opportunityCount = swotAnalysis.opportunities?.length || 0}
-								{@const threatCount = swotAnalysis.threats?.length || 0}
-								{@const total = opportunityCount + threatCount}
-								{@const opportunityPercent = total > 0 ? (opportunityCount / total) * 100 : 50}
-								<div class="balance-indicator">
-									<div class="balance-label">External Environment Score</div>
-									<div class="balance-bar">
-										<div class="balance-fill opportunities-fill" style="width: {opportunityPercent}%"></div>
-										<div class="balance-fill threats-fill" style="width: {100 - opportunityPercent}%"></div>
-									</div>
-									<div class="balance-stats">
-										<span class="stat-item opportunities-stat">
-											<span class="material-symbols-outlined">check_circle</span>
-											{opportunityCount} Opportunities
-										</span>
-										<span class="stat-item threats-stat">
-											<span class="material-symbols-outlined">warning</span>
-											{threatCount} Threats
-										</span>
-									</div>
-								</div>
-							{/if}
-						</div>
-					</div>
-				{:else}
-					<div class="minimal-card">
-						<div class="empty-state">
-							<span class="material-symbols-outlined icon-empty">balance</span>
-							<h3>No Analysis Available</h3>
-							<p>Complete the assessment to view opportunities and threats</p>
-							<button class="btn-primary" on:click={startDDQ}>
-								<span class="material-symbols-outlined">rocket_launch</span>
-								Start Assessment
-							</button>
-						</div>
-					</div>
-				{/if}
-
 			<!-- Marketing Trends Tab -->
 			{:else if activeTab === 'trends'}
 				{#if !competitors}
@@ -2585,6 +3539,54 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 								<p class="section-subtitle">Track top competitors and market performance</p>
 							</div>
 
+							<!-- Know your Market Section -->
+							{#if valuation}
+							<div class="know-your-market-section">
+								<h3 class="subsection-title">
+									<span class="material-symbols-outlined">analytics</span>
+									Know your Market
+								</h3>
+								<div class="market-metrics-grid">
+									<div class="metric-box tam">
+										<div class="metric-header-small">
+											<span class="material-symbols-outlined">language</span>
+											<span>TAM</span>
+										</div>
+										<div class="metric-value-large">₹{(valuation.TAM / 10000000).toFixed(0)} Cr</div>
+										<div class="metric-desc-small">Total Addressable Market</div>
+										<div class="metric-sub">{ddqResponses[3] || 'Market'}</div>
+									</div>
+									<div class="metric-box sam">
+										<div class="metric-header-small">
+											<span class="material-symbols-outlined">target</span>
+											<span>SAM</span>
+										</div>
+										<div class="metric-value-large">₹{(valuation.SAM / 10000000).toFixed(0)} Cr</div>
+										<div class="metric-desc-small">Serviceable Addressable Market</div>
+										<div class="metric-sub">{((valuation.SAM / valuation.TAM) * 100).toFixed(0)}% of TAM</div>
+									</div>
+									<div class="metric-box som">
+										<div class="metric-header-small">
+											<span class="material-symbols-outlined">my_location</span>
+											<span>SOM</span>
+										</div>
+										<div class="metric-value-large">₹{(valuation.SOM / 10000000).toFixed(0)} Cr</div>
+										<div class="metric-desc-small">Serviceable Obtainable Market</div>
+										<div class="metric-sub">Target market</div>
+									</div>
+									<div class="metric-box cagr">
+										<div class="metric-header-small">
+											<span class="material-symbols-outlined">show_chart</span>
+											<span>CAGR</span>
+										</div>
+										<div class="metric-value-large">{valuation.CAGR.toFixed(0)}%</div>
+										<div class="metric-desc-small">Compound Annual Growth</div>
+										<div class="metric-sub">{valuation.CAGR > 50 ? 'Fast Growth 📈' : 'Steady Growth'}</div>
+									</div>
+								</div>
+							</div>
+							{/if}
+
 							<!-- Monitoring List -->
 							{#if monitoredCompetitors.length > 0}
 								<div class="monitoring-section">
@@ -2606,46 +3608,259 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 								</div>
 							{/if}
 
-							<!-- Performance Graph -->
+							<!-- Performance Graph - Line Chart -->
+							{#if competitors && competitors.filter((c: any) => c.visible && c.valuationTimeline && c.valuationTimeline.length > 0).length > 0}
+							{@const visibleCompetitors = competitors.filter((c: any) => c.visible && c.valuationTimeline && c.valuationTimeline.length > 0)}
+							{@const chartColors = ['#4ade80', '#60a5fa', '#f472b6', '#fbbf24', '#a78bfa', '#34d399', '#fb923c']}
+							{@const allYears = [...new Set(visibleCompetitors.flatMap((c: any) => c.valuationTimeline?.map((v: any) => v.year) || []))].sort((a: any, b: any) => Number(a) - Number(b))}
+							{@const maxValuation = Math.max(...visibleCompetitors.flatMap((c: any) => c.valuationTimeline?.map((v: any) => Number(v.valuation) || 0) || [0]), 1)}
+							{@const chartWidth = 800}
+							{@const chartHeight = 400}
+							{@const padding = { top: 40, right: 120, bottom: 60, left: 100 }}
+							{@const yearDivisor = Math.max(allYears.length - 1, 1)}
 							<div class="performance-section">
 								<h3 class="subsection-title">
 									<span class="material-symbols-outlined">trending_up</span>
-									Valuation Growth Comparison
+									Valuation Growth Over Time
 								</h3>
-								<div class="chart-container">
-									<div class="chart-legend">
-										<div class="legend-item">
-											<div class="legend-color early"></div>
-											<span>Early Stage Valuation</span>
-										</div>
-										<div class="legend-item">
-											<div class="legend-color current"></div>
-											<span>Current Valuation</span>
-										</div>
+								
+								<div class="chart-container line-chart-container">
+									<!-- Legend -->
+									<div class="line-chart-legend">
+										{#each visibleCompetitors as competitor, i}
+											<div class="legend-item" style="--legend-color: {chartColors[i % chartColors.length]}">
+												<div class="legend-dot" style="background: {chartColors[i % chartColors.length]}"></div>
+												<span class="legend-label">{competitor.name}</span>
+												{#if competitor.isUserMentioned}
+													<span class="user-mentioned-badge">Your Pick</span>
+												{/if}
+											</div>
+										{/each}
 									</div>
-									<div class="bar-chart">
-										{#each competitors.filter((c: any) => c.visible) as competitor, index}
-											<div class="chart-row">
-												<div class="chart-label">{competitor.name}</div>
-												<div class="chart-bars">
-													<div 
-														class="chart-bar early" 
-														style="width: {(competitor.earlyValuation / Math.max(...competitors.map((c: any) => c.currentValuation))) * 100}%"
+
+									<!-- SVG Line Chart -->
+									<div class="svg-chart-wrapper">
+										<svg viewBox="0 0 {chartWidth} {chartHeight}" class="valuation-line-chart">
+											<!-- Y-Axis Grid Lines and Labels -->
+											{#each [0, 0.25, 0.5, 0.75, 1] as tick}
+												{@const y = padding.top + (1 - tick) * (chartHeight - padding.top - padding.bottom)}
+												{@const value = tick * maxValuation}
+												<line 
+													x1={padding.left} 
+													y1={y} 
+													x2={chartWidth - padding.right} 
+													y2={y} 
+													stroke="var(--border-color)" 
+													stroke-dasharray="4,4" 
+													opacity="0.5"
+												/>
+												<text 
+													x={padding.left - 10} 
+													y={y + 4} 
+													text-anchor="end" 
+													class="axis-label"
+												>
+													₹{value >= 10000000000000 ? (value / 10000000000000).toFixed(0) + 'L Cr' : 
+													   value >= 100000000000 ? (value / 100000000000).toFixed(0) + 'K Cr' :
+													   value >= 10000000 ? (value / 10000000).toFixed(0) + ' Cr' : 
+													   (value / 100000).toFixed(0) + ' L'}
+												</text>
+											{/each}
+
+											<!-- X-Axis Labels (Years) -->
+											{#each allYears as year, i}
+												{@const x = padding.left + (i / yearDivisor) * (chartWidth - padding.left - padding.right)}
+												<text 
+													x={x} 
+													y={chartHeight - padding.bottom + 25} 
+													text-anchor="middle" 
+													class="axis-label"
+												>
+													{year}
+												</text>
+												<line 
+													x1={x} 
+													y1={chartHeight - padding.bottom} 
+													x2={x} 
+													y2={chartHeight - padding.bottom + 5} 
+													stroke="var(--text-secondary)"
+												/>
+											{/each}
+
+											<!-- Axis Lines -->
+											<line 
+												x1={padding.left} 
+												y1={padding.top} 
+												x2={padding.left} 
+												y2={chartHeight - padding.bottom} 
+												stroke="var(--text-secondary)" 
+												stroke-width="2"
+											/>
+											<line 
+												x1={padding.left} 
+												y1={chartHeight - padding.bottom} 
+												x2={chartWidth - padding.right} 
+												y2={chartHeight - padding.bottom} 
+												stroke="var(--text-secondary)" 
+												stroke-width="2"
+											/>
+
+											<!-- Lines for each competitor -->
+											{#each visibleCompetitors as competitor, compIndex}
+												{@const color = chartColors[compIndex % chartColors.length]}
+												{@const timeline = (competitor.valuationTimeline || []).filter((p: any) => p && p.year !== undefined && p.valuation !== undefined)}
+												
+												<!-- Draw line path -->
+												{#if timeline.length > 1 && allYears.length > 0}
+													<path 
+														d={timeline.map((point: any, i: number) => {
+															const yearIndex = Math.max(0, allYears.indexOf(point.year));
+															const safeYearDivisor = Math.max(allYears.length - 1, 1);
+															const x = padding.left + (yearIndex / safeYearDivisor) * (chartWidth - padding.left - padding.right);
+															const safeValuation = Number(point.valuation) || 0;
+															const y = padding.top + (1 - safeValuation / maxValuation) * (chartHeight - padding.top - padding.bottom);
+															return `${i === 0 ? 'M' : 'L'} ${isNaN(x) ? padding.left : x} ${isNaN(y) ? padding.top : y}`;
+														}).join(' ')}
+														fill="none" 
+														stroke={color} 
+														stroke-width="3" 
+														stroke-linecap="round"
+														stroke-linejoin="round"
+														class="chart-line"
+													/>
+												{/if}
+
+												<!-- Draw dots for each data point -->
+												{#each timeline as point, pointIndex}
+													{@const yearIndex = Math.max(0, allYears.indexOf(point.year))}
+													{@const safeValuation = Number(point.valuation) || 0}
+													{@const x = padding.left + (yearIndex / yearDivisor) * (chartWidth - padding.left - padding.right)}
+													{@const y = padding.top + (1 - safeValuation / maxValuation) * (chartHeight - padding.top - padding.bottom)}
+													
+													<circle 
+														cx={isNaN(x) ? padding.left : x} 
+														cy={isNaN(y) ? padding.top : y} 
+														r="6" 
+														fill={color} 
+														stroke="var(--card-bg)" 
+														stroke-width="2"
+														class="chart-dot"
 													>
-														<span class="bar-value">₹{(competitor.earlyValuation / 10000000).toFixed(1)}Cr</span>
-													</div>
-													<div 
-														class="chart-bar current" 
-														style="width: {(competitor.currentValuation / Math.max(...competitors.map((c: any) => c.currentValuation))) * 100}%"
-													>
-														<span class="bar-value">₹{(competitor.currentValuation / 10000000).toFixed(1)}Cr</span>
-													</div>
-												</div>
+														<title>{competitor.name} ({point.year || 'N/A'}): ₹{((Number(point.valuation) || 0) / 10000000).toFixed(0)} Cr - {point.event || ''}</title>
+													</circle>
+												{/each}
+											{/each}
+
+											<!-- Y-Axis Title -->
+											<text 
+												x={20} 
+												y={chartHeight / 2} 
+												text-anchor="middle" 
+												transform="rotate(-90, 20, {chartHeight / 2})" 
+												class="axis-title"
+											>
+												Valuation (₹)
+											</text>
+
+											<!-- X-Axis Title -->
+											<text 
+												x={(chartWidth - padding.left - padding.right) / 2 + padding.left} 
+												y={chartHeight - 10} 
+												text-anchor="middle" 
+												class="axis-title"
+											>
+												Year
+											</text>
+										</svg>
+									</div>
+
+									<!-- Data Source Info -->
+									<div class="data-source-info">
+										<span class="material-symbols-outlined">verified</span>
+										<span>Data sourced from funding rounds, IPO filings & verified business reports</span>
+									</div>
+								</div>
+							</div>
+							{/if}
+
+							<!-- Market Trends Section -->
+							{#if marketTrends && marketTrends.length > 0}
+								<div class="market-trends-section">
+									<h3 class="subsection-title trends-title">
+										<span class="material-symbols-outlined">insights</span>
+										Market Trends (Bullish Signals)
+									</h3>
+									<div class="trends-list">
+										{#each marketTrends as trend}
+											<div class="trend-item">
+												<strong class="trend-title">{trend.title}:</strong>
+												<span class="trend-value">{trend.value}</span>
+												<span class="trend-description">({trend.description})</span>
 											</div>
 										{/each}
 									</div>
 								</div>
-							</div>
+							{/if}
+
+							<!-- Market Opportunities Section -->
+							{#if marketOpportunities}
+								<div class="market-opportunities-section">
+									<h3 class="subsection-title opportunities-title">
+										<span class="material-symbols-outlined">target</span>
+										Market Opportunities
+									</h3>
+									<div class="opportunities-grid">
+										{#if marketOpportunities.governmentPSU}
+											<div class="opportunity-card govt">
+												<h4>{marketOpportunities.governmentPSU.title}</h4>
+												<ul>
+													{#each marketOpportunities.governmentPSU.items as item}
+														<li><span class="checkmark">✓</span> {item}</li>
+													{/each}
+												</ul>
+											</div>
+										{/if}
+										{#if marketOpportunities.enterpriseChannel}
+											<div class="opportunity-card enterprise">
+												<h4>{marketOpportunities.enterpriseChannel.title}</h4>
+												<ul>
+													{#each marketOpportunities.enterpriseChannel.items as item}
+														<li><span class="checkmark">✓</span> {item}</li>
+													{/each}
+												</ul>
+											</div>
+										{/if}
+									</div>
+								</div>
+							{/if}
+
+							<!-- Strategic Recommendations Section -->
+							{#if strategicRecommendations && strategicRecommendations.length > 0}
+								<div class="strategic-recommendations-section">
+									<h3 class="subsection-title strategy-title">
+										<span class="material-symbols-outlined">lightbulb</span>
+										Strategic Recommendations
+									</h3>
+									<div class="recommendations-list">
+										{#each strategicRecommendations as rec, index}
+											<div class="recommendation-card priority-{rec.priority.toLowerCase()}">
+												<div class="rec-header">
+													<span class="rec-number">{index + 1}.</span>
+													<span class="rec-title">{rec.title}</span>
+													<span class="priority-badge {rec.priority.toLowerCase()}">(Priority: {rec.priority})</span>
+												</div>
+												<p class="rec-description">{rec.description}</p>
+												{#if rec.target}
+													<div class="rec-target">
+														<span class="material-symbols-outlined">flag</span>
+														<strong>Target:</strong> {rec.target}
+													</div>
+												{/if}
+											</div>
+										{/each}
+									</div>
+								</div>
+							{/if}
 
 							<!-- Competitor Cards Grid -->
 							<div class="competitors-grid">
@@ -2676,8 +3891,8 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 										</div>
 										
 										<div class="competitor-stage">
-											<span class="stage-badge">{competitor.stage}</span>
-											<span class="category-badge">{competitor.category}</span>
+											<span class="stage-badge">{competitor.stage || 'N/A'}</span>
+											<span class="category-badge">{competitor.category || 'Unknown'}</span>
 										</div>
 
 										<div class="competitor-metrics">
@@ -2685,21 +3900,21 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 												<span class="material-symbols-outlined">trending_up</span>
 												<div>
 													<div class="metric-label">Growth Rate</div>
-													<div class="metric-value">{competitor.growthRate}%</div>
+													<div class="metric-value">{competitor.growthRate || 0}%</div>
 												</div>
 											</div>
 											<div class="metric-item">
 												<span class="material-symbols-outlined">currency_rupee</span>
 												<div>
 													<div class="metric-label">Revenue</div>
-													<div class="metric-value">₹{(competitor.revenue / 10000000).toFixed(1)}Cr</div>
+													<div class="metric-value">₹{((competitor.revenue || 0) / 10000000).toFixed(1)}Cr</div>
 												</div>
 											</div>
 											<div class="metric-item">
 												<span class="material-symbols-outlined">groups</span>
 												<div>
 													<div class="metric-label">Customers</div>
-													<div class="metric-value">{competitor.customers.toLocaleString()}</div>
+													<div class="metric-value">{(competitor.customers || 0).toLocaleString()}</div>
 												</div>
 											</div>
 										</div>
@@ -2717,6 +3932,179 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 						</div>
 					</div>
 				{/if}
+
+			<!-- Notes Tab -->
+			{:else if activeTab === 'notes'}
+				<div class="notes-section">
+					<div class="notes-layout">
+						<!-- Left Sidebar - Notes List (1/4) -->
+						<div class="notes-sidebar">
+							<div class="notes-sidebar-header">
+								<h3>My Notes</h3>
+								<button class="btn-add-note" on:click={startNewNote} title="Create new note">
+									<span class="material-symbols-outlined">add</span>
+								</button>
+							</div>
+
+							<div class="notes-search-box">
+								<span class="material-symbols-outlined">search</span>
+								<input 
+									type="text" 
+									placeholder="Search notes..." 
+									bind:value={notesSearchQuery}
+									on:input={loadNotes}
+								/>
+							</div>
+
+							<select class="notes-category-select" bind:value={selectedNoteCategory} on:change={loadNotes}>
+								{#each noteCategories as category}
+									<option value={category}>
+										{category === 'all' ? 'All Categories' : category}
+									</option>
+								{/each}
+							</select>
+
+							<div class="notes-list">
+								{#if notesLoading}
+									<div class="loading-notes-state">
+										<span class="material-symbols-outlined rotating">progress_activity</span>
+									</div>
+								{:else if savedNotes.length === 0}
+									<div class="empty-notes-sidebar">
+										<span class="material-symbols-outlined">note_add</span>
+										<p>No notes yet</p>
+									</div>
+								{:else}
+									{#each savedNotes as note}
+										<button 
+											class="note-list-item" 
+											class:active={selectedNote && selectedNote._id === note._id}
+											on:click={() => selectNote(note)}
+										>
+											<div class="note-list-item-title">{note.noteTitle}</div>
+											<div class="note-list-item-meta">
+												<span class="note-list-category">{note.category}</span>
+												<span class="note-list-date">{new Date(note.createdAt).toLocaleDateString()}</span>
+											</div>
+										</button>
+									{/each}
+								{/if}
+							</div>
+						</div>
+
+						<!-- Right Content Area (3/4) -->
+						<div class="notes-content">
+							{#if isCreatingNote}
+								<!-- Create New Note Form -->
+								<div class="note-editor">
+									<div class="note-editor-header">
+										<span class="material-symbols-outlined">edit_note</span>
+										<h2>Create New Note</h2>
+									</div>
+
+									<div class="note-form">
+										<div class="form-group">
+											<label for="note-title">Title</label>
+											<input 
+												id="note-title"
+												type="text" 
+												placeholder="Enter note title..." 
+												bind:value={newNoteTitle}
+											/>
+										</div>
+
+										<div class="form-group">
+											<label for="note-category">Category</label>
+											<select id="note-category" bind:value={newNoteCategory}>
+												<option value="General">General</option>
+												<option value="Strategy">Strategy</option>
+												<option value="Finance">Finance</option>
+												<option value="Marketing">Marketing</option>
+												<option value="Operations">Operations</option>
+												<option value="Product">Product</option>
+												<option value="Team">Team</option>
+												<option value="Ideas">Ideas</option>
+											</select>
+										</div>
+
+										<div class="form-group">
+											<label for="note-content">Content</label>
+											<textarea 
+												id="note-content"
+												placeholder="Write your note here..." 
+												bind:value={newNoteContent}
+												rows="15"
+											></textarea>
+										</div>
+
+										<div class="note-form-actions">
+											<button class="btn-secondary" on:click={() => { isCreatingNote = false; }}>
+												<span class="material-symbols-outlined">close</span>
+												Cancel
+											</button>
+											<button class="btn-primary" on:click={createNote}>
+												<span class="material-symbols-outlined">save</span>
+												Save Note
+											</button>
+										</div>
+									</div>
+								</div>
+							{:else if selectedNote}
+								<!-- View Selected Note -->
+								<div class="note-viewer">
+									<div class="note-viewer-header">
+										<div class="note-viewer-title">
+											<h2>{selectedNote.noteTitle}</h2>
+											<span class="note-category-badge">{selectedNote.category}</span>
+										</div>
+										<div class="note-viewer-actions">
+											<span class="note-date-badge">
+												{new Date(selectedNote.createdAt).toLocaleDateString()}
+											</span>
+											<button 
+												class="btn-icon-danger" 
+												on:click={() => deleteNote(selectedNote._id)}
+												title="Delete note"
+											>
+												<span class="material-symbols-outlined">delete</span>
+											</button>
+										</div>
+									</div>
+
+									<div class="note-viewer-content">
+										{#if selectedNote.chatMessage && selectedNote.chatMessage !== 'Manual Note'}
+											<div class="note-question-box">
+												<span class="material-symbols-outlined">person</span>
+												<div>
+													<strong>Your Question:</strong>
+													<p>{selectedNote.chatMessage}</p>
+												</div>
+											</div>
+										{/if}
+										<div class="note-answer-box">
+											<span class="material-symbols-outlined">{selectedNote.chatMessage === 'Manual Note' ? 'description' : 'psychology'}</span>
+											<div>
+												<strong>{selectedNote.chatMessage === 'Manual Note' ? 'Note Content:' : 'AI Response:'}</strong>
+												<p>{selectedNote.response}</p>
+											</div>
+										</div>
+									</div>
+								</div>
+							{:else}
+								<!-- Empty State - No note selected -->
+								<div class="note-placeholder">
+									<span class="material-symbols-outlined">sticky_note_2</span>
+									<h3>Select a note or create a new one</h3>
+									<p>Choose a note from the sidebar to view its content, or click the + button to create a new note.</p>
+									<button class="btn-primary" on:click={startNewNote}>
+										<span class="material-symbols-outlined">add</span>
+										Create New Note
+									</button>
+								</div>
+							{/if}
+						</div>
+					</div>
+				</div>
 
 			<!-- Profile Tab -->
 			{:else if activeTab === 'profile'}
@@ -2873,6 +4261,85 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 								</div>
 							</div>
 
+							<!-- Saved Notes from Chat -->
+							<div class="profile-card full-width">
+								<h3 class="profile-card-title">
+									<span class="material-symbols-outlined">bookmark</span>
+									Saved Notes from Advisor Chat
+								</h3>
+								
+								<div class="notes-controls">
+									<div class="notes-search">
+										<span class="material-symbols-outlined">search</span>
+										<input 
+											type="text" 
+											placeholder="Search notes..." 
+											bind:value={notesSearchQuery}
+											on:input={loadNotes}
+										/>
+									</div>
+									<select bind:value={selectedNoteCategory} on:change={loadNotes}>
+										{#each noteCategories as category}
+											<option value={category}>
+												{category === 'all' ? 'All Categories' : category}
+											</option>
+										{/each}
+									</select>
+									<button class="btn-secondary" on:click={loadNotes}>
+										<span class="material-symbols-outlined">refresh</span>
+										Refresh
+									</button>
+								</div>
+
+								<div class="saved-notes-list">
+									{#if notesLoading}
+										<div class="loading-notes">
+											<span class="material-symbols-outlined rotating">progress_activity</span>
+											Loading notes...
+										</div>
+									{:else if savedNotes.length === 0}
+										<div class="empty-notes">
+											<span class="material-symbols-outlined">bookmark_border</span>
+											<p>No saved notes yet</p>
+											<p class="hint">Use the "Save to Notes" button in the chatbot to save important conversations</p>
+										</div>
+									{:else}
+										{#each savedNotes as note}
+											<div class="note-card">
+												<div class="note-header">
+													<div class="note-title-section">
+														<h4>{note.noteTitle}</h4>
+														<span class="note-category">{note.category}</span>
+													</div>
+													<div class="note-actions">
+														<span class="note-date">
+															{new Date(note.createdAt).toLocaleDateString()}
+														</span>
+														<button 
+															class="btn-icon delete-note-btn" 
+															on:click={() => deleteNote(note._id)}
+															title="Delete note"
+														>
+															<span class="material-symbols-outlined">delete</span>
+														</button>
+													</div>
+												</div>
+												<div class="note-content">
+													<div class="note-question">
+														<span class="material-symbols-outlined">person</span>
+														<p><strong>You:</strong> {note.chatMessage}</p>
+													</div>
+													<div class="note-answer">
+														<span class="material-symbols-outlined">psychology</span>
+														<p><strong>Prometheus:</strong> {note.response}</p>
+													</div>
+												</div>
+											</div>
+										{/each}
+									{/if}
+								</div>
+							</div>
+
 							<!-- DDQ Answers -->
 							{#if Object.keys(ddqResponses).length > 0}
 								<div class="profile-card full-width">
@@ -2926,7 +4393,7 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 				{#if swotAnalysis}
 					<div class="swot-section">
 						<div class="elegant-card">
-							<h2 class="section-title">🎯 SWOT Analysis</h2>
+							<h2 class="section-title">🎯 Introspection</h2>
 							<div class="swot-grid">
 								<div class="swot-quadrant">
 									<h3 class="swot-title strengths">Strengths</h3>
@@ -2965,7 +4432,7 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 					</div>
 				{:else}
 					<div class="elegant-card">
-						<p>Complete the DDQ to generate SWOT analysis</p>
+						<p>Complete the DDQ to generate Introspection analysis</p>
 					</div>
 				{/if}
 			{:else if activeTab === 'funding'}
@@ -3183,7 +4650,7 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 			<!-- svelte-ignore a11y-no-static-element-interactions -->
 			<div class="modal-content competitor-modal" on:click|stopPropagation>
 				<div class="modal-header">
-					<h3>{selectedCompetitor.name}</h3>
+					<h3>{selectedCompetitor.name || 'Competitor'}</h3>
 					<button class="btn-icon" on:click={closeCompetitorModal}>
 						<span class="material-symbols-outlined">close</span>
 					</button>
@@ -3194,10 +4661,10 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 							<span class="material-symbols-outlined">attach_money</span>
 							Funding Information
 						</h4>
-						<p class="detail-value">Total Raised: ₹{(selectedCompetitor.fundingRaised / 10000000).toFixed(2)} Cr</p>
+						<p class="detail-value">Total Raised: ₹{((selectedCompetitor.fundingRaised || 0) / 10000000).toFixed(2)} Cr</p>
 						<p class="detail-label">Key Investments:</p>
 						<ul class="investments-list">
-							{#each selectedCompetitor.investments as investment}
+							{#each (selectedCompetitor.investments || []) as investment}
 								<li>{investment}</li>
 							{/each}
 						</ul>
@@ -3208,7 +4675,7 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 							Product Portfolio
 						</h4>
 						<div class="products-list">
-							{#each selectedCompetitor.products as product}
+							{#each (selectedCompetitor.products || []) as product}
 								<span class="product-badge">{product}</span>
 							{/each}
 						</div>
@@ -3223,14 +4690,14 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 								<span class="material-symbols-outlined">currency_rupee</span>
 								<div>
 									<div class="detail-label">Current Valuation</div>
-									<div class="detail-value">₹{(selectedCompetitor.currentValuation / 10000000).toFixed(2)} Cr</div>
+									<div class="detail-value">₹{((selectedCompetitor.currentValuation || 0) / 10000000).toFixed(2)} Cr</div>
 								</div>
 							</div>
 							<div class="detail-metric">
 								<span class="material-symbols-outlined">trending_up</span>
 								<div>
 									<div class="detail-label">Growth Rate</div>
-									<div class="detail-value">{selectedCompetitor.growthRate}%</div>
+									<div class="detail-value">{selectedCompetitor.growthRate || 0}%</div>
 								</div>
 							</div>
 						</div>
@@ -3394,7 +4861,7 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 				</div>
 
 				<div class="chatbot-messages" bind:this={chatContainer}>
-					{#each chatMessages as message}
+					{#each chatMessages as message, index}
 						<div class="chat-message {message.role}">
 							<div class="chat-message-avatar">
 								{#if message.role === 'user'}
@@ -3405,8 +4872,20 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 							</div>
 							<div class="chat-message-content">
 								<div class="chat-message-text">{message.content}</div>
-								<div class="chat-message-time">
-									{message.timestamp.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+								<div class="chat-message-footer">
+									<div class="chat-message-time">
+										{message.timestamp.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+									</div>
+									{#if message.role === 'assistant' && index > 0}
+										<button 
+											class="save-note-btn" 
+											on:click={() => saveToNotes(index)}
+											title="Save this conversation to notes"
+										>
+											<span class="material-symbols-outlined">bookmark_add</span>
+											Save to Notes
+										</button>
+									{/if}
 								</div>
 							</div>
 						</div>
@@ -3619,6 +5098,1060 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 		gap: 2rem;
 	}
 
+	/* NEW HOME LAYOUT STYLES */
+	.home-layout {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+		width: 100%;
+		padding-right: 0.5rem;
+		padding-bottom: 1rem;
+		height: 100%;
+		min-height: calc(100vh - 200px);
+	}
+
+	.home-row-top {
+		display: grid;
+		grid-template-columns: 160px 1fr 200px;
+		gap: 1rem;
+		min-height: 280px;
+	}
+
+	.home-row-bottom {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 1rem;
+		min-height: 180px;
+	}
+
+	/* New Split Section: News (Left) + Dashboards (Right) */
+	.home-split-section {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 1rem;
+		flex: 1;
+	}
+
+	/* Right Dashboard Column - stacks Financial & Marketing */
+	.dashboard-right-column {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+	}
+
+	.dashboard-right-column .home-card {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+	}
+
+	.dashboard-right-column .financial-grid,
+	.dashboard-right-column .marketing-grid {
+		flex: 1;
+	}
+
+	/* New Bottom Section: News + Financial + Marketing */
+	.home-bottom-section {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 1rem;
+		min-height: 180px;
+	}
+
+	/* =====================================================
+	   NEWS SECTION STYLES (Wireframe Layout)
+	   ===================================================== */
+	
+	.news-section-container {
+		background: var(--card-bg);
+		border-radius: 12px;
+		padding: 1rem;
+		border: 1px solid var(--border-color);
+		display: flex;
+		flex-direction: column;
+		height: 100%;
+	}
+
+	.section-label {
+		font-size: 0.9rem;
+		font-weight: 600;
+		color: var(--text-secondary);
+		margin-bottom: 1rem;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+	}
+
+	.news-loading-state,
+	.news-empty-state {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.75rem;
+		padding: 3rem 1rem;
+		color: var(--text-secondary);
+		font-size: 0.9rem;
+		flex: 1;
+	}
+
+	.news-loading-state .spinning {
+		animation: spin 1s linear infinite;
+	}
+
+	@keyframes spin {
+		from { transform: rotate(0deg); }
+		to { transform: rotate(360deg); }
+	}
+
+	/* Featured News (Top Section) */
+	.featured-news-container {
+		position: relative;
+		margin-bottom: 0.75rem;
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+	}
+
+	.featured-news {
+		display: flex;
+		flex-direction: column;
+		gap: 0;
+		text-decoration: none;
+		color: var(--text-primary);
+		border-radius: 10px;
+		overflow: hidden;
+		background: var(--bg-secondary);
+		flex: 1;
+		transition: transform 0.3s ease, box-shadow 0.3s ease;
+	}
+
+	.featured-news:hover {
+		transform: translateY(-2px);
+		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+	}
+
+	.featured-news-image {
+		position: relative;
+		background-size: cover;
+		background-position: center;
+		background-color: var(--bg-tertiary);
+		flex: 1;
+		min-height: 180px;
+	}
+
+	.featured-news-overlay {
+		position: absolute;
+		inset: 0;
+		background: linear-gradient(to bottom, transparent 40%, rgba(0,0,0,0.8) 100%);
+	}
+
+	.featured-news-content {
+		padding: 1rem;
+		display: flex;
+		flex-direction: column;
+		justify-content: center;
+		background: var(--bg-secondary);
+	}
+
+	.featured-news-title {
+		font-size: 1.1rem;
+		font-weight: 700;
+		line-height: 1.3;
+		margin-bottom: 0.5rem;
+		color: var(--text-primary);
+		display: -webkit-box;
+		-webkit-line-clamp: 2;
+		-webkit-box-orient: vertical;
+		overflow: hidden;
+	}
+
+	.featured-news-summary {
+		font-size: 0.85rem;
+		color: var(--text-secondary);
+		line-height: 1.4;
+		margin-bottom: 0.5rem;
+		display: -webkit-box;
+		-webkit-line-clamp: 2;
+		-webkit-box-orient: vertical;
+		overflow: hidden;
+	}
+
+	.featured-news-meta {
+		display: flex;
+		gap: 0.75rem;
+		font-size: 0.7rem;
+		color: var(--text-muted);
+		margin-bottom: 0.25rem;
+	}
+
+	.featured-source {
+		font-weight: 600;
+		color: var(--accent-primary);
+	}
+
+	.read-more-link {
+		font-size: 0.85rem;
+		font-weight: 600;
+		color: var(--accent-primary);
+	}
+
+	/* Progress Dots */
+	.news-progress-dots {
+		display: flex;
+		justify-content: center;
+		gap: 0.5rem;
+		padding: 0.5rem 0;
+	}
+
+	.progress-dot {
+		width: 10px;
+		height: 10px;
+		border-radius: 50%;
+		background: var(--border-color);
+		border: none;
+		cursor: pointer;
+		transition: all 0.3s ease;
+		padding: 0;
+	}
+
+	.progress-dot:hover {
+		background: var(--text-secondary);
+	}
+
+	.progress-dot.active {
+		background: var(--accent-primary);
+		width: 28px;
+		border-radius: 5px;
+	}
+
+	/* News Thumbnails Row */
+	.news-thumbnails-row {
+		display: grid;
+		grid-template-columns: repeat(3, 1fr);
+		gap: 0.75rem;
+	}
+
+	.news-thumbnail-card {
+		text-decoration: none;
+		color: var(--text-primary);
+		background: var(--bg-secondary);
+		border-radius: 8px;
+		overflow: hidden;
+		transition: transform 0.2s ease, box-shadow 0.2s ease;
+		cursor: pointer;
+		border: 2px solid transparent;
+	}
+
+	.news-thumbnail-card:hover {
+		transform: translateY(-2px);
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+	}
+
+	.news-thumbnail-card.active {
+		border-color: var(--accent-primary);
+	}
+
+	.thumbnail-image {
+		height: 70px;
+		background-size: cover;
+		background-position: center;
+		background-color: var(--bg-tertiary);
+	}
+
+	.thumbnail-title {
+		padding: 0.5rem;
+		font-size: 0.7rem;
+		font-weight: 500;
+		line-height: 1.3;
+		color: var(--text-primary);
+		display: -webkit-box;
+		-webkit-line-clamp: 2;
+		-webkit-box-orient: vertical;
+		overflow: hidden;
+		margin: 0;
+	}
+
+	/* Right Panels Container */
+	.home-right-panels {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 1rem;
+	}
+
+	/* Financial Health Panel */
+	.financial-panel {
+		border-top: 3px solid #3b82f6;
+	}
+
+	.financial-grid {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 0.75rem;
+		flex: 1;
+	}
+
+	.fin-metric {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		padding: 0.5rem;
+		background: var(--bg-secondary);
+		border-radius: 6px;
+	}
+
+	.fin-metric.full-width {
+		grid-column: span 2;
+	}
+
+	.fin-label {
+		font-size: 0.7rem;
+		color: var(--text-secondary);
+		text-transform: uppercase;
+	}
+
+	.fin-value {
+		font-size: 1rem;
+		font-weight: 700;
+		color: var(--text-primary);
+	}
+
+	.fin-value.revenue {
+		color: #10b981;
+	}
+
+	.fin-value.burn {
+		color: #ef4444;
+	}
+
+	.fin-value.profitable {
+		color: #10b981;
+	}
+
+	.fin-value.burning {
+		color: #ef4444;
+	}
+
+	/* Marketing Snapshot Panel */
+	.marketing-panel {
+		border-top: 3px solid #f59e0b;
+	}
+
+	.marketing-grid {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 0.5rem;
+		flex: 1;
+	}
+
+	.mkt-metric {
+		display: flex;
+		flex-direction: column;
+		gap: 0.2rem;
+		padding: 0.4rem;
+		background: var(--bg-secondary);
+		border-radius: 6px;
+	}
+
+	.mkt-label {
+		font-size: 0.65rem;
+		color: var(--text-secondary);
+	}
+
+	.mkt-value {
+		font-size: 0.9rem;
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.mkt-value.profitable {
+		color: #10b981;
+	}
+
+	.mkt-value.burning {
+		color: #ef4444;
+	}
+
+	.mkt-value.action {
+		color: #f59e0b;
+	}
+
+	.home-card {
+		background: var(--card-bg);
+		border: 1px solid var(--border-color);
+		border-radius: 10px;
+		padding: 1rem;
+		min-width: 0;
+		overflow: hidden;
+		display: flex;
+		flex-direction: column;
+	}
+
+	.home-card-title {
+		font-size: 0.85rem;
+		font-weight: 700;
+		color: var(--text-primary);
+		margin: 0 0 0.5rem 0;
+		flex-shrink: 0;
+	}
+
+	/* Valuation Summary Card */
+	.valuation-summary-card {
+		text-align: center;
+		justify-content: center;
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.valuation-summary-card:hover {
+		border-color: var(--accent-color);
+		box-shadow: 0 2px 8px rgba(255, 193, 7, 0.2);
+	}
+
+	.valuation-big {
+		font-size: 1.5rem;
+		font-weight: 800;
+		color: var(--accent-color);
+	}
+
+	.valuation-usd-small {
+		font-size: 0.75rem;
+		color: var(--text-secondary);
+		margin-top: 0.25rem;
+	}
+
+	.valuation-hint {
+		font-size: 0.65rem;
+		color: var(--text-secondary);
+		margin-top: 0.5rem;
+		opacity: 0.7;
+	}
+
+	/* Actions Card */
+	.actions-card {
+		min-width: 0;
+		overflow: hidden;
+	}
+
+	.actions-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.4rem;
+		width: 100%;
+		overflow-y: auto;
+		flex: 1;
+	}
+
+	.action-item {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.5rem;
+		padding: 0.4rem 0.5rem;
+		background: rgba(0, 0, 0, 0.02);
+		border-radius: 6px;
+		transition: all 0.2s ease;
+		min-width: 0;
+	}
+
+	.action-item.rejected {
+		opacity: 0.5;
+	}
+
+	.action-item.accepted {
+		border-left: 3px solid var(--accent-color);
+	}
+
+	.action-letter {
+		font-weight: 700;
+		color: var(--accent-color);
+		min-width: 16px;
+		flex-shrink: 0;
+		font-size: 0.75rem;
+	}
+
+	.action-text {
+		flex: 1;
+		font-size: 0.72rem;
+		color: var(--text-primary);
+		line-height: 1.3;
+		word-wrap: break-word;
+		overflow-wrap: break-word;
+		min-width: 0;
+	}
+
+	.action-text.strikethrough {
+		text-decoration: line-through;
+		color: var(--text-secondary);
+	}
+
+	.action-buttons {
+		display: flex;
+		gap: 0.5rem;
+		flex-shrink: 0;
+	}
+
+	.action-btn {
+		width: 26px;
+		height: 26px;
+		border-radius: 50%;
+		border: none;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: all 0.2s ease;
+		flex-shrink: 0;
+	}
+
+	.action-btn.accept {
+		background: #22c55e;
+		color: white;
+	}
+
+	.action-btn.accept:hover {
+		background: #16a34a;
+		transform: scale(1.1);
+	}
+
+	.action-btn.reject {
+		background: #ef4444;
+		color: white;
+	}
+
+	.action-btn.reject:hover {
+		background: #dc2626;
+		transform: scale(1.1);
+	}
+
+	.action-btn .material-symbols-outlined {
+		font-size: 16px;
+	}
+
+	/* RAG Buttons */
+	.rag-buttons {
+		display: flex;
+		gap: 0.4rem;
+		flex-shrink: 0;
+	}
+
+	.rag-buttons.small .rag-btn {
+		width: 14px;
+		height: 14px;
+	}
+
+	.rag-btn {
+		width: 18px;
+		height: 18px;
+		border-radius: 50%;
+		border: 2px solid transparent;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		opacity: 0.4;
+		flex-shrink: 0;
+	}
+
+	.rag-btn:hover {
+		opacity: 0.8;
+		transform: scale(1.2);
+	}
+
+	.rag-btn.active {
+		opacity: 1;
+		border-color: white;
+		box-shadow: 0 0 8px currentColor;
+	}
+
+	.rag-btn.red {
+		background: #ef4444;
+	}
+
+	.rag-btn.amber {
+		background: #f59e0b;
+	}
+
+	.rag-btn.green {
+		background: #22c55e;
+	}
+
+	/* Backlog Card */
+	.backlog-card {
+		min-width: 0;
+		overflow: hidden;
+	}
+
+	.backlog-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.3rem;
+		overflow-y: auto;
+		flex: 1;
+	}
+
+	.backlog-item {
+		display: flex;
+		align-items: center;
+		gap: 0.3rem;
+		font-size: 0.7rem;
+		padding: 0.35rem;
+		background: rgba(0, 0, 0, 0.02);
+		border-radius: 4px;
+	}
+
+	.backlog-letter {
+		font-weight: 600;
+		color: var(--text-secondary);
+		font-size: 0.65rem;
+		min-width: 14px;
+	}
+
+	.backlog-text {
+		flex: 1;
+		color: var(--text-primary);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.no-actions-text, .no-backlog-text {
+		color: var(--text-secondary);
+		font-size: 0.75rem;
+		text-align: center;
+		padding: 1rem 0.5rem;
+	}
+
+	/* News Marquee */
+	.news-marquee-container {
+		background: var(--card-bg);
+		border: 1px solid var(--border-color);
+		border-radius: 8px;
+		padding: 0.6rem 1rem;
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		overflow: hidden;
+		flex-shrink: 0;
+	}
+
+	.news-label {
+		font-weight: 700;
+		color: var(--text-primary);
+		white-space: nowrap;
+		padding-right: 0.75rem;
+		border-right: 2px solid var(--border-color);
+		font-size: 0.8rem;
+	}
+
+	.news-marquee {
+		flex: 1;
+		overflow: hidden;
+		position: relative;
+	}
+
+	.marquee-content {
+		display: flex;
+		gap: 3rem;
+		animation: marquee 30s linear infinite;
+		white-space: nowrap;
+	}
+
+	@keyframes marquee {
+		0% { transform: translateX(0); }
+		100% { transform: translateX(-50%); }
+	}
+
+	.news-item {
+		display: inline-flex;
+		gap: 0.5rem;
+		color: var(--text-primary);
+		font-size: 0.9rem;
+	}
+
+	.news-item strong {
+		color: var(--accent-color);
+	}
+
+	.news-time {
+		color: var(--text-secondary);
+		font-size: 0.7rem;
+	}
+
+	.news-loading, .news-placeholder {
+		color: var(--text-secondary);
+		font-style: italic;
+		font-size: 0.8rem;
+	}
+
+	.news-item {
+		display: inline-flex;
+		gap: 0.4rem;
+		color: var(--text-primary);
+		font-size: 0.8rem;
+	}
+
+	/* Dashboard Cards */
+	.dashboard-card {
+		justify-content: center;
+		align-items: center;
+	}
+
+	.dashboard-metric {
+		text-align: center;
+	}
+
+	.dashboard-metric .metric-label {
+		display: block;
+		font-size: 0.75rem;
+		color: var(--text-secondary);
+		margin-bottom: 0.25rem;
+	}
+
+	.dashboard-metric .metric-value {
+		font-size: 1.5rem;
+		font-weight: 800;
+		color: var(--accent-color);
+	}
+
+	.dashboard-placeholder {
+		color: var(--text-secondary);
+		text-align: center;
+		font-size: 0.75rem;
+	}
+
+	/* Financial Health Dashboard Card */
+	.financial-health-card {
+		flex-direction: column;
+		align-items: stretch !important;
+		min-height: 160px;
+		justify-content: flex-start;
+	}
+
+	.dashboard-metrics-grid {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 1.25rem;
+		width: 100%;
+		padding: 0.75rem 0;
+		flex: 1;
+	}
+
+	.dashboard-metric-item {
+		display: flex;
+		flex-direction: column;
+		gap: 0.4rem;
+	}
+
+	.dashboard-metric-item .metric-label {
+		font-size: 0.75rem;
+		color: var(--text-secondary);
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+	}
+
+	.dashboard-metric-item .metric-value {
+		font-size: 1.4rem;
+		font-weight: 700;
+		color: var(--text-primary);
+		line-height: 1.2;
+	}
+
+	.dashboard-metric-item.burn .metric-value {
+		color: #ef4444;
+	}
+
+	.dashboard-metric-item.revenue .metric-value {
+		color: #10b981;
+	}
+
+	.dashboard-metric-item .metric-value.profitable {
+		color: #10b981;
+	}
+
+	.dashboard-metric-item .metric-value.burning {
+		color: #ef4444;
+	}
+
+	/* Home Metrics Section */
+	.home-metrics-section {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+		margin-bottom: 0.5rem;
+	}
+
+	.metrics-row {
+		display: grid;
+		grid-template-columns: repeat(4, 1fr);
+		gap: 0.75rem;
+	}
+
+	/* Financial Health 2x2 Grid */
+	.metrics-row.financial-row {
+		grid-template-columns: repeat(2, 1fr);
+		gap: 0.75rem;
+	}
+
+	/* Know your Market Section */
+	.know-your-market-section {
+		margin-bottom: 1.5rem;
+		padding-bottom: 1.5rem;
+		border-bottom: 1px solid var(--border-color);
+	}
+
+	.market-metrics-grid {
+		display: grid;
+		grid-template-columns: repeat(4, 1fr);
+		gap: 0.75rem;
+		margin-top: 1rem;
+	}
+
+	.metric-box {
+		background: var(--card-bg);
+		border: 1px solid var(--border-color);
+		border-radius: 10px;
+		padding: 0.75rem 1rem;
+		border-top: 3px solid var(--border-color);
+	}
+
+	.metric-box.tam { border-top-color: #3b82f6; }
+	.metric-box.sam { border-top-color: #f59e0b; }
+	.metric-box.som { border-top-color: #22c55e; }
+	.metric-box.cagr { border-top-color: #8b5cf6; }
+	.metric-box.runway { border-top-color: #6b7280; }
+	.metric-box.burn { border-top-color: #ef4444; }
+	.metric-box.revenue { border-top-color: #10b981; }
+	.metric-box.status { border-top-color: #f59e0b; }
+
+	.metric-header-small {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		font-size: 0.7rem;
+		font-weight: 600;
+		color: var(--text-secondary);
+		text-transform: uppercase;
+		margin-bottom: 0.4rem;
+	}
+
+	.metric-header-small .material-symbols-outlined {
+		font-size: 0.9rem;
+	}
+
+	.metric-value-large {
+		font-size: 1.25rem;
+		font-weight: 800;
+		color: var(--text-primary);
+		line-height: 1.2;
+	}
+
+	.metric-value-large.profitable { color: #22c55e; }
+	.metric-value-large.burning { color: #ef4444; }
+
+	.metric-desc-small {
+		font-size: 0.65rem;
+		color: var(--text-secondary);
+		margin-top: 0.25rem;
+	}
+
+	.metric-sub {
+		font-size: 0.6rem;
+		color: var(--text-secondary);
+		background: var(--bg-secondary);
+		padding: 0.15rem 0.4rem;
+		border-radius: 4px;
+		display: inline-block;
+		margin-top: 0.25rem;
+	}
+
+	.financial-health-header {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-size: 0.85rem;
+		font-weight: 600;
+		color: var(--text-primary);
+		margin-top: 0.5rem;
+	}
+
+	.financial-health-header .material-symbols-outlined {
+		font-size: 1rem;
+		color: var(--accent-color);
+	}
+
+	.valuation-method-row {
+		display: flex;
+		gap: 2rem;
+		padding: 0.5rem 0;
+	}
+
+	.method-item {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		font-size: 0.75rem;
+		color: var(--text-secondary);
+	}
+
+	.method-item .material-symbols-outlined {
+		font-size: 0.9rem;
+	}
+
+	.method-item strong {
+		color: var(--text-primary);
+	}
+
+	/* News Link Styles */
+	.news-item-link {
+		text-decoration: none;
+		color: inherit;
+		transition: all 0.2s ease;
+	}
+
+	.news-item-link:hover {
+		color: var(--accent-color);
+	}
+
+	.news-item-link:hover .news-item {
+		text-decoration: underline;
+	}
+
+	@media (max-width: 992px) {
+		.metrics-row {
+			grid-template-columns: repeat(2, 1fr);
+		}
+	}
+
+	@media (max-width: 576px) {
+		.metrics-row {
+			grid-template-columns: 1fr;
+		}
+		
+		.valuation-method-row {
+			flex-direction: column;
+			gap: 0.5rem;
+		}
+	}
+
+	/* Header Company Logo/Name */
+	.header-company-logo {
+		display: flex;
+		align-items: center;
+		margin-right: 1rem;
+	}
+
+	.header-company-logo img {
+		height: 36px;
+		width: auto;
+		max-width: 120px;
+		object-fit: contain;
+		border-radius: 6px;
+	}
+
+	.header-company-name {
+		font-weight: 600;
+		color: var(--text-primary);
+		font-size: 0.95rem;
+		margin-right: 1rem;
+		padding: 0.5rem 1rem;
+		background: rgba(255, 215, 0, 0.1);
+		border-radius: 6px;
+	}
+
+	/* File Upload Styles */
+	.file-upload-container {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 1rem;
+	}
+
+	.file-upload-label {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		width: 200px;
+		height: 200px;
+		border: 2px dashed var(--border-color);
+		border-radius: 12px;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		background: rgba(0, 0, 0, 0.02);
+	}
+
+	.file-upload-label:hover {
+		border-color: var(--accent-color);
+		background: rgba(255, 215, 0, 0.05);
+	}
+
+	.file-upload-label .material-symbols-outlined {
+		font-size: 48px;
+		color: var(--text-secondary);
+	}
+
+	.logo-preview {
+		max-width: 160px;
+		max-height: 160px;
+		object-fit: contain;
+		border-radius: 8px;
+	}
+
+	.change-logo-text {
+		font-size: 0.85rem;
+		color: var(--text-secondary);
+	}
+
+	.skip-btn {
+		font-size: 0.9rem;
+	}
+
+	.loading-spinner-small {
+		text-align: center;
+		padding: 2rem;
+		color: var(--text-secondary);
+	}
+
+	/* Responsive adjustments for home layout */
+	@media (max-width: 1200px) {
+		.home-row-top {
+			grid-template-columns: 140px 1fr 180px;
+		}
+	}
+
+	@media (max-width: 992px) {
+		.home-layout {
+			height: auto;
+			overflow: auto;
+		}
+		
+		.home-row-top {
+			grid-template-columns: 1fr 1fr;
+			grid-template-rows: auto auto;
+		}
+		
+		.valuation-summary-card {
+			grid-column: 1;
+		}
+		
+		.actions-card {
+			grid-column: 2;
+			grid-row: 1 / 3;
+		}
+		
+		.backlog-card {
+			grid-column: 1;
+		}
+	}
+
+	@media (max-width: 768px) {
+		.home-row-top, .home-row-bottom {
+			grid-template-columns: 1fr;
+		}
+		
+		.actions-card, .backlog-card {
+			grid-column: span 1;
+			grid-row: auto;
+		}
+	}
+
 	.welcome-card {
 		padding: 2.5rem;
 	}
@@ -3724,6 +6257,8 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 	/* Main Content */
 	.main-content {
 		overflow-y: auto;
+		overflow-x: hidden;
+		max-width: 100%;
 	}
 
 	/* Main Content */
@@ -3791,6 +6326,8 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 	.content-area {
 		padding: 20px 15px;
 		flex: 1;
+		max-width: 100%;
+		overflow-x: hidden;
 	}
 
 	.card-header {
@@ -5067,6 +7604,117 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 		margin-top: 1.5rem;
 	}
 
+	/* Line Chart Styles */
+	.line-chart-container {
+		background: var(--bg-secondary);
+		border: 1px solid var(--border-color);
+		border-radius: 12px;
+		padding: 1.5rem;
+	}
+
+	.line-chart-legend {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 1rem;
+		margin-bottom: 1.5rem;
+		padding: 1rem;
+		background: var(--card-bg);
+		border-radius: 8px;
+	}
+
+	.line-chart-legend .legend-item {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-size: 0.85rem;
+		padding: 0.375rem 0.75rem;
+		background: var(--bg-secondary);
+		border-radius: 20px;
+		border: 1px solid var(--border-color);
+	}
+
+	.legend-dot {
+		width: 12px;
+		height: 12px;
+		border-radius: 50%;
+	}
+
+	.legend-label {
+		font-weight: 500;
+		color: var(--text-primary);
+	}
+
+	.user-mentioned-badge {
+		font-size: 0.7rem;
+		padding: 0.2rem 0.5rem;
+		background: var(--accent-primary);
+		color: white;
+		border-radius: 10px;
+		font-weight: 600;
+	}
+
+	.svg-chart-wrapper {
+		width: 100%;
+		overflow-x: auto;
+		padding: 1rem 0;
+	}
+
+	.valuation-line-chart {
+		width: 100%;
+		min-width: 600px;
+		height: auto;
+		max-height: 450px;
+	}
+
+	.valuation-line-chart .axis-label {
+		font-size: 11px;
+		fill: var(--text-secondary);
+		font-family: inherit;
+	}
+
+	.valuation-line-chart .axis-title {
+		font-size: 12px;
+		font-weight: 600;
+		fill: var(--text-primary);
+		font-family: inherit;
+	}
+
+	.chart-line {
+		filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1));
+		transition: stroke-width 0.2s;
+	}
+
+	.chart-line:hover {
+		stroke-width: 4;
+	}
+
+	.chart-dot {
+		cursor: pointer;
+		transition: r 0.2s, filter 0.2s;
+	}
+
+	.chart-dot:hover {
+		r: 9;
+		filter: drop-shadow(0 0 8px currentColor);
+	}
+
+	.data-source-info {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		margin-top: 1rem;
+		padding: 0.75rem 1rem;
+		background: var(--card-bg);
+		border-radius: 8px;
+		font-size: 0.8rem;
+		color: var(--text-secondary);
+	}
+
+	.data-source-info .material-symbols-outlined {
+		font-size: 1rem;
+		color: var(--accent-primary);
+	}
+
 	.chart-legend {
 		display: flex;
 		gap: 2rem;
@@ -5154,6 +7802,230 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 		color: rgba(0, 0, 0, 0.85);
 		text-shadow: 0 1px 2px rgba(255, 255, 255, 0.8);
 		font-weight: 700;
+	}
+
+	/* Market Trends Section Styles */
+	.market-trends-section {
+		margin-top: 2rem;
+		padding: 1.5rem;
+		background: linear-gradient(135deg, rgba(34, 139, 34, 0.1), rgba(0, 100, 0, 0.05));
+		border: 1px solid rgba(34, 139, 34, 0.3);
+		border-radius: 12px;
+	}
+
+	.trends-title {
+		color: #228b22 !important;
+	}
+
+	.trends-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+	}
+
+	.trend-item {
+		padding: 0.75rem 1rem;
+		background: var(--card-bg);
+		border-radius: 8px;
+		border-left: 4px solid #228b22;
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.5rem;
+		align-items: center;
+	}
+
+	.trend-title {
+		color: var(--text-primary);
+		font-weight: 600;
+	}
+
+	.trend-value {
+		color: #228b22;
+		font-weight: 700;
+	}
+
+	.trend-description {
+		color: var(--text-secondary);
+		font-style: italic;
+	}
+
+	/* Market Opportunities Section Styles */
+	.market-opportunities-section {
+		margin-top: 2rem;
+		padding: 1.5rem;
+		background: linear-gradient(135deg, rgba(220, 38, 38, 0.05), rgba(255, 255, 255, 0.02));
+		border: 1px solid var(--border-color);
+		border-radius: 12px;
+	}
+
+	.opportunities-title {
+		color: #dc2626 !important;
+	}
+
+	.opportunities-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+		gap: 1.5rem;
+		margin-top: 1rem;
+	}
+
+	.opportunity-card {
+		background: var(--card-bg);
+		border-radius: 12px;
+		padding: 1.5rem;
+		border: 1px solid var(--border-color);
+	}
+
+	.opportunity-card.govt {
+		border-left: 4px solid #2563eb;
+	}
+
+	.opportunity-card.enterprise {
+		border-left: 4px solid #059669;
+	}
+
+	.opportunity-card h4 {
+		font-size: 1.1rem;
+		font-weight: 700;
+		color: var(--accent-color);
+		margin-bottom: 1rem;
+	}
+
+	.opportunity-card ul {
+		list-style: none;
+		padding: 0;
+		margin: 0;
+	}
+
+	.opportunity-card li {
+		padding: 0.5rem 0;
+		color: var(--text-primary);
+		display: flex;
+		align-items: flex-start;
+		gap: 0.5rem;
+		border-bottom: 1px solid var(--border-color);
+	}
+
+	.opportunity-card li:last-child {
+		border-bottom: none;
+	}
+
+	.checkmark {
+		color: #059669;
+		font-weight: 700;
+		flex-shrink: 0;
+	}
+
+	/* Strategic Recommendations Section Styles */
+	.strategic-recommendations-section {
+		margin-top: 2rem;
+		padding: 1.5rem;
+		background: linear-gradient(135deg, rgba(37, 99, 235, 0.05), rgba(255, 255, 255, 0.02));
+		border: 1px solid var(--border-color);
+		border-radius: 12px;
+	}
+
+	.strategy-title {
+		color: #2563eb !important;
+	}
+
+	.recommendations-list {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+		margin-top: 1rem;
+	}
+
+	.recommendation-card {
+		background: var(--card-bg);
+		border-radius: 12px;
+		padding: 1.25rem;
+		border: 1px solid var(--border-color);
+		transition: all 0.3s ease;
+	}
+
+	.recommendation-card:hover {
+		transform: translateX(4px);
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+	}
+
+	.recommendation-card.priority-critical {
+		border-left: 4px solid #dc2626;
+		background: linear-gradient(135deg, rgba(220, 38, 38, 0.08), var(--card-bg));
+	}
+
+	.recommendation-card.priority-high {
+		border-left: 4px solid #f59e0b;
+		background: linear-gradient(135deg, rgba(245, 158, 11, 0.08), var(--card-bg));
+	}
+
+	.recommendation-card.priority-medium {
+		border-left: 4px solid #3b82f6;
+		background: linear-gradient(135deg, rgba(59, 130, 246, 0.08), var(--card-bg));
+	}
+
+	.rec-header {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.5rem;
+		margin-bottom: 0.75rem;
+	}
+
+	.rec-number {
+		font-weight: 700;
+		color: var(--accent-color);
+		font-size: 1.1rem;
+	}
+
+	.rec-title {
+		font-weight: 700;
+		color: var(--text-primary);
+		font-size: 1rem;
+	}
+
+	.priority-badge {
+		font-size: 0.75rem;
+		font-weight: 600;
+		padding: 0.25rem 0.5rem;
+		border-radius: 4px;
+	}
+
+	.priority-badge.critical {
+		color: #dc2626;
+		background: rgba(220, 38, 38, 0.15);
+	}
+
+	.priority-badge.high {
+		color: #f59e0b;
+		background: rgba(245, 158, 11, 0.15);
+	}
+
+	.priority-badge.medium {
+		color: #3b82f6;
+		background: rgba(59, 130, 246, 0.15);
+	}
+
+	.rec-description {
+		color: var(--text-secondary);
+		font-size: 0.95rem;
+		line-height: 1.6;
+		margin: 0 0 0.75rem 0;
+	}
+
+	.rec-target {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.5rem 0.75rem;
+		background: rgba(34, 197, 94, 0.1);
+		border-radius: 6px;
+		color: #059669;
+		font-size: 0.9rem;
+	}
+
+	.rec-target .material-symbols-outlined {
+		font-size: 1rem;
 	}
 
 	.competitors-grid {
@@ -5712,6 +8584,449 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 		color: var(--text-secondary);
 		line-height: 1.5;
 		margin: 0;
+	}
+
+	/* =====================================================
+	   NOTES SECTION STYLES
+	   ===================================================== */
+	
+	.notes-section {
+		padding: 0;
+		height: calc(100vh - 140px);
+	}
+
+	.notes-layout {
+		display: grid;
+		grid-template-columns: 1fr 3fr;
+		height: 100%;
+		background: var(--card-bg);
+		border: 1px solid var(--border-color);
+		border-radius: 12px;
+		overflow: hidden;
+	}
+
+	/* Notes Sidebar (Left 1/4) */
+	.notes-sidebar {
+		background: var(--bg-secondary);
+		border-right: 1px solid var(--border-color);
+		display: flex;
+		flex-direction: column;
+		height: 100%;
+		overflow: hidden;
+	}
+
+	.notes-sidebar-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 1rem 1.25rem;
+		border-bottom: 1px solid var(--border-color);
+	}
+
+	.notes-sidebar-header h3 {
+		margin: 0;
+		font-size: 1.1rem;
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.btn-add-note {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 32px;
+		height: 32px;
+		background: var(--accent-primary);
+		border: none;
+		border-radius: 8px;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.btn-add-note .material-symbols-outlined {
+		font-size: 1.25rem;
+		color: white;
+	}
+
+	.btn-add-note:hover {
+		background: var(--accent-hover);
+		transform: scale(1.05);
+	}
+
+	.notes-sidebar .notes-search-box {
+		margin: 0.75rem;
+		padding: 0.5rem 0.75rem;
+	}
+
+	.notes-sidebar .notes-category-select {
+		margin: 0 0.75rem 0.75rem;
+		width: calc(100% - 1.5rem);
+	}
+
+	.notes-list {
+		flex: 1;
+		overflow-y: auto;
+		padding: 0.5rem;
+	}
+
+	.note-list-item {
+		display: block;
+		width: 100%;
+		text-align: left;
+		padding: 0.875rem 1rem;
+		background: transparent;
+		border: 1px solid transparent;
+		border-radius: 8px;
+		cursor: pointer;
+		transition: all 0.2s;
+		margin-bottom: 0.25rem;
+	}
+
+	.note-list-item:hover {
+		background: var(--bg-tertiary);
+		border-color: var(--border-color);
+	}
+
+	.note-list-item.active {
+		background: var(--accent-shadow);
+		border-color: var(--accent-primary);
+	}
+
+	.note-list-item-title {
+		font-size: 0.9rem;
+		font-weight: 600;
+		color: var(--text-primary);
+		margin-bottom: 0.375rem;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.note-list-item-meta {
+		display: flex;
+		justify-content: space-between;
+		font-size: 0.75rem;
+		color: var(--text-secondary);
+	}
+
+	.note-list-category {
+		color: var(--accent-primary);
+		font-weight: 500;
+	}
+
+	.empty-notes-sidebar {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		padding: 2rem;
+		text-align: center;
+		color: var(--text-secondary);
+	}
+
+	.empty-notes-sidebar .material-symbols-outlined {
+		font-size: 2.5rem;
+		margin-bottom: 0.5rem;
+		color: var(--accent-primary);
+		opacity: 0.5;
+	}
+
+	.empty-notes-sidebar p {
+		margin: 0;
+		font-size: 0.875rem;
+	}
+
+	/* Notes Content (Right 3/4) */
+	.notes-content {
+		display: flex;
+		flex-direction: column;
+		height: 100%;
+		overflow: hidden;
+	}
+
+	/* Note Editor (Create New) */
+	.note-editor {
+		height: 100%;
+		display: flex;
+		flex-direction: column;
+	}
+
+	.note-editor-header {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 1.25rem 1.5rem;
+		border-bottom: 1px solid var(--border-color);
+		background: var(--bg-secondary);
+	}
+
+	.note-editor-header .material-symbols-outlined {
+		font-size: 1.5rem;
+		color: var(--accent-primary);
+	}
+
+	.note-editor-header h2 {
+		margin: 0;
+		font-size: 1.25rem;
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.note-form {
+		flex: 1;
+		padding: 1.5rem;
+		overflow-y: auto;
+		display: flex;
+		flex-direction: column;
+		gap: 1.25rem;
+	}
+
+	.form-group {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.form-group label {
+		font-size: 0.875rem;
+		font-weight: 600;
+		color: var(--text-secondary);
+	}
+
+	.form-group input,
+	.form-group select,
+	.form-group textarea {
+		padding: 0.75rem 1rem;
+		background: var(--bg-secondary);
+		border: 1px solid var(--border-color);
+		border-radius: 8px;
+		color: var(--text-primary);
+		font-size: 0.95rem;
+		transition: border-color 0.2s;
+	}
+
+	.form-group input:focus,
+	.form-group select:focus,
+	.form-group textarea:focus {
+		outline: none;
+		border-color: var(--accent-primary);
+	}
+
+	.form-group textarea {
+		resize: vertical;
+		min-height: 200px;
+		flex: 1;
+		font-family: inherit;
+		line-height: 1.6;
+	}
+
+	.note-form-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: 1rem;
+		padding-top: 1rem;
+		border-top: 1px solid var(--border-color);
+	}
+
+	/* Note Viewer */
+	.note-viewer {
+		height: 100%;
+		display: flex;
+		flex-direction: column;
+	}
+
+	.note-viewer-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: flex-start;
+		padding: 1.25rem 1.5rem;
+		border-bottom: 1px solid var(--border-color);
+		background: var(--bg-secondary);
+	}
+
+	.note-viewer-title {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		flex-wrap: wrap;
+	}
+
+	.note-viewer-title h2 {
+		margin: 0;
+		font-size: 1.25rem;
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.note-viewer-actions {
+		display: flex;
+		align-items: center;
+		gap: 1rem;
+	}
+
+	.note-viewer-content {
+		flex: 1;
+		padding: 1.5rem;
+		overflow-y: auto;
+		display: flex;
+		flex-direction: column;
+		gap: 1.25rem;
+	}
+
+	/* Note Placeholder */
+	.note-placeholder {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		text-align: center;
+		padding: 3rem;
+		color: var(--text-secondary);
+	}
+
+	.note-placeholder .material-symbols-outlined {
+		font-size: 4rem;
+		margin-bottom: 1rem;
+		color: var(--accent-primary);
+		opacity: 0.4;
+	}
+
+	.note-placeholder h3 {
+		margin: 0 0 0.5rem;
+		font-size: 1.25rem;
+		color: var(--text-primary);
+	}
+
+	.note-placeholder p {
+		margin: 0 0 1.5rem;
+		max-width: 300px;
+	}
+
+	.section-description {
+		color: var(--text-secondary);
+		font-size: 0.95rem;
+		line-height: 1.6;
+		margin-bottom: 1.5rem;
+	}
+
+	.notes-search-box {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		background: var(--bg-secondary);
+		border: 1px solid var(--border-color);
+		border-radius: 8px;
+		padding: 0.5rem 1rem;
+	}
+
+	.notes-search-box input {
+		flex: 1;
+		border: none;
+		background: transparent;
+		color: var(--text-primary);
+		font-size: 0.9rem;
+		outline: none;
+	}
+
+	.notes-search-box .material-symbols-outlined {
+		color: var(--text-secondary);
+		font-size: 1.2rem;
+	}
+
+	.notes-category-select {
+		padding: 0.5rem 1rem;
+		border: 1px solid var(--border-color);
+		border-radius: 8px;
+		background: var(--bg-secondary);
+		color: var(--text-primary);
+		font-size: 0.9rem;
+		cursor: pointer;
+	}
+
+	.loading-notes-state {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		padding: 2rem;
+		text-align: center;
+		color: var(--text-secondary);
+	}
+
+	.loading-notes-state .material-symbols-outlined {
+		font-size: 2rem;
+		color: var(--accent-primary);
+	}
+
+	.note-category-badge {
+		display: inline-block;
+		padding: 0.25rem 0.75rem;
+		background: var(--accent-shadow);
+		color: var(--accent-primary);
+		border-radius: 20px;
+		font-size: 0.75rem;
+		font-weight: 500;
+	}
+
+	.note-date-badge {
+		font-size: 0.8rem;
+		color: var(--text-secondary);
+	}
+
+	.btn-icon-danger {
+		background: transparent;
+		border: none;
+		cursor: pointer;
+		padding: 0.5rem;
+		border-radius: 6px;
+		color: var(--text-secondary);
+		transition: all 0.2s;
+	}
+
+	.btn-icon-danger:hover {
+		background: rgba(239, 68, 68, 0.1);
+		color: #ef4444;
+	}
+
+	.note-question-box,
+	.note-answer-box {
+		display: flex;
+		gap: 0.75rem;
+		padding: 1rem;
+		border-radius: 8px;
+	}
+
+	.note-question-box {
+		background: var(--bg-tertiary);
+	}
+
+	.note-answer-box {
+		background: var(--accent-shadow);
+	}
+
+	.note-question-box .material-symbols-outlined,
+	.note-answer-box .material-symbols-outlined {
+		font-size: 1.5rem;
+		color: var(--accent-primary);
+		flex-shrink: 0;
+	}
+
+	.note-question-box strong,
+	.note-answer-box strong {
+		display: block;
+		font-size: 0.8rem;
+		color: var(--text-secondary);
+		margin-bottom: 0.25rem;
+	}
+
+	.note-question-box p,
+	.note-answer-box p {
+		margin: 0;
+		font-size: 0.9rem;
+		line-height: 1.5;
+		color: var(--text-primary);
+		white-space: pre-wrap;
 	}
 
 	/* Profile Section */
@@ -6542,6 +9857,166 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 		font-weight: 700;
 	}
 
+	/* SWOT Grid Styles */
+	.swot-grid {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 1rem;
+		margin-top: 1.5rem;
+	}
+
+	.swot-quadrant {
+		padding: 1.25rem;
+		border-radius: 12px;
+		min-height: 180px;
+	}
+
+	.swot-quadrant.strengths {
+		background: linear-gradient(135deg, rgba(34, 197, 94, 0.1) 0%, rgba(34, 197, 94, 0.05) 100%);
+		border: 1px solid rgba(34, 197, 94, 0.3);
+	}
+
+	.swot-quadrant.weaknesses {
+		background: linear-gradient(135deg, rgba(239, 68, 68, 0.1) 0%, rgba(239, 68, 68, 0.05) 100%);
+		border: 1px solid rgba(239, 68, 68, 0.3);
+	}
+
+	.swot-quadrant.opportunities {
+		background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(59, 130, 246, 0.05) 100%);
+		border: 1px solid rgba(59, 130, 246, 0.3);
+	}
+
+	.swot-quadrant.threats {
+		background: linear-gradient(135deg, rgba(245, 158, 11, 0.1) 0%, rgba(245, 158, 11, 0.05) 100%);
+		border: 1px solid rgba(245, 158, 11, 0.3);
+	}
+
+	.quadrant-header {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		margin-bottom: 1rem;
+		padding-bottom: 0.75rem;
+		border-bottom: 1px solid var(--border-color);
+	}
+
+	.quadrant-header h3 {
+		font-size: 1rem;
+		font-weight: 700;
+		margin: 0;
+	}
+
+	.swot-quadrant.strengths .quadrant-header { color: #22c55e; }
+	.swot-quadrant.weaknesses .quadrant-header { color: #ef4444; }
+	.swot-quadrant.opportunities .quadrant-header { color: #3b82f6; }
+	.swot-quadrant.threats .quadrant-header { color: #f59e0b; }
+
+	.quadrant-content {
+		max-height: 200px;
+		overflow-y: auto;
+	}
+
+	.swot-item {
+		font-size: 0.85rem;
+		color: var(--text-primary);
+		padding: 0.4rem 0;
+		line-height: 1.4;
+	}
+
+	.empty-text {
+		color: var(--text-secondary);
+		font-size: 0.85rem;
+		font-style: italic;
+	}
+
+	/* VRIO Table Styles */
+	.section-desc {
+		color: var(--text-secondary);
+		font-size: 0.9rem;
+		margin-top: 0.5rem;
+		margin-bottom: 1.5rem;
+	}
+
+	.vrio-table {
+		border: 1px solid var(--border-color);
+		border-radius: 12px;
+		overflow: hidden;
+	}
+
+	.vrio-header-row {
+		display: grid;
+		grid-template-columns: 2fr 1fr 1fr 1fr 1fr 2fr;
+		background: var(--bg-secondary);
+		font-weight: 600;
+		font-size: 0.8rem;
+		color: var(--text-secondary);
+	}
+
+	.vrio-row {
+		display: grid;
+		grid-template-columns: 2fr 1fr 1fr 1fr 1fr 2fr;
+		border-top: 1px solid var(--border-color);
+	}
+
+	.vrio-row:hover {
+		background: rgba(255, 193, 7, 0.05);
+	}
+
+	.vrio-col {
+		padding: 0.75rem;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		text-align: center;
+		font-size: 0.8rem;
+	}
+
+	.vrio-col.resource-col {
+		justify-content: flex-start;
+		gap: 0.5rem;
+		font-weight: 500;
+		color: var(--text-primary);
+	}
+
+	.vrio-col.resource-col .material-symbols-outlined {
+		font-size: 1.2rem;
+		color: var(--accent-color);
+	}
+
+	.vrio-col.result-col {
+		font-weight: 600;
+		font-size: 0.75rem;
+	}
+
+	.vrio-col.result-col.sustained { color: #22c55e; }
+	.vrio-col.result-col.temporary { color: #3b82f6; }
+	.vrio-col.result-col.parity { color: #f59e0b; }
+	.vrio-col.result-col.disadvantage { color: #ef4444; }
+
+	.vrio-check-icon {
+		font-size: 1rem;
+		font-weight: 700;
+	}
+
+	.vrio-check-icon.yes { color: #22c55e; }
+	.vrio-check-icon.no { color: #ef4444; }
+
+	@media (max-width: 768px) {
+		.swot-grid {
+			grid-template-columns: 1fr;
+		}
+		
+		.vrio-header-row,
+		.vrio-row {
+			grid-template-columns: 1.5fr repeat(4, 0.8fr) 1.5fr;
+			font-size: 0.7rem;
+		}
+		
+		.vrio-col {
+			padding: 0.5rem 0.25rem;
+		}
+	}
+
 	/* AI Chatbot Section */
 	.chat-section {
 		height: calc(100vh - 140px);
@@ -7097,4 +10572,262 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 			gap: 1rem;
 		}
 	}
+
+	/* ============================================
+	   SAVED NOTES STYLES
+	   ============================================ */
+	
+	.save-note-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+		padding: 0.4rem 0.75rem;
+		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+		color: white;
+		border: none;
+		border-radius: 20px;
+		font-size: 0.75rem;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		opacity: 0.8;
+	}
+
+	.save-note-btn:hover {
+		opacity: 1;
+		transform: translateY(-1px);
+		box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+	}
+
+	.save-note-btn .material-symbols-outlined {
+		font-size: 16px;
+	}
+
+	.chat-message-footer {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-top: 0.5rem;
+		gap: 1rem;
+	}
+
+	.notes-controls {
+		display: flex;
+		gap: 1rem;
+		margin-bottom: 1.5rem;
+		flex-wrap: wrap;
+	}
+
+	.notes-search {
+		flex: 1;
+		min-width: 250px;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.75rem 1rem;
+		background: var(--bg-secondary);
+		border-radius: 12px;
+		border: 1px solid var(--border-color);
+	}
+
+	.notes-search input {
+		flex: 1;
+		border: none;
+		background: transparent;
+		font-size: 0.95rem;
+		color: var(--text-primary);
+		outline: none;
+	}
+
+	.notes-search .material-symbols-outlined {
+		color: var(--text-secondary);
+		font-size: 20px;
+	}
+
+	.notes-controls select {
+		padding: 0.75rem 1rem;
+		background: var(--bg-secondary);
+		border: 1px solid var(--border-color);
+		border-radius: 12px;
+		color: var(--text-primary);
+		font-size: 0.95rem;
+		cursor: pointer;
+		outline: none;
+	}
+
+	.saved-notes-list {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+	}
+
+	.loading-notes {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.75rem;
+		padding: 3rem;
+		color: var(--text-secondary);
+		font-size: 0.95rem;
+	}
+
+	.loading-notes .material-symbols-outlined {
+		font-size: 24px;
+	}
+
+	@keyframes rotating {
+		from { transform: rotate(0deg); }
+		to { transform: rotate(360deg); }
+	}
+
+	.rotating {
+		animation: rotating 1s linear infinite;
+	}
+
+	.empty-notes {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		padding: 3rem;
+		text-align: center;
+		color: var(--text-secondary);
+	}
+
+	.empty-notes .material-symbols-outlined {
+		font-size: 64px;
+		opacity: 0.3;
+		margin-bottom: 1rem;
+	}
+
+	.empty-notes p {
+		margin: 0.5rem 0;
+	}
+
+	.empty-notes .hint {
+		font-size: 0.85rem;
+		opacity: 0.7;
+		max-width: 400px;
+	}
+
+	.note-card {
+		background: var(--bg-secondary);
+		border: 1px solid var(--border-color);
+		border-radius: 16px;
+		padding: 1.5rem;
+		transition: all 0.2s ease;
+	}
+
+	.note-card:hover {
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+		transform: translateY(-2px);
+	}
+
+	.note-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: flex-start;
+		margin-bottom: 1rem;
+		gap: 1rem;
+	}
+
+	.note-title-section {
+		flex: 1;
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		flex-wrap: wrap;
+	}
+
+	.note-title-section h4 {
+		margin: 0;
+		font-size: 1.1rem;
+		color: var(--text-primary);
+	}
+
+	.note-category {
+		display: inline-block;
+		padding: 0.35rem 0.75rem;
+		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+		color: white;
+		border-radius: 20px;
+		font-size: 0.75rem;
+		font-weight: 500;
+	}
+
+	.note-actions {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+	}
+
+	.note-date {
+		font-size: 0.85rem;
+		color: var(--text-secondary);
+	}
+
+	.delete-note-btn {
+		padding: 0.5rem;
+		background: #ff3b30;
+		color: white;
+		border: none;
+		border-radius: 8px;
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.delete-note-btn:hover {
+		background: #e6342a;
+		transform: scale(1.05);
+	}
+
+	.delete-note-btn .material-symbols-outlined {
+		font-size: 18px;
+	}
+
+	.note-content {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+	}
+
+	.note-question, .note-answer {
+		display: flex;
+		gap: 0.75rem;
+		padding: 1rem;
+		background: var(--bg-primary);
+		border-radius: 12px;
+		border-left: 3px solid transparent;
+	}
+
+	.note-question {
+		border-left-color: #667eea;
+	}
+
+	.note-answer {
+		border-left-color: #4cd964;
+	}
+
+	.note-question .material-symbols-outlined,
+	.note-answer .material-symbols-outlined {
+		flex-shrink: 0;
+		font-size: 20px;
+		opacity: 0.7;
+	}
+
+	.note-question p,
+	.note-answer p {
+		margin: 0;
+		line-height: 1.6;
+		color: var(--text-primary);
+		font-size: 0.95rem;
+	}
+
+	.note-question strong,
+	.note-answer strong {
+		color: var(--text-primary);
+		display: block;
+		margin-bottom: 0.25rem;
+	}
 </style>
+
