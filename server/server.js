@@ -1011,6 +1011,7 @@ Return ONLY valid JSON (no markdown, no code blocks):
         { "year": 2024, "valuation": 500000000000, "event": "Latest" }
       ],
       "revenue": 100000000,
+      "growthRate": 45,
       "customers": 50000,
       "fundingRaised": 30000000000,
       "visible": true,
@@ -1044,15 +1045,48 @@ Return ONLY valid JSON (no markdown, no code blocks):
       
       const analysis = JSON.parse(content);
       
-      // Mark user-mentioned competitors
+      // Post-process competitors to ensure all required fields exist with valid data
       if (analysis.competitors) {
-        analysis.competitors = analysis.competitors.map(comp => ({
-          ...comp,
-          isUserMentioned: mentionedComps.some(m => 
-            comp.name.toLowerCase().includes(m.toLowerCase()) || 
-            m.toLowerCase().includes(comp.name.toLowerCase())
-          )
-        }));
+        analysis.competitors = analysis.competitors.map(comp => {
+          // Calculate growth rate if not provided (based on valuation timeline)
+          let growthRate = comp.growthRate || 0;
+          if (!growthRate && comp.valuationTimeline && comp.valuationTimeline.length >= 2) {
+            const timeline = comp.valuationTimeline;
+            const latestVal = timeline[timeline.length - 1]?.valuation || 0;
+            const prevVal = timeline[timeline.length - 2]?.valuation || 1;
+            growthRate = Math.round(((latestVal - prevVal) / prevVal) * 100);
+          }
+          
+          // Estimate customers based on revenue if not provided
+          let customers = comp.customers || 0;
+          if (!customers && comp.revenue) {
+            // Rough estimate: average revenue per customer varies by category
+            const avgRevenuePerCustomer = {
+              'SaaS': 100000,      // B2B SaaS - higher value per customer
+              'FinTech': 5000,     // FinTech - many small transactions
+              'E-commerce': 2000, // E-commerce - consumer
+              'EdTech': 10000,    // EdTech - course fees
+              'AI/ML': 50000,     // AI/ML - enterprise
+              'Marketplace': 3000, // Marketplace - transactions
+              'HealthTech': 15000, // HealthTech
+            };
+            const avgRevPerCust = avgRevenuePerCustomer[category] || 10000;
+            customers = Math.round(comp.revenue / avgRevPerCust);
+          }
+          
+          return {
+            ...comp,
+            growthRate: growthRate,
+            customers: customers,
+            revenue: comp.revenue || 0,
+            fundingRaised: comp.fundingRaised || 0,
+            visible: comp.visible !== false,
+            isUserMentioned: mentionedComps.some(m => 
+              comp.name.toLowerCase().includes(m.toLowerCase()) || 
+              m.toLowerCase().includes(comp.name.toLowerCase())
+            )
+          };
+        });
       }
       
       console.log('✅ Valuation timeline data fetched via Google Search for', category);
