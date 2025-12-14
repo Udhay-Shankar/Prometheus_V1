@@ -540,9 +540,13 @@
 					getFundingSchemes().catch(err => console.warn('Funding schemes failed:', err));
 					getCompetitors().catch(err => console.warn('Competitor analysis failed:', err));
 					
-					// Load daily actions and news
+					// Load daily actions immediately
 					loadTodayActions().catch(err => console.warn('Actions loading failed:', err));
-					loadNews().catch(err => console.warn('News loading failed:', err));
+					
+					// Defer news loading to not block main UI (load after 2 seconds)
+					setTimeout(() => {
+						loadNews().catch(err => console.warn('News loading failed:', err));
+					}, 2000);
 					
 					return true; // Has existing valuation
 				}
@@ -747,8 +751,13 @@
 			// Trigger 5-second confetti celebration
 			triggerConfetti();
 			
-			// Load daily actions and news for overview
-			await Promise.all([loadTodayActions(), loadNews()]);
+			// Load daily actions immediately, defer news to not block UI
+			await loadTodayActions();
+			
+			// Load news after a short delay to not block the main UI rendering
+			setTimeout(() => {
+				loadNews().catch(err => console.warn('News loading failed:', err));
+			}, 1500);
 		} catch (error) {
 			console.error('Error calculating valuation:', error);
 		} finally {
