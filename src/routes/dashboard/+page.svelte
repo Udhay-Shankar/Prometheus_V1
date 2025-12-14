@@ -19,6 +19,16 @@
 	let swotAnalysis: any = null;
 	let fundingSchemes: any = null;
 	let competitors: any = null;
+	let verifiedCompetitors: any[] = []; // Competitors with verified revenue/customers
+	let potentialCompetitors: any[] = []; // Competitors without verified data
+	let competitorDataSummary: any = null; // Summary of competitor data
+	let activeCompetitorTab = 'verified'; // 'verified' | 'potential'
+	let compareMode = false; // Whether compare frame is active
+	let compareList: any[] = []; // List of competitors to compare
+	let compareSearchQuery = ''; // Search query in compare frame
+	let onlineSearchLoading = false; // Loading state for online search
+	let onlineSearchError = ''; // Error message for online search
+	let chartTooltip: { visible: boolean; x: number; y: number; company: string; year: number; valuation: number; event: string } = { visible: false, x: 0, y: 0, company: '', year: 0, valuation: 0, event: '' };
 	let marketTrends: any[] = [];
 	let marketOpportunities: any = null;
 	let strategicRecommendations: any[] = [];
@@ -1366,10 +1376,20 @@
 
 			const data = await response.json();
 			console.log('✅ Competitors received:', data);
-			competitors = data.competitors || [];
+			
+			// Handle categorized competitors from server
+			verifiedCompetitors = data.verifiedCompetitors || [];
+			potentialCompetitors = data.potentialCompetitors || [];
+			competitorDataSummary = data.summary || null;
+			
+			// Main competitors array for backwards compatibility (verified ones)
+			competitors = verifiedCompetitors.length > 0 ? verifiedCompetitors : (data.competitors || []);
+			
 			marketTrends = data.marketTrends || [];
 			marketOpportunities = data.marketOpportunities || null;
 			strategicRecommendations = data.strategicRecommendations || [];
+			
+			console.log(`📊 Competitor summary: ${verifiedCompetitors.length} verified, ${potentialCompetitors.length} potential`);
 		} catch (error) {
 			console.error('❌ Error getting competitors:', error);
 			// INTELLIGENT fallback based on user's actual data
@@ -1395,45 +1415,45 @@
 			    userCompetitors.includes('uber eats') || userCompetitors.includes('dunzo') ||
 			    category === 'Marketplace' || category === 'Food & Beverage') {
 				intelligentCompetitors = [
-					{ name: 'Dunzo', stage: 'Series F', currentValuation: 23000000000, earlyValuation: 800000000, growthRate: 420, revenue: 35000000, customers: 3000000, fundingRaised: 800000000, investments: ['Google - $12M', 'Reliance - $200M'], products: ['Hyperlocal Delivery', 'Quick Commerce', 'B2B Services'], visible: true, valuationTimeline: [{ year: 2015, valuation: 50000000, event: 'Founded' }, { year: 2017, valuation: 800000000, event: 'Series B' }, { year: 2020, valuation: 5000000000, event: 'Series D' }, { year: 2022, valuation: 23000000000, event: 'Series F' }] },
-					{ name: 'Zomato', stage: 'Public', currentValuation: 650000000000, earlyValuation: 20000000000, growthRate: 480, revenue: 4800000000, customers: 80000000, fundingRaised: 20000000000, investments: ['Info Edge - $1M', 'Ant Financial - $200M'], products: ['Food Delivery', 'Dining Out', 'Hyperpure'], visible: true, valuationTimeline: [{ year: 2008, valuation: 10000000, event: 'Founded' }, { year: 2013, valuation: 2000000000, event: 'Series C' }, { year: 2018, valuation: 20000000000, event: 'Series G' }, { year: 2021, valuation: 650000000000, event: 'IPO' }] },
-					{ name: 'Swiggy', stage: 'Series J', currentValuation: 1050000000000, earlyValuation: 25000000000, growthRate: 520, revenue: 6500000000, customers: 120000000, fundingRaised: 25000000000, investments: ['Accel - $2M', 'Prosus - $1B'], products: ['Food Delivery', 'Instamart', 'Genie'], visible: true, valuationTimeline: [{ year: 2014, valuation: 50000000, event: 'Founded' }, { year: 2017, valuation: 2000000000, event: 'Series C' }, { year: 2020, valuation: 35000000000, event: 'Series H' }, { year: 2024, valuation: 1050000000000, event: 'Series J' }] }
+					{ name: 'Dunzo', stage: 'Series F', currentValuation: 23000000000, earlyValuation: 800000000, growthRate: 420, revenue: 35000000, customers: 3000000, fundingRaised: 800000000, investments: ['Google - $12M', 'Reliance - $200M'], flagshipProduct: 'Hyperlocal Delivery', products: ['Hyperlocal Delivery', 'Quick Commerce', 'B2B Services'], visible: true, valuationTimeline: [{ year: 2015, valuation: 50000000, event: 'Founded' }, { year: 2017, valuation: 800000000, event: 'Series B' }, { year: 2020, valuation: 5000000000, event: 'Series D' }, { year: 2022, valuation: 23000000000, event: 'Series F' }] },
+					{ name: 'Zomato', stage: 'Public', currentValuation: 650000000000, earlyValuation: 20000000000, growthRate: 480, revenue: 4800000000, customers: 80000000, fundingRaised: 20000000000, investments: ['Info Edge - $1M', 'Ant Financial - $200M'], flagshipProduct: 'Food Delivery App', products: ['Food Delivery', 'Dining Out', 'Hyperpure'], visible: true, valuationTimeline: [{ year: 2008, valuation: 10000000, event: 'Founded' }, { year: 2013, valuation: 2000000000, event: 'Series C' }, { year: 2018, valuation: 20000000000, event: 'Series G' }, { year: 2021, valuation: 650000000000, event: 'IPO' }] },
+					{ name: 'Swiggy', stage: 'Series J', currentValuation: 1050000000000, earlyValuation: 25000000000, growthRate: 520, revenue: 6500000000, customers: 120000000, fundingRaised: 25000000000, investments: ['Accel - $2M', 'Prosus - $1B'], flagshipProduct: 'Food Delivery Platform', products: ['Food Delivery', 'Instamart', 'Genie'], visible: true, valuationTimeline: [{ year: 2014, valuation: 50000000, event: 'Founded' }, { year: 2017, valuation: 2000000000, event: 'Series C' }, { year: 2020, valuation: 35000000000, event: 'Series H' }, { year: 2024, valuation: 1050000000000, event: 'Series J' }] }
 				];
 			}
 			// E-commerce detection
 			else if (userCompetitors.includes('amazon') || userCompetitors.includes('flipkart') || 
 			         userCompetitors.includes('meesho') || category === 'E-commerce') {
 				intelligentCompetitors = [
-					{ name: 'Meesho', stage: 'Series F', currentValuation: 49000000000, earlyValuation: 2000000000, growthRate: 500, revenue: 35000000, customers: 13000000, fundingRaised: 2000000000, investments: ['SoftBank - $300M', 'Meta - $50M'], products: ['Social Commerce', 'Supplier Network', 'Meesho Mall'], visible: true, valuationTimeline: [{ year: 2015, valuation: 50000000, event: 'Founded' }, { year: 2019, valuation: 5000000000, event: 'Series C' }, { year: 2021, valuation: 49000000000, event: 'Series F' }] },
-					{ name: 'Flipkart', stage: 'Acquired', currentValuation: 2000000000000, earlyValuation: 50000000000, growthRate: 450, revenue: 850000000000, customers: 450000000, fundingRaised: 50000000000, investments: ['Walmart - $16B'], products: ['E-commerce', 'Flipkart Plus', 'Grocery'], visible: true, valuationTimeline: [{ year: 2007, valuation: 10000000, event: 'Founded' }, { year: 2012, valuation: 10000000000, event: 'Series D' }, { year: 2018, valuation: 200000000000, event: 'Walmart Acquisition' }, { year: 2024, valuation: 2000000000000, event: 'Current' }] },
-					{ name: 'Amazon India', stage: 'Public', currentValuation: 15000000000000, earlyValuation: 500000000000, growthRate: 380, revenue: 2500000000000, customers: 500000000, fundingRaised: 500000000000, investments: ['Amazon Global'], products: ['E-commerce', 'Prime', 'Fresh'], visible: true, valuationTimeline: [{ year: 2013, valuation: 50000000000, event: 'India Launch' }, { year: 2017, valuation: 300000000000, event: 'Expansion' }, { year: 2020, valuation: 800000000000, event: 'Pandemic Growth' }, { year: 2024, valuation: 15000000000000, event: 'Current' }] }
+					{ name: 'Meesho', stage: 'Series F', currentValuation: 49000000000, earlyValuation: 2000000000, growthRate: 500, revenue: 35000000, customers: 13000000, fundingRaised: 2000000000, investments: ['SoftBank - $300M', 'Meta - $50M'], flagshipProduct: 'Social Commerce Platform', products: ['Social Commerce', 'Supplier Network', 'Meesho Mall'], visible: true, valuationTimeline: [{ year: 2015, valuation: 50000000, event: 'Founded' }, { year: 2019, valuation: 5000000000, event: 'Series C' }, { year: 2021, valuation: 49000000000, event: 'Series F' }] },
+					{ name: 'Flipkart', stage: 'Acquired', currentValuation: 2000000000000, earlyValuation: 50000000000, growthRate: 450, revenue: 850000000000, customers: 450000000, fundingRaised: 50000000000, investments: ['Walmart - $16B'], flagshipProduct: 'E-commerce Marketplace', products: ['E-commerce', 'Flipkart Plus', 'Grocery'], visible: true, valuationTimeline: [{ year: 2007, valuation: 10000000, event: 'Founded' }, { year: 2012, valuation: 10000000000, event: 'Series D' }, { year: 2018, valuation: 200000000000, event: 'Walmart Acquisition' }, { year: 2024, valuation: 2000000000000, event: 'Current' }] },
+					{ name: 'Amazon India', stage: 'Public', currentValuation: 15000000000000, earlyValuation: 500000000000, growthRate: 380, revenue: 2500000000000, customers: 500000000, fundingRaised: 500000000000, investments: ['Amazon Global'], flagshipProduct: 'Amazon Shopping', products: ['E-commerce', 'Prime', 'Fresh'], visible: true, valuationTimeline: [{ year: 2013, valuation: 50000000000, event: 'India Launch' }, { year: 2017, valuation: 300000000000, event: 'Expansion' }, { year: 2020, valuation: 800000000000, event: 'Pandemic Growth' }, { year: 2024, valuation: 15000000000000, event: 'Current' }] }
 				];
 			}
 			// FinTech detection
 			else if (userCompetitors.includes('paytm') || userCompetitors.includes('phonepe') || 
 			         userCompetitors.includes('razorpay') || category === 'FinTech') {
 				intelligentCompetitors = [
-					{ name: 'Razorpay', stage: 'Series F', currentValuation: 75000000000, earlyValuation: 5000000000, growthRate: 480, revenue: 95000000, customers: 8000000, fundingRaised: 5000000000, investments: ['Sequoia - $10M', 'Tiger Global - $150M'], products: ['Payment Gateway', 'Banking', 'Payroll'], visible: true, valuationTimeline: [{ year: 2014, valuation: 50000000, event: 'Founded' }, { year: 2018, valuation: 5000000000, event: 'Series C' }, { year: 2021, valuation: 75000000000, event: 'Series F' }] },
-					{ name: 'Paytm', stage: 'Public', currentValuation: 450000000000, earlyValuation: 20000000000, growthRate: 420, revenue: 250000000, customers: 350000000, fundingRaised: 20000000000, investments: ['Alibaba - $680M', 'SoftBank - $1.4B'], products: ['Payments', 'Banking', 'Wealth'], visible: true, valuationTimeline: [{ year: 2010, valuation: 50000000, event: 'Founded' }, { year: 2015, valuation: 40000000000, event: 'Series D' }, { year: 2019, valuation: 160000000000, event: 'Series G' }, { year: 2021, valuation: 450000000000, event: 'IPO' }] },
-					{ name: 'PhonePe', stage: 'Series E', currentValuation: 850000000000, earlyValuation: 15000000000, growthRate: 520, revenue: 180000000, customers: 450000000, fundingRaised: 15000000000, investments: ['Walmart - $700M'], products: ['UPI Payments', 'Insurance', 'Mutual Funds'], visible: true, valuationTimeline: [{ year: 2015, valuation: 100000000, event: 'Founded' }, { year: 2018, valuation: 15000000000, event: 'Flipkart Era' }, { year: 2022, valuation: 100000000000, event: 'Spin-off' }, { year: 2024, valuation: 850000000000, event: 'Series E' }] }
+					{ name: 'Razorpay', stage: 'Series F', currentValuation: 75000000000, earlyValuation: 5000000000, growthRate: 480, revenue: 95000000, customers: 8000000, fundingRaised: 5000000000, investments: ['Sequoia - $10M', 'Tiger Global - $150M'], flagshipProduct: 'Payment Gateway', products: ['Payment Gateway', 'Banking', 'Payroll'], visible: true, valuationTimeline: [{ year: 2014, valuation: 50000000, event: 'Founded' }, { year: 2018, valuation: 5000000000, event: 'Series C' }, { year: 2021, valuation: 75000000000, event: 'Series F' }] },
+					{ name: 'Paytm', stage: 'Public', currentValuation: 450000000000, earlyValuation: 20000000000, growthRate: 420, revenue: 250000000, customers: 350000000, fundingRaised: 20000000000, investments: ['Alibaba - $680M', 'SoftBank - $1.4B'], flagshipProduct: 'Paytm Wallet & UPI', products: ['Payments', 'Banking', 'Wealth'], visible: true, valuationTimeline: [{ year: 2010, valuation: 50000000, event: 'Founded' }, { year: 2015, valuation: 40000000000, event: 'Series D' }, { year: 2019, valuation: 160000000000, event: 'Series G' }, { year: 2021, valuation: 450000000000, event: 'IPO' }] },
+					{ name: 'PhonePe', stage: 'Series E', currentValuation: 850000000000, earlyValuation: 15000000000, growthRate: 520, revenue: 180000000, customers: 450000000, fundingRaised: 15000000000, investments: ['Walmart - $700M'], flagshipProduct: 'UPI Payments App', products: ['UPI Payments', 'Insurance', 'Mutual Funds'], visible: true, valuationTimeline: [{ year: 2015, valuation: 100000000, event: 'Founded' }, { year: 2018, valuation: 15000000000, event: 'Flipkart Era' }, { year: 2022, valuation: 100000000000, event: 'Spin-off' }, { year: 2024, valuation: 850000000000, event: 'Series E' }] }
 				];
 			}
 			// EdTech detection
 			else if (userCompetitors.includes('byju') || userCompetitors.includes('unacademy') || 
 			         userCompetitors.includes('upgrad') || category === 'EdTech' || category === 'Education') {
 				intelligentCompetitors = [
-					{ name: 'Unacademy', stage: 'Series H', currentValuation: 37000000000, earlyValuation: 3000000000, growthRate: 390, revenue: 28000000, customers: 50000000, fundingRaised: 3000000000, investments: ['SoftBank - $150M', 'General Atlantic - $440M'], products: ['Live Classes', 'Test Prep', 'Upskilling'], visible: true, valuationTimeline: [{ year: 2015, valuation: 20000000, event: 'Founded' }, { year: 2018, valuation: 1000000000, event: 'Series C' }, { year: 2020, valuation: 20000000000, event: 'Series F' }, { year: 2022, valuation: 37000000000, event: 'Series H' }] },
-					{ name: 'UpGrad', stage: 'Series E', currentValuation: 28000000000, earlyValuation: 2500000000, growthRate: 360, revenue: 35000000, customers: 4000000, fundingRaised: 2500000000, investments: ['Temasek - $120M'], products: ['Online Degrees', 'Bootcamps', 'Corporate Training'], visible: true, valuationTimeline: [{ year: 2015, valuation: 50000000, event: 'Founded' }, { year: 2019, valuation: 2000000000, event: 'Series C' }, { year: 2021, valuation: 12000000000, event: 'Series D' }, { year: 2023, valuation: 28000000000, event: 'Series E' }] },
-					{ name: "Byju's", stage: 'Series F', currentValuation: 220000000000, earlyValuation: 10000000000, growthRate: 480, revenue: 120000000, customers: 150000000, fundingRaised: 10000000000, investments: ['Sequoia - $50M', 'Tiger Global - $200M'], products: ['K-12 Learning', 'Test Prep', 'Coding'], visible: true, valuationTimeline: [{ year: 2011, valuation: 20000000, event: 'Founded' }, { year: 2016, valuation: 5000000000, event: 'Series C' }, { year: 2019, valuation: 80000000000, event: 'Series E' }, { year: 2022, valuation: 220000000000, event: 'Peak Valuation' }] }
+					{ name: 'Unacademy', stage: 'Series H', currentValuation: 37000000000, earlyValuation: 3000000000, growthRate: 390, revenue: 28000000, customers: 50000000, fundingRaised: 3000000000, investments: ['SoftBank - $150M', 'General Atlantic - $440M'], flagshipProduct: 'Live Classes Platform', products: ['Live Classes', 'Test Prep', 'Upskilling'], visible: true, valuationTimeline: [{ year: 2015, valuation: 20000000, event: 'Founded' }, { year: 2018, valuation: 1000000000, event: 'Series C' }, { year: 2020, valuation: 20000000000, event: 'Series F' }, { year: 2022, valuation: 37000000000, event: 'Series H' }] },
+					{ name: 'UpGrad', stage: 'Series E', currentValuation: 28000000000, earlyValuation: 2500000000, growthRate: 360, revenue: 35000000, customers: 4000000, fundingRaised: 2500000000, investments: ['Temasek - $120M'], flagshipProduct: 'Online Degrees', products: ['Online Degrees', 'Bootcamps', 'Corporate Training'], visible: true, valuationTimeline: [{ year: 2015, valuation: 50000000, event: 'Founded' }, { year: 2019, valuation: 2000000000, event: 'Series C' }, { year: 2021, valuation: 12000000000, event: 'Series D' }, { year: 2023, valuation: 28000000000, event: 'Series E' }] },
+					{ name: "Byju's", stage: 'Series F', currentValuation: 220000000000, earlyValuation: 10000000000, growthRate: 480, revenue: 120000000, customers: 150000000, fundingRaised: 10000000000, investments: ['Sequoia - $50M', 'Tiger Global - $200M'], flagshipProduct: "Byju's Learning App", products: ['K-12 Learning', 'Test Prep', 'Coding'], visible: true, valuationTimeline: [{ year: 2011, valuation: 20000000, event: 'Founded' }, { year: 2016, valuation: 5000000000, event: 'Series C' }, { year: 2019, valuation: 80000000000, event: 'Series E' }, { year: 2022, valuation: 220000000000, event: 'Peak Valuation' }] }
 				];
 			}
 			// SaaS / B2B detection
 			else if (userCompetitors.includes('freshworks') || userCompetitors.includes('zoho') || 
 			         userCompetitors.includes('salesforce') || category === 'SaaS' || category === 'B2B') {
 				intelligentCompetitors = [
-					{ name: 'Freshworks', stage: 'Public', currentValuation: 350000000000, earlyValuation: 10000000000, growthRate: 450, revenue: 500000000, customers: 50000, fundingRaised: 10000000000, investments: ['Accel - $5M', 'Tiger Global - $100M'], products: ['Freshdesk', 'Freshsales', 'Freshservice'], visible: true, valuationTimeline: [{ year: 2010, valuation: 50000000, event: 'Founded' }, { year: 2015, valuation: 5000000000, event: 'Series D' }, { year: 2019, valuation: 35000000000, event: 'Series H' }, { year: 2021, valuation: 350000000000, event: 'IPO' }] },
-					{ name: 'Zoho', stage: 'Private', currentValuation: 250000000000, earlyValuation: 2000000000, growthRate: 400, revenue: 350000000, customers: 80000, fundingRaised: 2000000000, investments: ['Bootstrapped'], products: ['Zoho CRM', 'Zoho Mail', 'Zoho Suite'], visible: true, valuationTimeline: [{ year: 1996, valuation: 10000000, event: 'Founded' }, { year: 2008, valuation: 5000000000, event: 'SaaS Expansion' }, { year: 2018, valuation: 100000000000, event: 'Unicorn' }, { year: 2024, valuation: 250000000000, event: 'Current' }] },
-					{ name: 'Postman', stage: 'Series D', currentValuation: 58000000000, earlyValuation: 3500000000, growthRate: 420, revenue: 45000000, customers: 25000, fundingRaised: 3500000000, investments: ['Insight Partners - $50M', 'CRV - $150M'], products: ['API Platform', 'Collaboration', 'Testing'], visible: true, valuationTimeline: [{ year: 2014, valuation: 20000000, event: 'Founded' }, { year: 2019, valuation: 5000000000, event: 'Series B' }, { year: 2021, valuation: 58000000000, event: 'Series D' }] }
+					{ name: 'Freshworks', stage: 'Public', currentValuation: 350000000000, earlyValuation: 10000000000, growthRate: 450, revenue: 500000000, customers: 50000, fundingRaised: 10000000000, investments: ['Accel - $5M', 'Tiger Global - $100M'], flagshipProduct: 'Freshdesk (Customer Support)', products: ['Freshdesk', 'Freshsales', 'Freshservice'], visible: true, valuationTimeline: [{ year: 2010, valuation: 50000000, event: 'Founded' }, { year: 2015, valuation: 5000000000, event: 'Series D' }, { year: 2019, valuation: 35000000000, event: 'Series H' }, { year: 2021, valuation: 350000000000, event: 'IPO' }] },
+					{ name: 'Zoho', stage: 'Private', currentValuation: 250000000000, earlyValuation: 2000000000, growthRate: 400, revenue: 350000000, customers: 80000, fundingRaised: 2000000000, investments: ['Bootstrapped'], flagshipProduct: 'Zoho CRM', products: ['Zoho CRM', 'Zoho Mail', 'Zoho Suite'], visible: true, valuationTimeline: [{ year: 1996, valuation: 10000000, event: 'Founded' }, { year: 2008, valuation: 5000000000, event: 'SaaS Expansion' }, { year: 2018, valuation: 100000000000, event: 'Unicorn' }, { year: 2024, valuation: 250000000000, event: 'Current' }] },
+					{ name: 'Postman', stage: 'Series D', currentValuation: 58000000000, earlyValuation: 3500000000, growthRate: 420, revenue: 45000000, customers: 25000, fundingRaised: 3500000000, investments: ['Insight Partners - $50M', 'CRV - $150M'], flagshipProduct: 'API Development Platform', products: ['API Platform', 'Collaboration', 'Testing'], visible: true, valuationTimeline: [{ year: 2014, valuation: 20000000, event: 'Founded' }, { year: 2019, valuation: 5000000000, event: 'Series B' }, { year: 2021, valuation: 58000000000, event: 'Series D' }] }
 				];
 			}
 			// Generic technology / startup fallback
@@ -1453,6 +1473,7 @@
 						customers: Math.max(userCustomers * 2, 1000),
 						fundingRaised: avgRevenue * 2,
 						investments: ['Angel Investors', 'Early Stage VC'],
+						flagshipProduct: `${category} Core Solution`,
 						products: [`${category} Solution`, 'Core Product', 'Platform'],
 						visible: true,
 						valuationTimeline: [
@@ -1471,6 +1492,7 @@
 						customers: Math.max(userCustomers * 10, 10000),
 						fundingRaised: avgRevenue * 5,
 						investments: ['Series A VC', 'Strategic Investor'],
+						flagshipProduct: `${category} Analytics Platform`,
 						products: [`${category} Platform`, 'Analytics', 'Enterprise Solution'],
 						visible: true,
 						valuationTimeline: [
@@ -1490,8 +1512,10 @@
 						customers: Math.max(userCustomers * 100, 100000),
 						fundingRaised: avgRevenue * 10,
 						investments: ['Major VC Firms', 'IPO'],
+						flagshipProduct: `${category} Enterprise Suite`,
 						products: [`${category} Suite`, 'Enterprise', 'Global Platform'],
 						visible: true,
+						isVerified: true,
 						valuationTimeline: [
 							{ year: 2015, valuation: avgRevenue * 5, event: 'Founded' },
 							{ year: 2018, valuation: avgRevenue * 15, event: 'Series B' },
@@ -1502,8 +1526,104 @@
 				];
 			}
 			
+			// Mark fallback competitors and categorize
+			intelligentCompetitors = intelligentCompetitors.map(c => ({
+				...c,
+				isVerified: c.revenue > 0 || c.customers > 0,
+				dataConfidence: (c.revenue > 0 || c.customers > 0) ? 'high' : 'low',
+				flagshipProduct: c.flagshipProduct || (c.products && c.products.length > 0 ? c.products[0] : 'Core Product')
+			}));
+			
 			competitors = intelligentCompetitors;
+			verifiedCompetitors = intelligentCompetitors.filter(c => c.isVerified);
+			potentialCompetitors = intelligentCompetitors.filter(c => !c.isVerified);
+			competitorDataSummary = {
+				totalCompetitors: intelligentCompetitors.length,
+				verifiedCount: verifiedCompetitors.length,
+				potentialCount: potentialCompetitors.length
+			};
+			
 			console.log(`📝 Using intelligent fallback competitors based on user's ${category} business and mentioned competitors: ${userCompetitors}`);
+		}
+	}
+
+	// Add competitor to compare list
+	function addToCompare(competitor: any) {
+		if (!compareList.find(c => c.name === competitor.name)) {
+			compareList = [...compareList, competitor];
+		}
+	}
+
+	// Remove competitor from compare list
+	function removeFromCompare(competitorName: string) {
+		compareList = compareList.filter(c => c.name !== competitorName);
+	}
+
+	// Toggle compare mode
+	function toggleCompareMode() {
+		compareMode = !compareMode;
+		if (!compareMode) {
+			compareList = [];
+		}
+	}
+
+	// Search for a company online via web scraping
+	async function searchCompanyOnline(companyName: string) {
+		if (!companyName || companyName.trim().length < 2) return;
+		
+		onlineSearchLoading = true;
+		onlineSearchError = '';
+		
+		try {
+			const token = localStorage.getItem('accessToken');
+			console.log('🔍 Searching for company:', companyName, 'Token exists:', !!token);
+			
+			if (!token) {
+				onlineSearchError = 'Please login again to search for companies';
+				onlineSearchLoading = false;
+				return;
+			}
+			
+			const response = await fetch('http://localhost:3001/api/analysis/search-company', {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					'Authorization': `Bearer ${token}`
+				},
+				body: JSON.stringify({
+					companyName: companyName.trim(),
+					category: ddqResponses?.q3 || ddqResponses?.[3] || 'Technology' // Use user's category if available
+				})
+			});
+
+			console.log('🔍 Search response status:', response.status);
+			
+			if (response.status === 401 || response.status === 403) {
+				onlineSearchError = 'Session expired. Please refresh the page and login again.';
+				return;
+			}
+
+			const data = await response.json();
+			console.log('🔍 Search result:', data);
+			
+			if (data.found && data.company) {
+				// Add the found company to the compare list
+				addToCompare(data.company);
+				// Also add to potential competitors for future reference
+				if (!potentialCompetitors.find(c => c.name === data.company.name)) {
+					potentialCompetitors = [...potentialCompetitors, data.company];
+				}
+				compareSearchQuery = '';
+				onlineSearchError = '';
+				console.log(`✅ Found and added company: ${data.company.name}`);
+			} else {
+				onlineSearchError = data.message || data.error || `Could not find "${companyName}"`;
+			}
+		} catch (error: any) {
+			console.error('Online search error:', error);
+			onlineSearchError = `Search failed: ${error.message || 'Network error'}`;
+		} finally {
+			onlineSearchLoading = false;
 		}
 	}
 
@@ -3611,12 +3731,12 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 							<!-- Performance Graph - Line Chart -->
 							{#if competitors && competitors.filter((c: any) => c.visible && c.valuationTimeline && c.valuationTimeline.length > 0).length > 0}
 							{@const visibleCompetitors = competitors.filter((c: any) => c.visible && c.valuationTimeline && c.valuationTimeline.length > 0)}
-							{@const chartColors = ['#4ade80', '#60a5fa', '#f472b6', '#fbbf24', '#a78bfa', '#34d399', '#fb923c']}
+							{@const chartColors = ['#4ade80', '#60a5fa', '#f472b6', '#fbbf24', '#a78bfa', '#34d399', '#fb923c', '#ef4444']}
 							{@const allYears = [...new Set(visibleCompetitors.flatMap((c: any) => c.valuationTimeline?.map((v: any) => v.year) || []))].sort((a: any, b: any) => Number(a) - Number(b))}
 							{@const maxValuation = Math.max(...visibleCompetitors.flatMap((c: any) => c.valuationTimeline?.map((v: any) => Number(v.valuation) || 0) || [0]), 1)}
 							{@const chartWidth = 800}
 							{@const chartHeight = 400}
-							{@const padding = { top: 40, right: 120, bottom: 60, left: 100 }}
+							{@const padding = { top: 40, right: 150, bottom: 60, left: 100 }}
 							{@const yearDivisor = Math.max(allYears.length - 1, 1)}
 							<div class="performance-section">
 								<h3 class="subsection-title">
@@ -3625,21 +3745,46 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 								</h3>
 								
 								<div class="chart-container line-chart-container">
-									<!-- Legend -->
-									<div class="line-chart-legend">
-										{#each visibleCompetitors as competitor, i}
-											<div class="legend-item" style="--legend-color: {chartColors[i % chartColors.length]}">
-												<div class="legend-dot" style="background: {chartColors[i % chartColors.length]}"></div>
-												<span class="legend-label">{competitor.name}</span>
-												{#if competitor.isUserMentioned}
-													<span class="user-mentioned-badge">Your Pick</span>
-												{/if}
-											</div>
-										{/each}
+									<!-- Enhanced Legend Box -->
+									<div class="chart-legend-box">
+										<div class="legend-header">
+											<span class="material-symbols-outlined">info</span>
+											Legend
+										</div>
+										<div class="legend-items">
+											{#each visibleCompetitors as competitor, i}
+												<div class="legend-row" style="--legend-color: {chartColors[i % chartColors.length]}">
+													<div class="legend-color-line" style="background: {chartColors[i % chartColors.length]}"></div>
+													<span class="legend-company-name">{competitor.name}</span>
+													{#if competitor.isUserMentioned}
+														<span class="legend-badge your-pick">Your Pick</span>
+													{:else if competitor.region === 'local'}
+														<span class="legend-badge local">🇮🇳 Local</span>
+													{:else if competitor.region === 'international'}
+														<span class="legend-badge global">🌍 Global</span>
+													{/if}
+												</div>
+											{/each}
+										</div>
 									</div>
 
 									<!-- SVG Line Chart -->
-									<div class="svg-chart-wrapper">
+									<div class="svg-chart-wrapper" style="position: relative;">
+										<!-- Hover Tooltip -->
+										{#if chartTooltip.visible}
+											<div 
+												class="chart-tooltip"
+												style="left: {chartTooltip.x}px; top: {chartTooltip.y}px;"
+											>
+												<div class="tooltip-company">{chartTooltip.company}</div>
+												<div class="tooltip-year">Year: {chartTooltip.year}</div>
+												<div class="tooltip-valuation">₹{(chartTooltip.valuation / 10000000).toLocaleString('en-IN', { maximumFractionDigits: 0 })} Cr</div>
+												{#if chartTooltip.event}
+													<div class="tooltip-event">{chartTooltip.event}</div>
+												{/if}
+											</div>
+										{/if}
+										
 										<svg viewBox="0 0 {chartWidth} {chartHeight}" class="valuation-line-chart">
 											<!-- Y-Axis Grid Lines and Labels -->
 											{#each [0, 0.25, 0.5, 0.75, 1] as tick}
@@ -3730,24 +3875,37 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 													/>
 												{/if}
 
-												<!-- Draw dots for each data point -->
+												<!-- Draw dots for each data point with hover tooltip -->
 												{#each timeline as point, pointIndex}
 													{@const yearIndex = Math.max(0, allYears.indexOf(point.year))}
 													{@const safeValuation = Number(point.valuation) || 0}
 													{@const x = padding.left + (yearIndex / yearDivisor) * (chartWidth - padding.left - padding.right)}
 													{@const y = padding.top + (1 - safeValuation / maxValuation) * (chartHeight - padding.top - padding.bottom)}
 													
+													<!-- svelte-ignore a11y-no-static-element-interactions -->
 													<circle 
 														cx={isNaN(x) ? padding.left : x} 
 														cy={isNaN(y) ? padding.top : y} 
-														r="6" 
+														r="8" 
 														fill={color} 
 														stroke="var(--card-bg)" 
-														stroke-width="2"
-														class="chart-dot"
-													>
-														<title>{competitor.name} ({point.year || 'N/A'}): ₹{((Number(point.valuation) || 0) / 10000000).toFixed(0)} Cr - {point.event || ''}</title>
-													</circle>
+														stroke-width="3"
+														class="chart-dot interactive-dot"
+														on:mouseenter={(e) => {
+															chartTooltip = {
+																visible: true,
+																x: e.offsetX + 15,
+																y: e.offsetY - 70,
+																company: competitor.name,
+																year: point.year,
+																valuation: safeValuation,
+																event: point.event || ''
+															};
+														}}
+														on:mouseleave={() => {
+															chartTooltip = { ...chartTooltip, visible: false };
+														}}
+													/>
 												{/each}
 											{/each}
 
@@ -3862,72 +4020,436 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 								</div>
 							{/if}
 
-							<!-- Competitor Cards Grid -->
-							<div class="competitors-grid">
-								{#each competitors as competitor, index}
-									<div class="competitor-card" class:hidden={!competitor.visible}>
-										<div class="competitor-header">
-											<h4>{competitor.name}</h4>
-											<div class="competitor-actions">
-												<button 
-													class="btn-icon" 
-													on:click={() => toggleCompetitorVisibility(index)}
-													title={competitor.visible ? 'Hide from graph' : 'Show in graph'}
-												>
-													<span class="material-symbols-outlined">
-														{competitor.visible ? 'visibility' : 'visibility_off'}
-													</span>
+							<!-- Compare Performance Frame -->
+							{#if compareMode}
+								<div class="compare-frame">
+									<div class="compare-header">
+										<h3 class="subsection-title">
+											<span class="material-symbols-outlined">compare</span>
+											Compare Performance
+										</h3>
+										<div class="compare-search-box">
+											<span class="material-symbols-outlined">search</span>
+											<input 
+												type="text" 
+												placeholder="Search companies to add..." 
+												bind:value={compareSearchQuery}
+												class="compare-search-input"
+											/>
+											{#if compareSearchQuery}
+												<button class="clear-search" on:click={() => compareSearchQuery = ''}>
+													<span class="material-symbols-outlined">close</span>
 												</button>
-												<button 
-													class="btn-icon"
-													on:click={() => monitoredCompetitors.includes(competitor.name) ? removeFromMonitoring(competitor.name) : addToMonitoring(competitor.name)}
-													title={monitoredCompetitors.includes(competitor.name) ? 'Remove from monitoring' : 'Add to monitoring'}
-												>
-													<span class="material-symbols-outlined">
-														{monitoredCompetitors.includes(competitor.name) ? 'star' : 'star_border'}
-													</span>
-												</button>
-											</div>
+											{/if}
 										</div>
-										
-										<div class="competitor-stage">
-											<span class="stage-badge">{competitor.stage || 'N/A'}</span>
-											<span class="category-badge">{competitor.category || 'Unknown'}</span>
-										</div>
-
-										<div class="competitor-metrics">
-											<div class="metric-item">
-												<span class="material-symbols-outlined">trending_up</span>
-												<div>
-													<div class="metric-label">Growth Rate</div>
-													<div class="metric-value">{competitor.growthRate || 0}%</div>
-												</div>
-											</div>
-											<div class="metric-item">
-												<span class="material-symbols-outlined">currency_rupee</span>
-												<div>
-													<div class="metric-label">Revenue</div>
-													<div class="metric-value">₹{((competitor.revenue || 0) / 10000000).toFixed(1)}Cr</div>
-												</div>
-											</div>
-											<div class="metric-item">
-												<span class="material-symbols-outlined">groups</span>
-												<div>
-													<div class="metric-label">Customers</div>
-													<div class="metric-value">{(competitor.customers || 0).toLocaleString()}</div>
-												</div>
-											</div>
-										</div>
-
-										<button 
-											class="btn-secondary full-width"
-											on:click={() => showCompetitorDetails(competitor)}
-										>
-											<span class="material-symbols-outlined">info</span>
-											View Details
+										<button class="btn-secondary" on:click={toggleCompareMode}>
+											<span class="material-symbols-outlined">close</span>
+											Close Compare
 										</button>
 									</div>
-								{/each}
+									
+									<!-- Search Results Dropdown -->
+									{#if compareSearchQuery}
+										{@const allCompetitors = [...verifiedCompetitors, ...potentialCompetitors]}
+										{@const searchResults = allCompetitors.filter(c => 
+											c.name.toLowerCase().includes(compareSearchQuery.toLowerCase()) &&
+											!compareList.find(comp => comp.name === c.name)
+										)}
+										{#if searchResults.length > 0}
+											<div class="compare-search-results">
+												<div class="search-results-header">
+													<span class="material-symbols-outlined">list</span>
+													Found {searchResults.length} company{searchResults.length > 1 ? 'ies' : ''}
+												</div>
+												{#each searchResults.slice(0, 5) as result}
+													<button class="search-result-item" on:click={() => { addToCompare(result); compareSearchQuery = ''; }}>
+														<div class="result-info">
+															<span class="result-name">{result.name}</span>
+															<span class="result-stage">{result.stage || 'N/A'}</span>
+															{#if result.region}
+																<span class="result-region {result.region}">{result.region === 'local' ? '🇮🇳 India' : '🌍 Global'}</span>
+															{/if}
+														</div>
+														<span class="material-symbols-outlined add-icon">add_circle</span>
+													</button>
+												{/each}
+												<!-- Option to search online even if local results exist -->
+												<div class="search-online-divider">
+													<span>or</span>
+												</div>
+												<button 
+													class="search-online-btn" 
+													on:click={() => searchCompanyOnline(compareSearchQuery)}
+													disabled={onlineSearchLoading}
+												>
+													{#if onlineSearchLoading}
+														<span class="material-symbols-outlined spinning">refresh</span>
+														<span>Searching online...</span>
+													{:else}
+														<span class="material-symbols-outlined">travel_explore</span>
+														<span>Search web for "{compareSearchQuery}"</span>
+													{/if}
+												</button>
+											</div>
+										{:else}
+											<div class="compare-search-results">
+												{#if onlineSearchLoading}
+													<div class="search-loading">
+														<span class="material-symbols-outlined spinning">refresh</span>
+														<span>Searching online for "{compareSearchQuery}"...</span>
+													</div>
+												{:else if onlineSearchError}
+													<div class="search-error">
+														<span class="material-symbols-outlined">error</span>
+														<span>{onlineSearchError}</span>
+													</div>
+													<button 
+														class="search-online-btn retry" 
+														on:click={() => searchCompanyOnline(compareSearchQuery)}
+													>
+														<span class="material-symbols-outlined">refresh</span>
+														<span>Try again</span>
+													</button>
+												{:else}
+													<div class="no-local-results">
+														<span class="material-symbols-outlined">search_off</span>
+														<span>Not in current list</span>
+													</div>
+													<button 
+														class="search-online-btn" 
+														on:click={() => searchCompanyOnline(compareSearchQuery)}
+													>
+														<span class="material-symbols-outlined">travel_explore</span>
+														<span>Search web for "{compareSearchQuery}"</span>
+													</button>
+												{/if}
+											</div>
+										{/if}
+									{/if}
+									
+									{#if compareList.length === 0}
+										<div class="compare-empty">
+											<span class="material-symbols-outlined">add_circle_outline</span>
+											<p>Search above or click the <strong>+</strong> icon on competitor cards below to add them to comparison</p>
+										</div>
+									{:else}
+										<div class="compare-grid">
+											{#each compareList as comp}
+												<div class="compare-card">
+													<div class="compare-card-header">
+														<h4>{comp.name}</h4>
+														{#if comp.region}
+															<span class="region-badge {comp.region}">{comp.region === 'local' ? '🇮🇳' : '🌍'}</span>
+														{/if}
+														<button class="btn-icon-danger" on:click={() => removeFromCompare(comp.name)} title="Remove from comparison">
+															<span class="material-symbols-outlined">remove_circle</span>
+														</button>
+													</div>
+													<!-- Flagship Product -->
+													{#if comp.products && comp.products.length > 0}
+														<div class="compare-flagship">
+															<span class="material-symbols-outlined">star</span>
+															<span class="flagship-label">Flagship Product:</span>
+															<span class="flagship-value">{comp.flagshipProduct || comp.products[0]}</span>
+														</div>
+													{/if}
+													<div class="compare-metrics">
+														<div class="compare-metric">
+															<span class="compare-label">Valuation</span>
+															<span class="compare-value">₹{((comp.currentValuation || 0) / 10000000).toFixed(1)}Cr</span>
+														</div>
+														<div class="compare-metric">
+															<span class="compare-label">Revenue</span>
+															<span class="compare-value">₹{((comp.revenue || 0) / 10000000).toFixed(1)}Cr</span>
+														</div>
+														<div class="compare-metric">
+															<span class="compare-label">Customers</span>
+															<span class="compare-value">{(comp.customers || 0).toLocaleString()}</span>
+														</div>
+														<div class="compare-metric">
+															<span class="compare-label">Growth</span>
+															<span class="compare-value growth">{comp.growthRate || 0}%</span>
+														</div>
+														<div class="compare-metric">
+															<span class="compare-label">Stage</span>
+															<span class="compare-value">{comp.stage || 'N/A'}</span>
+														</div>
+														<div class="compare-metric">
+															<span class="compare-label">Data Quality</span>
+															<span class="compare-value {comp.isVerified ? 'verified' : 'potential'}">
+																{comp.isVerified ? '✓ Verified' : '⚠ Estimated'}
+															</span>
+														</div>
+													</div>
+													<!-- Data not public note -->
+													{#if (comp.currentValuation === 0 || !comp.currentValuation) || (comp.revenue === 0 || !comp.revenue) || (comp.customers === 0 || !comp.customers)}
+														<div class="data-not-public-note">
+															<span class="material-symbols-outlined">info</span>
+															<span>Note: Some data is not publicly available</span>
+														</div>
+													{/if}
+												</div>
+											{/each}
+										</div>
+									{/if}
+								</div>
+							{/if}
+
+							<!-- Competitor Tabs -->
+							<div class="competitor-tabs-section">
+								<div class="competitor-tabs-header">
+									<div class="tabs-row">
+										<button 
+											class="tab-btn" 
+											class:active={activeCompetitorTab === 'verified'}
+											on:click={() => activeCompetitorTab = 'verified'}
+										>
+											<span class="material-symbols-outlined">verified</span>
+											Verified Competitors
+											{#if verifiedCompetitors.length > 0}
+												<span class="tab-count">{verifiedCompetitors.length}</span>
+											{/if}
+										</button>
+										<button 
+											class="tab-btn" 
+											class:active={activeCompetitorTab === 'potential'}
+											on:click={() => activeCompetitorTab = 'potential'}
+										>
+											<span class="material-symbols-outlined">psychology_alt</span>
+											Potential Competitors
+											{#if potentialCompetitors.length > 0}
+												<span class="tab-count">{potentialCompetitors.length}</span>
+											{/if}
+										</button>
+									</div>
+									<button 
+										class="btn-compare" 
+										class:active={compareMode}
+										on:click={toggleCompareMode}
+									>
+										<span class="material-symbols-outlined">compare</span>
+										{compareMode ? 'Exit Compare' : 'Compare'}
+									</button>
+								</div>
+
+								<!-- Data Quality Summary -->
+								{#if competitorDataSummary}
+									<div class="data-quality-summary">
+										<div class="summary-item verified">
+											<span class="material-symbols-outlined">verified</span>
+											<span><strong>{competitorDataSummary.verifiedCount || verifiedCompetitors.length}</strong> with verified data</span>
+										</div>
+										<div class="summary-item potential">
+											<span class="material-symbols-outlined">help_outline</span>
+											<span><strong>{competitorDataSummary.potentialCount || potentialCompetitors.length}</strong> with estimated data</span>
+										</div>
+									</div>
+								{/if}
+
+								<!-- Tab Content -->
+								{#if activeCompetitorTab === 'verified'}
+									<div class="tab-description">
+										<span class="material-symbols-outlined">info</span>
+										<p>Competitors with publicly available revenue and customer data from verified sources.</p>
+									</div>
+									<div class="competitors-grid">
+										{#each verifiedCompetitors.length > 0 ? verifiedCompetitors : competitors.filter((c) => c.isVerified !== false) as competitor, index}
+											<div class="competitor-card" class:hidden={!competitor.visible}>
+												<div class="competitor-header">
+													<h4>{competitor.name}</h4>
+													<div class="competitor-actions">
+														{#if compareMode}
+															{#if compareList.find(c => c.name === competitor.name)}
+																<button 
+																	class="btn-icon-danger"
+																	on:click={() => removeFromCompare(competitor.name)}
+																	title="Remove from comparison"
+																>
+																	<span class="material-symbols-outlined">remove_circle</span>
+																</button>
+															{:else}
+																<button 
+																	class="btn-icon-success"
+																	on:click={() => addToCompare(competitor)}
+																	title="Add to comparison"
+																>
+																	<span class="material-symbols-outlined">add_circle</span>
+																</button>
+															{/if}
+														{/if}
+														<button 
+															class="btn-icon" 
+															on:click={() => toggleCompetitorVisibility(index)}
+															title={competitor.visible ? 'Hide from graph' : 'Show in graph'}
+														>
+															<span class="material-symbols-outlined">
+																{competitor.visible ? 'visibility' : 'visibility_off'}
+															</span>
+														</button>
+														<button 
+															class="btn-icon"
+															on:click={() => monitoredCompetitors.includes(competitor.name) ? removeFromMonitoring(competitor.name) : addToMonitoring(competitor.name)}
+															title={monitoredCompetitors.includes(competitor.name) ? 'Remove from monitoring' : 'Add to monitoring'}
+														>
+															<span class="material-symbols-outlined">
+																{monitoredCompetitors.includes(competitor.name) ? 'star' : 'star_border'}
+															</span>
+														</button>
+													</div>
+												</div>
+												
+												<div class="competitor-stage">
+													<span class="stage-badge">{competitor.stage || 'N/A'}</span>
+													<span class="category-badge">{competitor.category || 'Unknown'}</span>
+													{#if competitor.isUserMentioned}
+														<span class="user-pick-badge">Your Pick</span>
+													{/if}
+													<span class="verified-badge">✓ Verified</span>
+												</div>
+
+												<div class="competitor-metrics">
+													<div class="metric-item">
+														<span class="material-symbols-outlined">trending_up</span>
+														<div>
+															<div class="metric-label">Growth Rate</div>
+															<div class="metric-value">{competitor.growthRate || 0}%</div>
+														</div>
+													</div>
+													<div class="metric-item">
+														<span class="material-symbols-outlined">currency_rupee</span>
+														<div>
+															<div class="metric-label">Revenue</div>
+															<div class="metric-value">₹{((competitor.revenue || 0) / 10000000).toFixed(1)}Cr</div>
+														</div>
+													</div>
+													<div class="metric-item">
+														<span class="material-symbols-outlined">groups</span>
+														<div>
+															<div class="metric-label">Customers</div>
+															<div class="metric-value">{(competitor.customers || 0).toLocaleString()}</div>
+														</div>
+													</div>
+												</div>
+
+												<button 
+													class="btn-secondary full-width"
+													on:click={() => showCompetitorDetails(competitor)}
+												>
+													<span class="material-symbols-outlined">info</span>
+													View Details
+												</button>
+											</div>
+										{/each}
+										{#if verifiedCompetitors.length === 0 && competitors.filter((c) => c.isVerified !== false).length === 0}
+											<div class="empty-tab-state">
+												<span class="material-symbols-outlined">search_off</span>
+												<p>No verified competitor data available yet</p>
+											</div>
+										{/if}
+									</div>
+								{:else}
+									<div class="tab-description potential">
+										<span class="material-symbols-outlined">warning</span>
+										<p>Competitors without publicly disclosed revenue or customer counts. Data shown is estimated based on industry averages.</p>
+									</div>
+									<div class="competitors-grid">
+										{#each potentialCompetitors as competitor, index}
+											<div class="competitor-card potential" class:hidden={!competitor.visible}>
+												<div class="competitor-header">
+													<h4>{competitor.name}</h4>
+													<div class="competitor-actions">
+														{#if compareMode}
+															{#if compareList.find(c => c.name === competitor.name)}
+																<button 
+																	class="btn-icon-danger"
+																	on:click={() => removeFromCompare(competitor.name)}
+																	title="Remove from comparison"
+																>
+																	<span class="material-symbols-outlined">remove_circle</span>
+																</button>
+															{:else}
+																<button 
+																	class="btn-icon-success"
+																	on:click={() => addToCompare(competitor)}
+																	title="Add to comparison"
+																>
+																	<span class="material-symbols-outlined">add_circle</span>
+																</button>
+															{/if}
+														{/if}
+														<button 
+															class="btn-icon" 
+															on:click={() => toggleCompetitorVisibility(index)}
+															title={competitor.visible ? 'Hide from graph' : 'Show in graph'}
+														>
+															<span class="material-symbols-outlined">
+																{competitor.visible ? 'visibility' : 'visibility_off'}
+															</span>
+														</button>
+														<button 
+															class="btn-icon"
+															on:click={() => monitoredCompetitors.includes(competitor.name) ? removeFromMonitoring(competitor.name) : addToMonitoring(competitor.name)}
+															title={monitoredCompetitors.includes(competitor.name) ? 'Remove from monitoring' : 'Add to monitoring'}
+														>
+															<span class="material-symbols-outlined">
+																{monitoredCompetitors.includes(competitor.name) ? 'star' : 'star_border'}
+															</span>
+														</button>
+													</div>
+												</div>
+												
+												<div class="competitor-stage">
+													<span class="stage-badge">{competitor.stage || 'N/A'}</span>
+													<span class="category-badge">{competitor.category || 'Unknown'}</span>
+													{#if competitor.isUserMentioned}
+														<span class="user-pick-badge">Your Pick</span>
+													{/if}
+													<span class="estimated-badge">⚠ Estimated</span>
+												</div>
+
+												<div class="competitor-metrics">
+													<div class="metric-item">
+														<span class="material-symbols-outlined">trending_up</span>
+														<div>
+															<div class="metric-label">Growth Rate</div>
+															<div class="metric-value estimate">{competitor.growthRate || 0}%*</div>
+														</div>
+													</div>
+													<div class="metric-item">
+														<span class="material-symbols-outlined">currency_rupee</span>
+														<div>
+															<div class="metric-label">Revenue</div>
+															<div class="metric-value estimate">₹{((competitor.revenue || 0) / 10000000).toFixed(1)}Cr*</div>
+														</div>
+													</div>
+													<div class="metric-item">
+														<span class="material-symbols-outlined">groups</span>
+														<div>
+															<div class="metric-label">Customers</div>
+															<div class="metric-value estimate">{(competitor.customers || 0).toLocaleString()}*</div>
+														</div>
+													</div>
+												</div>
+
+												<div class="estimate-note">* Estimated based on industry averages</div>
+
+												<button 
+													class="btn-secondary full-width"
+													on:click={() => showCompetitorDetails(competitor)}
+												>
+													<span class="material-symbols-outlined">info</span>
+													View Details
+												</button>
+											</div>
+										{/each}
+										{#if potentialCompetitors.length === 0}
+											<div class="empty-tab-state">
+												<span class="material-symbols-outlined">check_circle</span>
+												<p>All competitors have verified data!</p>
+											</div>
+										{/if}
+									</div>
+								{/if}
 							</div>
 						</div>
 					</div>
@@ -4656,6 +5178,19 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 					</button>
 				</div>
 				<div class="modal-body">
+					<!-- Flagship Product Highlight -->
+					{#if selectedCompetitor.products && selectedCompetitor.products.length > 0}
+						<div class="flagship-highlight">
+							<div class="flagship-icon">
+								<span class="material-symbols-outlined">star</span>
+							</div>
+							<div class="flagship-content">
+								<span class="flagship-title">Flagship Product</span>
+								<span class="flagship-name">{selectedCompetitor.flagshipProduct || selectedCompetitor.products[0]}</span>
+							</div>
+						</div>
+					{/if}
+
 					<div class="competitor-detail-section">
 						<h4>
 							<span class="material-symbols-outlined">attach_money</span>
@@ -4675,8 +5210,11 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 							Product Portfolio
 						</h4>
 						<div class="products-list">
-							{#each (selectedCompetitor.products || []) as product}
-								<span class="product-badge">{product}</span>
+							{#each (selectedCompetitor.products || []) as product, i}
+								<span class="product-badge" class:flagship={i === 0}>
+									{#if i === 0}<span class="material-symbols-outlined star-icon">star</span>{/if}
+									{product}
+								</span>
 							{/each}
 						</div>
 					</div>
@@ -7612,6 +8150,196 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 		padding: 1.5rem;
 	}
 
+	/* Enhanced Legend Box Styles */
+	.chart-legend-box {
+		background: var(--card-bg);
+		border: 1px solid var(--border-color);
+		border-radius: 12px;
+		padding: 1rem 1.25rem;
+		margin-bottom: 1.5rem;
+		box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+	}
+
+	.legend-header {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-weight: 600;
+		font-size: 0.9rem;
+		color: var(--text-secondary);
+		margin-bottom: 0.75rem;
+		padding-bottom: 0.5rem;
+		border-bottom: 1px solid var(--border-color);
+	}
+
+	.legend-header .material-symbols-outlined {
+		font-size: 1rem;
+		color: var(--accent-primary);
+	}
+
+	.legend-items {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.75rem;
+	}
+
+	.legend-row {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.5rem 0.75rem;
+		background: var(--bg-secondary);
+		border: 1px solid var(--border-color);
+		border-radius: 8px;
+		transition: all 0.2s ease;
+	}
+
+	.legend-row:hover {
+		background: var(--hover-bg);
+		transform: translateX(3px);
+	}
+
+	.legend-color-line {
+		width: 20px;
+		height: 4px;
+		border-radius: 2px;
+		flex-shrink: 0;
+	}
+
+	.legend-company-name {
+		font-size: 0.85rem;
+		font-weight: 500;
+		color: var(--text-primary);
+		white-space: nowrap;
+	}
+
+	.legend-badge {
+		font-size: 0.65rem;
+		padding: 0.2rem 0.5rem;
+		border-radius: 10px;
+		font-weight: 600;
+		white-space: nowrap;
+	}
+
+	.legend-badge.your-pick {
+		background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+		color: white;
+	}
+
+	.legend-badge.local {
+		background: rgba(255, 153, 51, 0.15);
+		color: #ff9933;
+		border: 1px solid rgba(255, 153, 51, 0.3);
+	}
+
+	.legend-badge.global {
+		background: rgba(96, 165, 250, 0.15);
+		color: #60a5fa;
+		border: 1px solid rgba(96, 165, 250, 0.3);
+	}
+
+	/* Light mode legend adjustments */
+	[data-theme='light'] .chart-legend-box {
+		background: #ffffff;
+		box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
+	}
+
+	[data-theme='light'] .legend-row {
+		background: #f8fafc;
+		border-color: #e2e8f0;
+	}
+
+	[data-theme='light'] .legend-row:hover {
+		background: #f1f5f9;
+	}
+
+	[data-theme='light'] .legend-badge.local {
+		background: rgba(234, 88, 12, 0.1);
+		color: #ea580c;
+		border-color: rgba(234, 88, 12, 0.3);
+	}
+
+	[data-theme='light'] .legend-badge.global {
+		background: rgba(37, 99, 235, 0.1);
+		color: #2563eb;
+		border-color: rgba(37, 99, 235, 0.3);
+	}
+
+	/* Chart Tooltip Styles */
+	.chart-tooltip {
+		position: absolute;
+		background: var(--card-bg);
+		border: 2px solid var(--accent-primary);
+		border-radius: 10px;
+		padding: 0.75rem 1rem;
+		box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+		z-index: 1000;
+		pointer-events: none;
+		min-width: 150px;
+		animation: tooltipFadeIn 0.15s ease-out;
+	}
+
+	[data-theme='light'] .chart-tooltip {
+		background: #ffffff;
+		box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+	}
+
+	@keyframes tooltipFadeIn {
+		from {
+			opacity: 0;
+			transform: translateY(5px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
+	}
+
+	.tooltip-company {
+		font-weight: 700;
+		font-size: 0.95rem;
+		color: var(--text-primary);
+		margin-bottom: 0.4rem;
+		border-bottom: 1px solid var(--border-color);
+		padding-bottom: 0.4rem;
+	}
+
+	.tooltip-year {
+		font-size: 0.8rem;
+		color: var(--text-secondary);
+		margin-bottom: 0.25rem;
+	}
+
+	.tooltip-valuation {
+		font-size: 1rem;
+		font-weight: 600;
+		color: #4ade80;
+		margin-bottom: 0.25rem;
+	}
+
+	[data-theme='light'] .tooltip-valuation {
+		color: #16a34a;
+	}
+
+	.tooltip-event {
+		font-size: 0.75rem;
+		color: var(--accent-primary);
+		font-style: italic;
+		margin-top: 0.4rem;
+		padding-top: 0.4rem;
+		border-top: 1px dashed var(--border-color);
+	}
+
+	.interactive-dot {
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.interactive-dot:hover {
+		r: 10;
+		filter: brightness(1.2) drop-shadow(0 0 8px currentColor);
+	}
+
 	.line-chart-legend {
 		display: flex;
 		flex-wrap: wrap;
@@ -8026,6 +8754,712 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 
 	.rec-target .material-symbols-outlined {
 		font-size: 1rem;
+	}
+
+	/* Compare Frame Styles */
+	.compare-frame {
+		background: linear-gradient(135deg, rgba(33, 150, 243, 0.1), rgba(156, 39, 176, 0.1));
+		border: 2px solid rgba(33, 150, 243, 0.3);
+		border-radius: 16px;
+		padding: 1.5rem;
+		margin-bottom: 2rem;
+	}
+
+	.compare-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 1rem;
+		flex-wrap: wrap;
+		gap: 0.75rem;
+	}
+
+	.compare-empty {
+		text-align: center;
+		padding: 2rem;
+		color: var(--text-secondary);
+	}
+
+	.compare-empty .material-symbols-outlined {
+		font-size: 3rem;
+		color: rgba(33, 150, 243, 0.5);
+		margin-bottom: 0.5rem;
+	}
+
+	.compare-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+		gap: 1rem;
+	}
+
+	.compare-card {
+		background: var(--card-bg);
+		border: 1px solid var(--border-color);
+		border-radius: 12px;
+		padding: 1rem;
+	}
+
+	.compare-card-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 1rem;
+		padding-bottom: 0.75rem;
+		border-bottom: 1px solid var(--border-color);
+	}
+
+	.compare-card-header h4 {
+		font-size: 1rem;
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.compare-metrics {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 0.75rem;
+	}
+
+	.compare-metric {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+	}
+
+	.compare-label {
+		font-size: 0.7rem;
+		color: var(--text-tertiary);
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+	}
+
+	.compare-value {
+		font-size: 0.9rem;
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.compare-value.growth {
+		color: #4ade80;
+	}
+
+	.compare-value.verified {
+		color: #4ade80;
+	}
+
+	.compare-value.potential {
+		color: #fbbf24;
+	}
+
+	/* Flagship Product Styles in Compare Card */
+	.compare-flagship {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.75rem;
+		background: linear-gradient(135deg, rgba(255, 215, 0, 0.15), rgba(255, 193, 7, 0.1));
+		border: 1px solid rgba(255, 215, 0, 0.3);
+		border-radius: 8px;
+		margin-bottom: 0.75rem;
+	}
+
+	.compare-flagship .material-symbols-outlined {
+		color: #ffd700;
+		font-size: 1.25rem;
+	}
+
+	.flagship-label {
+		font-size: 0.7rem;
+		color: var(--text-tertiary);
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+	}
+
+	.flagship-value {
+		font-size: 0.9rem;
+		font-weight: 600;
+		color: var(--text-primary);
+		margin-left: 0.25rem;
+	}
+
+	/* Flagship Highlight in View Details Modal */
+	.flagship-highlight {
+		display: flex;
+		align-items: center;
+		gap: 1rem;
+		padding: 1rem 1.25rem;
+		background: linear-gradient(135deg, rgba(255, 215, 0, 0.2), rgba(255, 193, 7, 0.1));
+		border: 2px solid rgba(255, 215, 0, 0.4);
+		border-radius: 12px;
+		margin-bottom: 1.5rem;
+	}
+
+	.flagship-icon {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 48px;
+		height: 48px;
+		background: linear-gradient(135deg, #ffd700, #ffb700);
+		border-radius: 50%;
+		flex-shrink: 0;
+	}
+
+	.flagship-icon .material-symbols-outlined {
+		color: white;
+		font-size: 1.5rem;
+	}
+
+	.flagship-content {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+	}
+
+	.flagship-title {
+		font-size: 0.75rem;
+		color: var(--text-tertiary);
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+	}
+
+	.flagship-name {
+		font-size: 1.25rem;
+		font-weight: 700;
+		color: var(--text-primary);
+	}
+
+	/* Compare Search Styles */
+	.compare-search-box {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		background: var(--card-bg);
+		border: 1px solid var(--border-color);
+		border-radius: 8px;
+		padding: 0.5rem 0.75rem;
+		flex: 1;
+		max-width: 350px;
+		margin: 0 1rem;
+	}
+
+	.compare-search-box .material-symbols-outlined {
+		color: var(--text-tertiary);
+		font-size: 1.25rem;
+	}
+
+	.compare-search-input {
+		flex: 1;
+		border: none;
+		background: transparent;
+		font-size: 0.875rem;
+		color: var(--text-primary);
+		outline: none;
+	}
+
+	.compare-search-input::placeholder {
+		color: var(--text-tertiary);
+	}
+
+	.clear-search {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: transparent;
+		border: none;
+		cursor: pointer;
+		padding: 0;
+	}
+
+	.clear-search .material-symbols-outlined {
+		font-size: 1rem;
+		color: var(--text-tertiary);
+	}
+
+	.clear-search:hover .material-symbols-outlined {
+		color: var(--text-primary);
+	}
+
+	.compare-search-results {
+		background: var(--card-bg);
+		border: 1px solid var(--border-color);
+		border-radius: 10px;
+		margin-bottom: 1rem;
+		overflow: hidden;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+	}
+
+	.compare-search-results.no-results {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		padding: 1rem;
+		color: var(--text-tertiary);
+	}
+
+	.search-results-header {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.75rem 1rem;
+		background: var(--hover-bg);
+		font-size: 0.75rem;
+		color: var(--text-secondary);
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+	}
+
+	.search-results-header .material-symbols-outlined {
+		font-size: 1rem;
+	}
+
+	.search-result-item {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		width: 100%;
+		padding: 0.75rem 1rem;
+		background: transparent;
+		border: none;
+		border-bottom: 1px solid var(--border-color);
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.search-result-item:last-child {
+		border-bottom: none;
+	}
+
+	.search-result-item:hover {
+		background: var(--hover-bg);
+	}
+
+	.result-info {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+	}
+
+	.result-name {
+		font-size: 0.9rem;
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.result-stage {
+		font-size: 0.75rem;
+		color: var(--text-tertiary);
+		background: var(--hover-bg);
+		padding: 0.2rem 0.5rem;
+		border-radius: 4px;
+	}
+
+	.result-region {
+		font-size: 0.7rem;
+		padding: 0.2rem 0.5rem;
+		border-radius: 4px;
+	}
+
+	.result-region.local {
+		background: rgba(255, 153, 51, 0.15);
+		color: #ff9933;
+	}
+
+	.result-region.international {
+		background: rgba(33, 150, 243, 0.15);
+		color: #2196f3;
+	}
+
+	.add-icon {
+		color: #4ade80;
+		font-size: 1.25rem;
+	}
+
+	/* Region Badge in Compare Card */
+	.region-badge {
+		font-size: 1rem;
+		margin-left: auto;
+		margin-right: 0.5rem;
+	}
+
+	/* Data Not Public Note */
+	.data-not-public-note {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.5rem 0.75rem;
+		background: rgba(251, 191, 36, 0.1);
+		border: 1px solid rgba(251, 191, 36, 0.3);
+		border-radius: 6px;
+		margin-top: 0.75rem;
+		font-size: 0.7rem;
+		color: #b45309;
+	}
+
+	.data-not-public-note .material-symbols-outlined {
+		font-size: 0.9rem;
+		color: #fbbf24;
+	}
+
+	:global(.dark) .data-not-public-note {
+		background: rgba(251, 191, 36, 0.15);
+		color: #fcd34d;
+	}
+
+	/* Online Search Styles */
+	.search-online-divider {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 0.5rem 1rem;
+		color: var(--text-tertiary);
+		font-size: 0.75rem;
+	}
+
+	.search-online-divider::before,
+	.search-online-divider::after {
+		content: '';
+		flex: 1;
+		height: 1px;
+		background: var(--border-color);
+		margin: 0 0.5rem;
+	}
+
+	.search-online-btn {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		width: 100%;
+		padding: 0.75rem 1rem;
+		background: linear-gradient(135deg, rgba(33, 150, 243, 0.1), rgba(156, 39, 176, 0.1));
+		border: 1px solid rgba(33, 150, 243, 0.3);
+		border-top: none;
+		border-radius: 0 0 10px 10px;
+		font-size: 0.875rem;
+		font-weight: 500;
+		color: #2196f3;
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.search-online-btn:hover:not(:disabled) {
+		background: linear-gradient(135deg, rgba(33, 150, 243, 0.2), rgba(156, 39, 176, 0.2));
+	}
+
+	.search-online-btn:disabled {
+		opacity: 0.7;
+		cursor: not-allowed;
+	}
+
+	.search-online-btn.retry {
+		border-radius: 0 0 10px 10px;
+		border-top: 1px solid var(--border-color);
+		color: #fbbf24;
+	}
+
+	.search-online-btn .material-symbols-outlined {
+		font-size: 1.25rem;
+	}
+
+	.spinning {
+		animation: spin 1s linear infinite;
+	}
+
+	@keyframes spin {
+		from { transform: rotate(0deg); }
+		to { transform: rotate(360deg); }
+	}
+
+	.search-loading {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.75rem;
+		padding: 1rem;
+		color: #2196f3;
+		font-size: 0.875rem;
+	}
+
+	.search-loading .material-symbols-outlined {
+		font-size: 1.5rem;
+	}
+
+	.search-error {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		padding: 0.75rem 1rem;
+		background: rgba(239, 68, 68, 0.1);
+		color: #ef4444;
+		font-size: 0.8rem;
+	}
+
+	.search-error .material-symbols-outlined {
+		font-size: 1rem;
+	}
+
+	.no-local-results {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		padding: 0.75rem 1rem;
+		color: var(--text-tertiary);
+		font-size: 0.875rem;
+	}
+
+	.no-local-results .material-symbols-outlined {
+		font-size: 1.25rem;
+	}
+
+	/* Product Badge with Flagship indicator */
+	.product-badge.flagship {
+		background: linear-gradient(135deg, rgba(255, 215, 0, 0.25), rgba(255, 193, 7, 0.15));
+		border-color: rgba(255, 215, 0, 0.5);
+		color: var(--text-primary);
+		font-weight: 600;
+	}
+
+	.product-badge .star-icon {
+		font-size: 0.875rem;
+		color: #ffd700;
+		margin-right: 0.25rem;
+	}
+
+	/* Competitor Tabs Styles */
+	.competitor-tabs-section {
+		margin-top: 2rem;
+	}
+
+	.competitor-tabs-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 1rem;
+		flex-wrap: wrap;
+		gap: 1rem;
+	}
+
+	.tabs-row {
+		display: flex;
+		gap: 0.5rem;
+		background: var(--hover-bg);
+		padding: 0.25rem;
+		border-radius: 10px;
+	}
+
+	.tab-btn {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.75rem 1.25rem;
+		background: transparent;
+		border: none;
+		border-radius: 8px;
+		font-size: 0.875rem;
+		font-weight: 500;
+		color: var(--text-secondary);
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.tab-btn:hover {
+		background: var(--card-bg);
+		color: var(--text-primary);
+	}
+
+	.tab-btn.active {
+		background: var(--card-bg);
+		color: var(--text-primary);
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+	}
+
+	.tab-btn .material-symbols-outlined {
+		font-size: 1.125rem;
+	}
+
+	.tab-count {
+		background: rgba(255, 215, 0, 0.2);
+		color: rgba(255, 215, 0, 1);
+		padding: 0.125rem 0.5rem;
+		border-radius: 10px;
+		font-size: 0.75rem;
+		font-weight: 600;
+	}
+
+	.btn-compare {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.75rem 1.25rem;
+		background: linear-gradient(135deg, rgba(33, 150, 243, 0.2), rgba(156, 39, 176, 0.2));
+		border: 1px solid rgba(33, 150, 243, 0.3);
+		border-radius: 8px;
+		font-size: 0.875rem;
+		font-weight: 500;
+		color: var(--text-primary);
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.btn-compare:hover {
+		background: linear-gradient(135deg, rgba(33, 150, 243, 0.3), rgba(156, 39, 176, 0.3));
+	}
+
+	.btn-compare.active {
+		background: linear-gradient(135deg, #2196f3, #9c27b0);
+		color: white;
+	}
+
+	/* Data Quality Summary */
+	.data-quality-summary {
+		display: flex;
+		gap: 1.5rem;
+		padding: 0.75rem 1rem;
+		background: var(--hover-bg);
+		border-radius: 8px;
+		margin-bottom: 1rem;
+	}
+
+	.summary-item {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-size: 0.875rem;
+	}
+
+	.summary-item.verified .material-symbols-outlined {
+		color: #4ade80;
+	}
+
+	.summary-item.potential .material-symbols-outlined {
+		color: #fbbf24;
+	}
+
+	/* Tab Description */
+	.tab-description {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.75rem 1rem;
+		background: rgba(74, 222, 128, 0.1);
+		border: 1px solid rgba(74, 222, 128, 0.2);
+		border-radius: 8px;
+		margin-bottom: 1rem;
+		font-size: 0.875rem;
+		color: var(--text-secondary);
+	}
+
+	.tab-description .material-symbols-outlined {
+		color: #4ade80;
+	}
+
+	.tab-description.potential {
+		background: rgba(251, 191, 36, 0.1);
+		border-color: rgba(251, 191, 36, 0.2);
+	}
+
+	.tab-description.potential .material-symbols-outlined {
+		color: #fbbf24;
+	}
+
+	/* Badge Styles */
+	.verified-badge {
+		padding: 0.25rem 0.5rem;
+		background: rgba(74, 222, 128, 0.15);
+		color: #4ade80;
+		border-radius: 12px;
+		font-size: 0.7rem;
+		font-weight: 600;
+	}
+
+	.estimated-badge {
+		padding: 0.25rem 0.5rem;
+		background: rgba(251, 191, 36, 0.15);
+		color: #fbbf24;
+		border-radius: 12px;
+		font-size: 0.7rem;
+		font-weight: 600;
+	}
+
+	.user-pick-badge {
+		padding: 0.25rem 0.5rem;
+		background: rgba(156, 39, 176, 0.15);
+		color: #ce93d8;
+		border-radius: 12px;
+		font-size: 0.7rem;
+		font-weight: 600;
+	}
+
+	/* Potential competitor card styling */
+	.competitor-card.potential {
+		border-color: rgba(251, 191, 36, 0.3);
+		background: linear-gradient(135deg, var(--card-bg), rgba(251, 191, 36, 0.05));
+	}
+
+	.metric-value.estimate {
+		color: var(--text-secondary);
+		font-style: italic;
+	}
+
+	.estimate-note {
+		font-size: 0.7rem;
+		color: var(--text-tertiary);
+		font-style: italic;
+		text-align: center;
+		margin-bottom: 0.75rem;
+	}
+
+	/* Icon buttons */
+	.btn-icon-success {
+		background: rgba(74, 222, 128, 0.15);
+		border: 1px solid rgba(74, 222, 128, 0.3);
+		border-radius: 8px;
+		padding: 0.5rem;
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.btn-icon-success:hover {
+		background: rgba(74, 222, 128, 0.25);
+	}
+
+	.btn-icon-success .material-symbols-outlined {
+		color: #4ade80;
+	}
+
+	.btn-icon-danger {
+		background: rgba(239, 68, 68, 0.15);
+		border: 1px solid rgba(239, 68, 68, 0.3);
+		border-radius: 8px;
+		padding: 0.5rem;
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.btn-icon-danger:hover {
+		background: rgba(239, 68, 68, 0.25);
+	}
+
+	.btn-icon-danger .material-symbols-outlined {
+		color: #ef4444;
+	}
+
+	/* Empty tab state */
+	.empty-tab-state {
+		grid-column: 1 / -1;
+		text-align: center;
+		padding: 3rem;
+		color: var(--text-secondary);
+	}
+
+	.empty-tab-state .material-symbols-outlined {
+		font-size: 3rem;
+		margin-bottom: 1rem;
+		opacity: 0.5;
 	}
 
 	.competitors-grid {
