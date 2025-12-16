@@ -1241,11 +1241,10 @@
 			const isEligibleForStateScheme = location && location !== 'Pan India';
 			const isEdTech = category === 'EdTech' || category === 'Education' || category === 'E-learning';
 			
-			const centralSchemes = [];
-			
-			// SISFS - Startup India Seed Fund Scheme
-			if (fundingNeeded <= 5000000) { // <= ₹50L
-				centralSchemes.push({
+			// All Central Government Schemes (priority ordered)
+			const allCentralSchemes = [
+				// Priority 1: SISFS - Startup India Seed Fund Scheme
+				{
 					name: 'Startup India Seed Fund Scheme (SISFS)',
 					amount: 'Up to ₹50 Lakhs',
 					eligibility: 'DPIIT recognized startups, incorporated < 2 years, innovative product/service',
@@ -1256,13 +1255,12 @@
 						? `You qualify! Investment of ₹${(totalInvestment/100000).toFixed(1)}L < ₹50L and ${stage} stage fits criteria`
 						: stage === 'Growing' || stage === 'Established'
 						? 'Your company has progressed beyond seed stage'
-						: 'Consider applying if DPIIT recognized and < 2 years old'
-				});
-			}
-			
-			// CGSS - Credit Guarantee Scheme
-			if (fundingNeeded >= 1000000) { // >= ₹10L
-				centralSchemes.push({
+						: 'Consider applying if DPIIT recognized and < 2 years old',
+					url: 'https://seedfund.startupindia.gov.in/',
+					priority: fundingNeeded <= 5000000 ? 1 : 5
+				},
+				// Priority 2: CGSS - Credit Guarantee Scheme
+				{
 					name: 'Credit Guarantee Scheme for Startups (CGSS)',
 					amount: 'Up to ₹10 Crores',
 					eligibility: 'DPIIT recognized startups, valid business model, revenue generation potential',
@@ -1273,13 +1271,12 @@
 						? `Strong match! You have revenue and ${stage} stage shows business model validation`
 						: hasRevenue
 						? 'You have revenue - strengthen business model documentation for better chances'
-						: 'Focus on achieving revenue first to qualify for this scheme'
-				});
-			}
-			
-			// GENESIS - AI/ML specific
-			if (category === 'AI/ML' || category === 'Technology') {
-				centralSchemes.push({
+						: 'Focus on achieving revenue first to qualify for this scheme',
+					url: 'https://www.startupindia.gov.in/content/sih/en/government-schemes/credit-guarantee-scheme.html',
+					priority: isEligibleForCGSS ? 1 : 4
+				},
+				// Priority 3: GENESIS - AI/ML specific
+				{
 					name: 'GENESIS - Gen-Next Support for Innovative Startups',
 					amount: 'Up to ₹1 Crore',
 					eligibility: 'Deep tech startups in AI/ML, IoT, Blockchain, AR/VR, Robotics',
@@ -1288,36 +1285,257 @@
 					eligibilityStatus: isEligibleForGENESIS ? 'eligible' : 'partial',
 					reasoning: category === 'AI/ML'
 						? 'Perfect fit for AI/ML deep tech startup'
-						: 'Technology startups can apply if product has deep tech component'
-				});
-			}
-			
-			// EdTech specific scheme
-			if (isEdTech) {
-				centralSchemes.push({
-					name: 'Atal Innovation Mission - Ed-AII',
+						: 'Technology startups can apply if product has deep tech component',
+					url: 'https://www.meity.gov.in/content/genesis',
+					priority: (category === 'AI/ML' || category === 'Technology') ? 1 : 6
+				},
+				// Priority 4: Atal Innovation Mission
+				{
+					name: 'Atal Innovation Mission (AIM)',
 					amount: 'Up to ₹2 Crores',
-					eligibility: 'Education technology startups with innovative learning solutions',
-					benefits: 'Grants for product development, pilot programs, mentorship, scale-up support',
+					eligibility: 'Innovative startups with scalable solutions, focus on social impact',
+					benefits: 'Grants, incubation support, mentorship, access to Atal Incubation Centers',
+					eligible: stage === 'Idea' || stage === 'MVP' || stage === 'Beta',
+					eligibilityStatus: (stage === 'Idea' || stage === 'MVP' || stage === 'Beta') ? 'eligible' : 'partial',
+					reasoning: (stage === 'Idea' || stage === 'MVP' || stage === 'Beta')
+						? `Early stage startup - AIM provides excellent incubation support`
+						: 'AIM focuses on early stage - check Atal Incubation Centers for opportunities',
+					url: 'https://aim.gov.in/',
+					priority: isEdTech ? 1 : 3
+				},
+				// Priority 5: Fund of Funds for Startups (FFS)
+				{
+					name: 'Fund of Funds for Startups (FFS)',
+					amount: 'Through SEBI-registered AIFs',
+					eligibility: 'DPIIT recognized startups seeking equity funding',
+					benefits: 'Access to ₹10,000 Cr corpus through SIDBI-managed fund, equity support without dilution concerns',
 					eligible: true,
-					eligibilityStatus: 'eligible',
-					reasoning: `As an ${category} startup, you're directly eligible for education-focused schemes`
-				});
-			}
+					eligibilityStatus: 'partial',
+					reasoning: 'FFS provides indirect equity support through SEBI-registered AIFs - great for growth stage',
+					url: 'https://www.startupindia.gov.in/content/sih/en/government-schemes/fund-of-funds-for-startups-ffs.html',
+					priority: (stage === 'Growing' || stage === 'Established') ? 2 : 4
+				},
+				// Priority 6: SAMRIDH - Startup Accelerators
+				{
+					name: 'SAMRIDH - Startup Accelerators',
+					amount: 'Up to ₹40 Lakhs',
+					eligibility: 'Growth stage startups with proven business model',
+					benefits: 'Investment support, expert mentoring, market access, international expansion support',
+					eligible: stage === 'Growing' || stage === 'Launched' || hasRevenue,
+					eligibilityStatus: (stage === 'Growing' || stage === 'Launched' || hasRevenue) ? 'eligible' : 'partial',
+					reasoning: (stage === 'Growing' || stage === 'Launched' || hasRevenue)
+						? 'You have traction - SAMRIDH helps scale with accelerator support'
+						: 'Focus on revenue generation to maximize SAMRIDH benefits',
+					url: 'https://samridh.meity.gov.in/',
+					priority: hasRevenue ? 2 : 5
+				},
+				// Priority 7: TIDE 2.0 - Technology Incubation
+				{
+					name: 'TIDE 2.0 - Technology Incubation',
+					amount: 'Up to ₹7 Crores per incubator',
+					eligibility: 'Tech startups through TIDE 2.0 centers across India',
+					benefits: 'Financial support, technical mentoring, lab facilities, industry connections',
+					eligible: category === 'Technology' || category === 'AI/ML' || category === 'SaaS',
+					eligibilityStatus: (category === 'Technology' || category === 'AI/ML' || category === 'SaaS') ? 'eligible' : 'partial',
+					reasoning: 'TIDE 2.0 centers provide comprehensive tech incubation support across premier institutes',
+					url: 'https://www.meity.gov.in/tide2-0',
+					priority: 3
+				},
+				// Priority 8: BioNEST - Biotech Incubators
+				{
+					name: 'BioNEST - Biotech Incubators',
+					amount: 'Up to ₹50 Lakhs',
+					eligibility: 'Biotech and healthcare startups with innovative solutions',
+					benefits: 'Lab infrastructure, regulatory guidance, funding support, industry mentorship',
+					eligible: category === 'Healthcare' || category === 'Biotech' || category === 'MedTech',
+					eligibilityStatus: (category === 'Healthcare' || category === 'Biotech' || category === 'MedTech') ? 'eligible' : 'not-eligible',
+					reasoning: (category === 'Healthcare' || category === 'Biotech' || category === 'MedTech')
+						? 'Directly relevant for your healthcare/biotech venture'
+						: 'Specifically for biotech/healthcare startups',
+					url: 'https://birac.nic.in/bionest.php',
+					priority: (category === 'Healthcare' || category === 'Biotech' || category === 'MedTech') ? 1 : 10
+				},
+				// Priority 9: NIDHI-SSS - Seed Support System
+				{
+					name: 'NIDHI-SSS - Seed Support System',
+					amount: 'Up to ₹1 Crore',
+					eligibility: 'Startups incubated at DST-supported TBIs',
+					benefits: 'Seed funding for proof of concept, prototype development, early commercialization',
+					eligible: stage === 'Idea' || stage === 'MVP',
+					eligibilityStatus: (stage === 'Idea' || stage === 'MVP') ? 'eligible' : 'partial',
+					reasoning: (stage === 'Idea' || stage === 'MVP')
+						? 'Perfect for early stage - join a DST-supported incubator to apply'
+						: 'Best suited for idea/MVP stage startups',
+					url: 'https://dst.gov.in/nidhi-seed-support-system',
+					priority: (stage === 'Idea' || stage === 'MVP') ? 2 : 6
+				},
+				// Priority 10: Mudra Loan Scheme
+				{
+					name: 'Mudra Loan - PMMY',
+					amount: 'Up to ₹10 Lakhs',
+					eligibility: 'Micro and small enterprises, individuals starting businesses',
+					benefits: 'Collateral-free loans under Shishu (₹50K), Kishor (₹5L), Tarun (₹10L) categories',
+					eligible: fundingNeeded <= 1000000,
+					eligibilityStatus: fundingNeeded <= 1000000 ? 'eligible' : 'partial',
+					reasoning: fundingNeeded <= 1000000
+						? 'Good fit for initial working capital and small funding needs'
+						: 'Consider for smaller working capital requirements',
+					url: 'https://www.mudra.org.in/',
+					priority: fundingNeeded <= 1000000 ? 2 : 7
+				},
+				// Priority 11: Stand Up India
+				{
+					name: 'Stand Up India',
+					amount: '₹10 Lakhs to ₹1 Crore',
+					eligibility: 'SC/ST and women entrepreneurs setting up greenfield enterprises',
+					benefits: 'Bank loans for manufacturing, services or trading sector enterprises',
+					eligible: true,
+					eligibilityStatus: 'partial',
+					reasoning: 'Excellent scheme for SC/ST and women entrepreneurs - check eligibility criteria',
+					url: 'https://www.standupmitra.in/',
+					priority: 8
+				}
+			];
 			
-			// State-level schemes
-			const stateSchemes = [];
-			if (isEligibleForStateScheme) {
-				stateSchemes.push({
-					name: `${location} State Startup Fund`,
+			// Filter out not-eligible schemes, sort by priority, and take top 6
+			const centralSchemes = allCentralSchemes
+				.filter(s => s.eligibilityStatus !== 'not-eligible') // Only show eligible or partially eligible
+				.sort((a, b) => {
+					// Prioritize 'eligible' over 'partial'
+					if (a.eligibilityStatus === 'eligible' && b.eligibilityStatus !== 'eligible') return -1;
+					if (b.eligibilityStatus === 'eligible' && a.eligibilityStatus !== 'eligible') return 1;
+					return a.priority - b.priority;
+				})
+				.slice(0, 6)
+				.map(({ priority, ...scheme }) => scheme); // Remove priority field from final output
+			
+			// All State-level schemes (priority ordered based on location match)
+			const allStateSchemes = [
+				// Primary state scheme based on user's location
+				{
+					name: `${location || 'Your State'} Startup Policy Fund`,
 					amount: 'Up to ₹25 Lakhs',
-					eligibility: `State-registered startups operating in ${location}`,
+					eligibility: `State-registered startups operating in ${location || 'your state'}`,
 					benefits: 'Seed funding, mentorship, incubation support, networking opportunities',
-					eligible: true,
-					eligibilityStatus: 'eligible',
-					reasoning: `Based in ${location} - check with state startup cell for application process`
-				});
-			}
+					eligible: isEligibleForStateScheme,
+					eligibilityStatus: isEligibleForStateScheme ? 'eligible' : 'partial',
+					reasoning: isEligibleForStateScheme 
+						? `Based in ${location} - check with state startup cell for application process`
+						: 'Register your startup in your state to access local schemes',
+					url: 'https://www.startupindia.gov.in/content/sih/en/state-startup-policies.html',
+					priority: isEligibleForStateScheme ? 1 : 5
+				},
+				// Karnataka specific
+				{
+					name: 'Karnataka Elevate 100',
+					amount: 'Up to ₹50 Lakhs',
+					eligibility: 'Innovative startups registered in Karnataka with scalable solutions',
+					benefits: 'Equity-free grants, mentorship, market access, global exposure',
+					eligible: location === 'Karnataka' || location === 'Bengaluru' || location === 'Bangalore',
+					eligibilityStatus: (location === 'Karnataka' || location === 'Bengaluru' || location === 'Bangalore') ? 'eligible' : 'partial',
+					reasoning: (location === 'Karnataka' || location === 'Bengaluru' || location === 'Bangalore')
+						? 'Karnataka-based - highly recommended flagship state program!'
+						: 'Available for Karnataka-registered startups only',
+					url: 'https://elevate.karnataka.gov.in/',
+					priority: (location === 'Karnataka' || location === 'Bengaluru' || location === 'Bangalore') ? 1 : 6
+				},
+				// Tamil Nadu specific
+				{
+					name: 'Tamil Nadu Startup Seed Grant Fund',
+					amount: 'Up to ₹10 Lakhs',
+					eligibility: 'DPIIT recognized startups headquartered in Tamil Nadu',
+					benefits: 'Seed grants, incubation support, mentorship, investor connects',
+					eligible: location === 'Tamil Nadu' || location === 'Chennai',
+					eligibilityStatus: (location === 'Tamil Nadu' || location === 'Chennai') ? 'eligible' : 'partial',
+					reasoning: (location === 'Tamil Nadu' || location === 'Chennai')
+						? 'Tamil Nadu offers robust startup ecosystem support!'
+						: 'Available for Tamil Nadu registered startups',
+					url: 'https://startuptn.in/',
+					priority: (location === 'Tamil Nadu' || location === 'Chennai') ? 1 : 6
+				},
+				// Maharashtra specific
+				{
+					name: 'Maharashtra State Innovation Society (MSInS)',
+					amount: 'Up to ₹15 Lakhs',
+					eligibility: 'Startups registered under Maharashtra Startup Policy',
+					benefits: 'Grant funding, co-working space, mentorship, procurement support',
+					eligible: location === 'Maharashtra' || location === 'Mumbai' || location === 'Pune',
+					eligibilityStatus: (location === 'Maharashtra' || location === 'Mumbai' || location === 'Pune') ? 'eligible' : 'partial',
+					reasoning: (location === 'Maharashtra' || location === 'Mumbai' || location === 'Pune')
+						? 'Maharashtra has excellent startup support infrastructure!'
+						: 'Available for Maharashtra registered startups',
+					url: 'https://msins.in/',
+					priority: (location === 'Maharashtra' || location === 'Mumbai' || location === 'Pune') ? 1 : 6
+				},
+				// Telangana specific
+				{
+					name: 'T-Hub / Telangana Innovation Fund',
+					amount: 'Up to ₹25 Lakhs',
+					eligibility: 'Startups in Telangana with innovative technology solutions',
+					benefits: 'Incubation, funding, corporate connects, global market access',
+					eligible: location === 'Telangana' || location === 'Hyderabad',
+					eligibilityStatus: (location === 'Telangana' || location === 'Hyderabad') ? 'eligible' : 'partial',
+					reasoning: (location === 'Telangana' || location === 'Hyderabad')
+						? 'T-Hub is one of India\'s largest incubators - excellent opportunity!'
+						: 'Available for Telangana registered startups',
+					url: 'https://t-hub.co/',
+					priority: (location === 'Telangana' || location === 'Hyderabad') ? 1 : 6
+				},
+				// Kerala specific
+				{
+					name: 'Kerala Startup Mission (KSUM)',
+					amount: 'Up to ₹20 Lakhs',
+					eligibility: 'Startups registered under Kerala Startup Policy',
+					benefits: 'Seed funding, incubation, international exposure, procurement support',
+					eligible: location === 'Kerala' || location === 'Kochi' || location === 'Thiruvananthapuram',
+					eligibilityStatus: (location === 'Kerala' || location === 'Kochi' || location === 'Thiruvananthapuram') ? 'eligible' : 'partial',
+					reasoning: (location === 'Kerala' || location === 'Kochi' || location === 'Thiruvananthapuram')
+						? 'KSUM offers comprehensive support with excellent international connects!'
+						: 'Available for Kerala registered startups',
+					url: 'https://startupmission.kerala.gov.in/',
+					priority: (location === 'Kerala' || location === 'Kochi' || location === 'Thiruvananthapuram') ? 1 : 6
+				},
+				// Gujarat specific
+				{
+					name: 'Gujarat Industrial Policy Assistance',
+					amount: 'Up to ₹30 Lakhs',
+					eligibility: 'Startups manufacturing or operating in Gujarat',
+					benefits: 'Capital subsidy, interest subsidy, patent assistance, power tariff benefits',
+					eligible: location === 'Gujarat' || location === 'Ahmedabad' || location === 'Surat',
+					eligibilityStatus: (location === 'Gujarat' || location === 'Ahmedabad' || location === 'Surat') ? 'eligible' : 'partial',
+					reasoning: (location === 'Gujarat' || location === 'Ahmedabad' || location === 'Surat')
+						? 'Gujarat offers substantial industrial and startup incentives!'
+						: 'Available for Gujarat registered businesses',
+					url: 'https://ic.gujarat.gov.in/startup-gujarat.aspx',
+					priority: (location === 'Gujarat' || location === 'Ahmedabad' || location === 'Surat') ? 1 : 6
+				},
+				// Delhi NCR specific
+				{
+					name: 'Delhi Startup Policy Support',
+					amount: 'Up to ₹15 Lakhs',
+					eligibility: 'Startups registered and operating in Delhi NCR',
+					benefits: 'Reimbursement of patent costs, incubation support, mentorship programs',
+					eligible: location === 'Delhi' || location === 'Delhi NCR' || location === 'Noida' || location === 'Gurgaon',
+					eligibilityStatus: (location === 'Delhi' || location === 'Delhi NCR' || location === 'Noida' || location === 'Gurgaon') ? 'eligible' : 'partial',
+					reasoning: (location === 'Delhi' || location === 'Delhi NCR' || location === 'Noida' || location === 'Gurgaon')
+						? 'Access to Delhi\'s vibrant startup ecosystem and support!'
+						: 'Available for Delhi NCR registered startups',
+					url: 'https://startup.delhi.gov.in/',
+					priority: (location === 'Delhi' || location === 'Delhi NCR' || location === 'Noida' || location === 'Gurgaon') ? 1 : 6
+				}
+			];
+			
+			// Filter out not-eligible schemes, sort by priority, and take top 6
+			const stateSchemes = allStateSchemes
+				.filter(s => s.eligibilityStatus !== 'not-eligible') // Only show eligible or partially eligible
+				.sort((a, b) => {
+					// Prioritize 'eligible' over 'partial'
+					if (a.eligibilityStatus === 'eligible' && b.eligibilityStatus !== 'eligible') return -1;
+					if (b.eligibilityStatus === 'eligible' && a.eligibilityStatus !== 'eligible') return 1;
+					return a.priority - b.priority;
+				})
+				.slice(0, 6)
+				.map(({ priority, ...scheme }) => scheme); // Remove priority field from final output
 			
 			// Priority recommendation based on analysis
 			let priority = '';
@@ -2205,6 +2423,71 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 			clearInterval(newsRotationInterval);
 		}
 	});
+
+	// Open Government Scheme Website
+	function openSchemeWebsite(scheme: any) {
+		// URL mapping for known schemes
+		const schemeUrls: Record<string, string> = {
+			// Central Government Schemes
+			'Startup India Seed Fund Scheme (SISFS)': 'https://seedfund.startupindia.gov.in/',
+			'Credit Guarantee Scheme for Startups (CGSS)': 'https://www.startupindia.gov.in/content/sih/en/government-schemes/credit-guarantee-scheme.html',
+			'GENESIS - Gen-Next Support for Innovative Startups': 'https://www.meity.gov.in/content/genesis',
+			'Atal Innovation Mission (AIM)': 'https://aim.gov.in/',
+			'Atal Innovation Mission - Ed-AII': 'https://aim.gov.in/',
+			'Fund of Funds for Startups (FFS)': 'https://www.startupindia.gov.in/content/sih/en/government-schemes/fund-of-funds-for-startups-ffs.html',
+			'SAMRIDH - Startup Accelerators': 'https://samridh.meity.gov.in/',
+			'SAMRIDH': 'https://samridh.meity.gov.in/',
+			'TIDE 2.0 - Technology Incubation': 'https://www.meity.gov.in/tide2-0',
+			'TIDE 2.0': 'https://www.meity.gov.in/tide2-0',
+			'BioNEST - Biotech Incubators': 'https://birac.nic.in/bionest.php',
+			'BioNEST': 'https://birac.nic.in/bionest.php',
+			'NIDHI-SSS - Seed Support System': 'https://dst.gov.in/nidhi-seed-support-system',
+			'NIDHI-SSS': 'https://dst.gov.in/nidhi-seed-support-system',
+			'Mudra Loan - PMMY': 'https://www.mudra.org.in/',
+			'Pradhan Mantri Mudra Yojana': 'https://www.mudra.org.in/',
+			'Stand Up India': 'https://www.standupmitra.in/',
+			// State Government Schemes
+			'Karnataka Elevate 100': 'https://elevate.karnataka.gov.in/',
+			'Tamil Nadu Startup Seed Grant Fund': 'https://startuptn.in/',
+			'Maharashtra State Innovation Society (MSInS)': 'https://msins.in/',
+			'T-Hub / Telangana Innovation Fund': 'https://t-hub.co/',
+			'Kerala Startup Mission (KSUM)': 'https://startupmission.kerala.gov.in/',
+			'Gujarat Industrial Policy Assistance': 'https://ic.gujarat.gov.in/startup-gujarat.aspx',
+			'Delhi Startup Policy Support': 'https://startup.delhi.gov.in/'
+		};
+
+		// Try to find URL from scheme object first, then from mapping
+		let url = scheme.url;
+		
+		if (!url || url === '#') {
+			// Try exact match
+			url = schemeUrls[scheme.name];
+			
+			// Try partial match if exact doesn't work
+			if (!url) {
+				for (const [key, value] of Object.entries(schemeUrls)) {
+					if (scheme.name?.toLowerCase().includes(key.toLowerCase().split(' ')[0]) ||
+					    key.toLowerCase().includes(scheme.name?.toLowerCase().split(' ')[0])) {
+						url = value;
+						break;
+					}
+				}
+			}
+		}
+
+		// Check for state schemes
+		if (!url && scheme.name?.toLowerCase().includes('state')) {
+			url = 'https://www.startupindia.gov.in/content/sih/en/state-startup-policies.html';
+		}
+
+		// Default fallback to Startup India
+		if (!url) {
+			url = 'https://www.startupindia.gov.in/content/sih/en/government-schemes.html';
+		}
+
+		// Open in new tab
+		window.open(url, '_blank', 'noopener,noreferrer');
+	}
 
 	function logout() {
 		localStorage.clear();
@@ -4996,10 +5279,10 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 											<span class="material-symbols-outlined section-icon">flag</span>
 											<h3 class="schemes-title">Central Government Schemes</h3>
 										</div>
-										<span class="schemes-count">{fundingSchemes.centralSchemes?.length || 0} schemes</span>
+										<span class="schemes-count">{(fundingSchemes.centralSchemes || []).filter(s => s.eligibilityStatus === 'eligible' || s.eligibilityStatus === 'partial').length} schemes</span>
 									</div>
 									<div class="schemes-grid">
-										{#each fundingSchemes.centralSchemes || [] as scheme}
+										{#each (fundingSchemes.centralSchemes || []).filter(s => s.eligibilityStatus === 'eligible' || s.eligibilityStatus === 'partial') as scheme}
 											<div class="scheme-card">
 												<div class="scheme-header">
 													<div class="scheme-title-row">
@@ -5013,12 +5296,9 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 															{#if scheme.eligibilityStatus === 'eligible'}
 																<span class="material-symbols-outlined">check_circle</span>
 																Eligible
-															{:else if scheme.eligibilityStatus === 'partial'}
+															{:else}
 																<span class="material-symbols-outlined">info</span>
 																Partially Eligible
-															{:else}
-																<span class="material-symbols-outlined">cancel</span>
-																Not Eligible
 															{/if}
 														</span>
 													{/if}
@@ -5052,51 +5332,59 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 														</div>
 													</div>
 												</div>
+												<!-- Action Buttons Grid -->
+												<div class="scheme-actions-grid">
+													<button class="scheme-action-btn check-gis" on:click={() => openSchemeWebsite(scheme)}>
+														<span class="material-symbols-outlined">open_in_new</span>
+														Check GIS
+													</button>
+													<button class="scheme-action-btn create-proposal" on:click={() => alert('Create Proposal feature coming soon!')}>
+														<span class="material-symbols-outlined">description</span>
+														Create Proposal
+													</button>
+												</div>
 											</div>
 										{/each}
 									</div>
 								</div>
 
 								<!-- State Government Schemes -->
-								{#if fundingSchemes.stateSchemes && fundingSchemes.stateSchemes.length > 0}
+								{#if fundingSchemes.stateSchemes && fundingSchemes.stateSchemes.filter(s => s.eligibilityStatus === 'eligible' || s.eligibilityStatus === 'partial').length > 0}
 									<div class="schemes-section state-schemes">
 										<div class="section-header">
 											<div class="section-title-row">
 												<span class="material-symbols-outlined section-icon">location_city</span>
 												<h3 class="schemes-title">State Government Schemes</h3>
 											</div>
-											<span class="schemes-count">{fundingSchemes.stateSchemes?.length || 0} schemes</span>
+											<span class="schemes-count">{(fundingSchemes.stateSchemes || []).filter(s => s.eligibilityStatus === 'eligible' || s.eligibilityStatus === 'partial').length} schemes</span>
 										</div>
 										<div class="schemes-grid">
-											{#each fundingSchemes.stateSchemes || [] as scheme}
-												<div class="scheme-card">
-													<div class="scheme-header">
-														<div class="scheme-title-row">
-															<h4 class="scheme-name">{scheme.name}</h4>
-															{#if scheme.type}
-																<span class="scheme-type-badge {scheme.type.toLowerCase()}">{scheme.type}</span>
-															{/if}
-														</div>
-														{#if scheme.eligibilityStatus}
-															<span class="eligibility-badge {scheme.eligibilityStatus}">
-																{#if scheme.eligibilityStatus === 'eligible'}
-																	<span class="material-symbols-outlined">check_circle</span>
-																	Eligible
-																{:else if scheme.eligibilityStatus === 'partial'}
-																	<span class="material-symbols-outlined">info</span>
-																	Partially Eligible
-																{:else}
-																	<span class="material-symbols-outlined">cancel</span>
-																	Not Eligible
-																{/if}
-															</span>
+										{#each (fundingSchemes.stateSchemes || []).filter(s => s.eligibilityStatus === 'eligible' || s.eligibilityStatus === 'partial') as scheme}
+											<div class="scheme-card">
+												<div class="scheme-header">
+													<div class="scheme-title-row">
+														<h4 class="scheme-name">{scheme.name}</h4>
+														{#if scheme.type}
+															<span class="scheme-type-badge {scheme.type.toLowerCase()}">{scheme.type}</span>
 														{/if}
 													</div>
+													{#if scheme.eligibilityStatus}
+														<span class="eligibility-badge {scheme.eligibilityStatus}">
+															{#if scheme.eligibilityStatus === 'eligible'}
+																<span class="material-symbols-outlined">check_circle</span>
+																Eligible
+															{:else}
+																<span class="material-symbols-outlined">info</span>
+																Partially Eligible
+															{/if}
+														</span>
+													{/if}
+												</div>
 													
-													<div class="scheme-amount-row">
-														<span class="material-symbols-outlined">currency_rupee</span>
-														<span class="amount-text">{scheme.amount}</span>
-													</div>
+												<div class="scheme-amount-row">
+													<span class="material-symbols-outlined">currency_rupee</span>
+													<span class="amount-text">{scheme.amount}</span>
+												</div>
 													
 													{#if scheme.reasoning}
 														<div class="scheme-reasoning">
@@ -5120,6 +5408,17 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 																<p>{scheme.eligibility}</p>
 															</div>
 														</div>
+													</div>
+													<!-- Action Buttons Grid -->
+													<div class="scheme-actions-grid">
+														<button class="scheme-action-btn check-gis" on:click={() => openSchemeWebsite(scheme)}>
+															<span class="material-symbols-outlined">open_in_new</span>
+															Check GIS
+														</button>
+														<button class="scheme-action-btn create-proposal" on:click={() => alert('Create Proposal feature coming soon!')}>
+															<span class="material-symbols-outlined">description</span>
+															Create Proposal
+														</button>
 													</div>
 												</div>
 											{/each}
@@ -7936,6 +8235,66 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 
 	.scheme-card:hover::before {
 		opacity: 1;
+	}
+
+	/* Scheme Action Buttons Grid */
+	.scheme-actions-grid {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 0.75rem;
+		margin-top: 1.25rem;
+		padding-top: 1rem;
+		border-top: 1px solid var(--border-color);
+	}
+
+	.scheme-action-btn {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		padding: 0.75rem 1rem;
+		border-radius: 8px;
+		font-size: 0.85rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		text-decoration: none;
+		border: none;
+	}
+
+	.scheme-action-btn .material-symbols-outlined {
+		font-size: 1.1rem;
+	}
+
+	.scheme-action-btn.check-gis {
+		background: linear-gradient(135deg, #4ade80, #22c55e);
+		color: white;
+		box-shadow: 0 2px 8px rgba(74, 222, 128, 0.3);
+	}
+
+	.scheme-action-btn.check-gis:hover {
+		background: linear-gradient(135deg, #22c55e, #16a34a);
+		transform: translateY(-2px);
+		box-shadow: 0 4px 12px rgba(74, 222, 128, 0.4);
+	}
+
+	.scheme-action-btn.create-proposal {
+		background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+		color: white;
+		box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+	}
+
+	.scheme-action-btn.create-proposal:hover {
+		transform: translateY(-2px);
+		box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+	}
+
+	[data-theme='light'] .scheme-action-btn.check-gis {
+		background: linear-gradient(135deg, #16a34a, #15803d);
+	}
+
+	[data-theme='light'] .scheme-action-btn.check-gis:hover {
+		background: linear-gradient(135deg, #15803d, #166534);
 	}
 
 	.scheme-header {
