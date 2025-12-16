@@ -1,5 +1,16 @@
 @import 'tailwindcss';
 
+/* Badhorse Font - Place badhorse.ttf/woff/woff2 in static folder */
+@font-face {
+  font-family: 'Badhorse';
+  src: url('/badhorse.woff2') format('woff2'),
+       url('/badhorse.woff') format('woff'),
+       url('/badhorse.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   /* Light Mode - White & Gold */
   --bg-primary: #FFFFFF;

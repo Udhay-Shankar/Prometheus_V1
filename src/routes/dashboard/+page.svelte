@@ -2504,13 +2504,12 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 	<aside class="sidebar" class:minimized={sidebarMinimized}>
 		<div class="sidebar-header">
 			<div class="logo-section">
-				<img src="/logo-dark.svg" alt="NebulAa" class="logo-icon logo-dark" />
-				<img src="/logo-light.svg" alt="NebulAa" class="logo-icon logo-light" />
+				<img src="/logo-dark.png" alt="Singularity" class="logo-icon logo-dark" />
+				<img src="/logo-light.png" alt="Singularity" class="logo-icon logo-light" />
 				{#if !sidebarMinimized}
 					<div class="brand-text">
-						<img src="/nebulaa-dark.svg" alt="NebulAa" class="brand-name-img logo-dark" />
-						<img src="/nebulaa-light.svg" alt="NebulAa" class="brand-name-img logo-light" />
-						<span class="brand-tagline">Singularity</span>
+						<span class="brand-nebulaa">Nebulaa</span>
+						<span class="brand-name">Singularity</span>
 					</div>
 				{/if}
 			</div>
@@ -5462,8 +5461,8 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 		<footer class="dashboard-footer">
 			<div class="footer-content">
 				<div class="footer-left">
-					<img src="/logo-dark.svg" alt="NebulAa" class="footer-logo-img logo-dark" />
-					<img src="/logo-light.svg" alt="NebulAa" class="footer-logo-img logo-light" />
+					<img src="/logo-dark.png" alt="NebulAa" class="footer-logo-img logo-dark" />
+					<img src="/logo-light.png" alt="NebulAa" class="footer-logo-img logo-light" />
 					<span class="footer-logo">NebulAa</span>
 					<span class="footer-separator">•</span>
 					<span class="footer-tagline">Singularity</span>
@@ -5845,7 +5844,7 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 	.logo-section {
 		display: flex;
 		align-items: center;
-		gap: 0.75rem;
+		gap: 0.5rem;
 	}
 
 	.sidebar.minimized .logo-section {
@@ -5853,8 +5852,8 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 	}
 
 	.logo-icon {
-		width: 2rem;
-		height: 2rem;
+		width: 2.5rem;
+		height: 2.5rem;
 		object-fit: contain;
 		flex-shrink: 0;
 	}
@@ -5881,17 +5880,20 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 		align-items: flex-start;
 	}
 
-	.brand-name-img {
-		height: 1.25rem;
-		width: auto;
-		object-fit: contain;
+	.brand-nebulaa {
+		font-family: 'Badhorse', cursive;
+		font-size: 0.9rem;
+		color: var(--accent-primary);
+		letter-spacing: 0.3px;
+		line-height: 1;
 	}
 
-	.brand-tagline {
-		font-size: 0.65rem;
-		color: var(--text-secondary);
-		margin-top: 0.1rem;
+	.brand-name {
+		font-size: 0.9rem;
+		font-weight: 600;
+		color: var(--text-primary);
 		letter-spacing: 0.3px;
+		line-height: 1;
 	}
 
 	.sidebar-toggle {

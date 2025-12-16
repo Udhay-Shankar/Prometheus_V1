@@ -181,12 +181,11 @@
 		<div class="auth-card minimal-card">
 			<div class="auth-header">
 				<div class="logo-section">
-					<img src="/logo-dark.svg" alt="NebulAa" class="logo-icon logo-dark" />
-					<img src="/logo-light.svg" alt="NebulAa" class="logo-icon logo-light" />
+					<img src="/logo-dark.png" alt="Singularity" class="logo-icon logo-dark" />
+					<img src="/logo-light.png" alt="Singularity" class="logo-icon logo-light" />
 					<div class="brand-text">
-						<img src="/nebulaa-dark.svg" alt="NebulAa" class="brand-name-img logo-dark" />
-						<img src="/nebulaa-light.svg" alt="NebulAa" class="brand-name-img logo-light" />
-						<span class="brand-tagline">Singularity</span>
+						<span class="brand-nebulaa">Nebulaa</span>
+						<span class="brand-name">Singularity</span>
 					</div>
 				</div>
 				<h2 class="auth-title">{isLogin ? 'Welcome Back' : 'Start Your Journey'}</h2>
@@ -452,8 +451,8 @@
 	}
 
 	.logo-icon {
-		width: 2.5rem;
-		height: 2.5rem;
+		width: 3.5rem;
+		height: 3.5rem;
 		object-fit: contain;
 	}
 
@@ -479,17 +478,20 @@
 		align-items: flex-start;
 	}
 
-	.brand-name-img {
-		height: 1.5rem;
-		width: auto;
-		object-fit: contain;
+	.brand-nebulaa {
+		font-family: 'Badhorse', cursive;
+		font-size: 1.5rem;
+		color: var(--accent-primary);
+		letter-spacing: 0.5px;
+		line-height: 1;
 	}
 
-	.brand-tagline {
-		font-size: 0.75rem;
-		color: var(--text-secondary);
-		margin-top: 0.1rem;
+	.brand-name {
+		font-size: 1.5rem;
+		font-weight: 700;
+		color: var(--text-primary);
 		letter-spacing: 0.5px;
+		line-height: 1;
 	}
 
 	.auth-title {

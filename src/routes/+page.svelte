@@ -62,12 +62,11 @@
 	<section class="hero-section">
 		<div class="hero-content">
 			<div class="logo-section">
-				<img src="/logo-dark.svg" alt="NebulAa" class="logo-icon logo-dark" />
-				<img src="/logo-light.svg" alt="NebulAa" class="logo-icon logo-light" />
+				<img src="/logo-dark.png" alt="Singularity" class="logo-icon logo-dark" />
+				<img src="/logo-light.png" alt="Singularity" class="logo-icon logo-light" />
 				<div class="brand-text">
-					<img src="/nebulaa-dark.svg" alt="NebulAa" class="brand-name-img logo-dark" />
-					<img src="/nebulaa-light.svg" alt="NebulAa" class="brand-name-img logo-light" />
-					<span class="brand-tagline">Singularity</span>
+					<span class="brand-nebulaa">Nebulaa</span>
+					<span class="brand-name">Singularity</span>
 				</div>
 			</div>
 			
@@ -156,8 +155,8 @@
 	<footer class="footer">
 		<div class="footer-content">
 			<div class="footer-brand">
-				<img src="/logo-dark.svg" alt="NebulAa" class="footer-logo-img logo-dark" />
-				<img src="/logo-light.svg" alt="NebulAa" class="footer-logo-img logo-light" />
+				<img src="/logo-dark.png" alt="NebulAa" class="footer-logo-img logo-dark" />
+				<img src="/logo-light.png" alt="NebulAa" class="footer-logo-img logo-light" />
 				<span class="footer-brand-name">NebulAa</span>
 				<span class="footer-sep">•</span>
 				<span class="footer-tagline">Singularity</span>
@@ -203,8 +202,8 @@
 	}
 
 	.logo-icon {
-		width: 3.5rem;
-		height: 3.5rem;
+		width: 6rem;
+		height: 6rem;
 		object-fit: contain;
 	}
 
@@ -230,17 +229,20 @@
 		align-items: flex-start;
 	}
 
-	.brand-name-img {
-		height: 2rem;
-		width: auto;
-		object-fit: contain;
+	.brand-nebulaa {
+		font-family: 'Badhorse', cursive;
+		font-size: 2.5rem;
+		color: var(--accent-primary);
+		letter-spacing: 1px;
+		line-height: 1;
 	}
 
-	.brand-tagline {
-		font-size: 0.85rem;
-		color: var(--text-secondary);
-		margin-top: 0.15rem;
-		letter-spacing: 0.5px;
+	.brand-name {
+		font-size: 2.5rem;
+		font-weight: 700;
+		color: var(--text-primary);
+		letter-spacing: 1px;
+		line-height: 1;
 	}
 
 	.hero-title {
