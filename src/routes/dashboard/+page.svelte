@@ -2504,9 +2504,14 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 	<aside class="sidebar" class:minimized={sidebarMinimized}>
 		<div class="sidebar-header">
 			<div class="logo-section">
-				<span class="material-symbols-outlined logo-icon">multimodal_hand_eye</span>
+				<img src="/logo-dark.svg" alt="NebulAa" class="logo-icon logo-dark" />
+				<img src="/logo-light.svg" alt="NebulAa" class="logo-icon logo-light" />
 				{#if !sidebarMinimized}
-					<span class="logo-text">Singularity</span>
+					<div class="brand-text">
+						<img src="/nebulaa-dark.svg" alt="NebulAa" class="brand-name-img logo-dark" />
+						<img src="/nebulaa-light.svg" alt="NebulAa" class="brand-name-img logo-light" />
+						<span class="brand-tagline">Singularity</span>
+					</div>
 				{/if}
 			</div>
 			<button class="sidebar-toggle" on:click={toggleSidebar} aria-label="Toggle sidebar">
@@ -5457,7 +5462,11 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 		<footer class="dashboard-footer">
 			<div class="footer-content">
 				<div class="footer-left">
-					<span class="footer-logo">Singularity</span>
+					<img src="/logo-dark.svg" alt="NebulAa" class="footer-logo-img logo-dark" />
+					<img src="/logo-light.svg" alt="NebulAa" class="footer-logo-img logo-light" />
+					<span class="footer-logo">NebulAa</span>
+					<span class="footer-separator">•</span>
+					<span class="footer-tagline">Singularity</span>
 					<span class="footer-separator">•</span>
 					<span class="footer-copyright">© 2025 All rights reserved</span>
 				</div>
@@ -5844,16 +5853,45 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 	}
 
 	.logo-icon {
-		font-size: 1.75rem;
-		color: #D4AF37 !important; /* Always golden in both light and dark mode */
+		width: 2rem;
+		height: 2rem;
+		object-fit: contain;
 		flex-shrink: 0;
 	}
 
-	.logo-text {
-		font-size: 1.25rem;
-		font-weight: 700;
-		color: var(--text-primary);
-		white-space: nowrap;
+	.logo-dark {
+		display: block;
+	}
+
+	.logo-light {
+		display: none;
+	}
+
+	:global([data-theme='light']) .logo-dark {
+		display: none;
+	}
+
+	:global([data-theme='light']) .logo-light {
+		display: block;
+	}
+
+	.brand-text {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+	}
+
+	.brand-name-img {
+		height: 1.25rem;
+		width: auto;
+		object-fit: contain;
+	}
+
+	.brand-tagline {
+		font-size: 0.65rem;
+		color: var(--text-secondary);
+		margin-top: 0.1rem;
+		letter-spacing: 0.3px;
 	}
 
 	.sidebar-toggle {
@@ -11165,11 +11203,39 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 		gap: 0.75rem;
 	}
 
+	.footer-logo-img {
+		width: 1.25rem;
+		height: 1.25rem;
+		object-fit: contain;
+	}
+
+	.footer-logo-img.logo-dark {
+		display: block;
+	}
+
+	.footer-logo-img.logo-light {
+		display: none;
+	}
+
+	:global([data-theme='light']) .footer-logo-img.logo-dark {
+		display: none;
+	}
+
+	:global([data-theme='light']) .footer-logo-img.logo-light {
+		display: block;
+	}
+
 	.footer-logo {
 		font-size: 1.125rem;
 		font-weight: 700;
 		color: var(--accent-primary);
 		letter-spacing: -0.5px;
+	}
+
+	.footer-tagline {
+		font-size: 0.875rem;
+		font-weight: 500;
+		color: var(--text-secondary);
 	}
 
 	.footer-separator {

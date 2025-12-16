@@ -62,8 +62,13 @@
 	<section class="hero-section">
 		<div class="hero-content">
 			<div class="logo-section">
-				<span class="material-symbols-outlined logo-icon">multimodal_hand_eye</span>
-				<h1 class="brand-name">Singularity</h1>
+				<img src="/logo-dark.svg" alt="NebulAa" class="logo-icon logo-dark" />
+				<img src="/logo-light.svg" alt="NebulAa" class="logo-icon logo-light" />
+				<div class="brand-text">
+					<img src="/nebulaa-dark.svg" alt="NebulAa" class="brand-name-img logo-dark" />
+					<img src="/nebulaa-light.svg" alt="NebulAa" class="brand-name-img logo-light" />
+					<span class="brand-tagline">Singularity</span>
+				</div>
 			</div>
 			
 			<h2 class="hero-title">
@@ -151,8 +156,11 @@
 	<footer class="footer">
 		<div class="footer-content">
 			<div class="footer-brand">
-				<span class="material-symbols-outlined">multimodal_hand_eye</span>
-				<span>Singularity</span>
+				<img src="/logo-dark.svg" alt="NebulAa" class="footer-logo-img logo-dark" />
+				<img src="/logo-light.svg" alt="NebulAa" class="footer-logo-img logo-light" />
+				<span class="footer-brand-name">NebulAa</span>
+				<span class="footer-sep">•</span>
+				<span class="footer-tagline">Singularity</span>
 			</div>
 			
 			<div class="footer-contact">
@@ -162,7 +170,7 @@
 		</div>
 		
 		<div class="footer-bottom">
-			<p>© 2025 Singularity. All rights reserved.</p>
+			<p>© 2025 NebulAa. All rights reserved.</p>
 		</div>
 	</footer>
 </div>
@@ -195,14 +203,44 @@
 	}
 
 	.logo-icon {
-		font-size: 3rem;
-		color: #D4AF37 !important; /* Always golden in both light and dark mode */
+		width: 3.5rem;
+		height: 3.5rem;
+		object-fit: contain;
 	}
 
-	.brand-name {
-		font-size: 2.5rem;
-		font-weight: 700;
-		color: var(--text-primary);
+	.logo-dark {
+		display: block;
+	}
+
+	.logo-light {
+		display: none;
+	}
+
+	:global([data-theme='light']) .logo-dark {
+		display: none;
+	}
+
+	:global([data-theme='light']) .logo-light {
+		display: block;
+	}
+
+	.brand-text {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+	}
+
+	.brand-name-img {
+		height: 2rem;
+		width: auto;
+		object-fit: contain;
+	}
+
+	.brand-tagline {
+		font-size: 0.85rem;
+		color: var(--text-secondary);
+		margin-top: 0.15rem;
+		letter-spacing: 0.5px;
 	}
 
 	.hero-title {
@@ -329,9 +367,41 @@
 		color: var(--text-primary);
 	}
 
-	.footer-brand .material-symbols-outlined {
-		font-size: 2rem;
-		color: #D4AF37 !important; /* Always golden in both light and dark mode */
+	.footer-brand-name {
+		color: var(--accent-primary);
+	}
+
+	.footer-sep {
+		color: var(--text-tertiary);
+		font-size: 1rem;
+	}
+
+	.footer-tagline {
+		font-size: 1rem;
+		font-weight: 500;
+		color: var(--text-secondary);
+	}
+
+	.footer-logo-img {
+		width: 2rem;
+		height: 2rem;
+		object-fit: contain;
+	}
+
+	.footer-logo-img.logo-dark {
+		display: block;
+	}
+
+	.footer-logo-img.logo-light {
+		display: none;
+	}
+
+	:global([data-theme='light']) .footer-logo-img.logo-dark {
+		display: none;
+	}
+
+	:global([data-theme='light']) .footer-logo-img.logo-light {
+		display: block;
 	}
 
 	.footer-contact {
