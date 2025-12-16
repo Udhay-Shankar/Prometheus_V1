@@ -4545,7 +4545,7 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 										<p>Competitors with publicly available revenue and customer data from verified sources.</p>
 									</div>
 									<div class="competitors-grid">
-										{#each verifiedCompetitors.length > 0 ? verifiedCompetitors : competitors.filter((c) => c.isVerified !== false) as competitor, index}
+										{#each verifiedCompetitors.length > 0 ? verifiedCompetitors : competitors.filter((c: any) => c.isVerified !== false) as competitor, index}
 											<div class="competitor-card" class:hidden={!competitor.visible}>
 												<div class="competitor-header">
 													<h4>{competitor.name}</h4>
@@ -4632,7 +4632,7 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 												</button>
 											</div>
 										{/each}
-										{#if verifiedCompetitors.length === 0 && competitors.filter((c) => c.isVerified !== false).length === 0}
+										{#if verifiedCompetitors.length === 0 && competitors.filter((c: any) => c.isVerified !== false).length === 0}
 											<div class="empty-tab-state">
 												<span class="material-symbols-outlined">search_off</span>
 												<p>No verified competitor data available yet</p>
@@ -5279,10 +5279,10 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 											<span class="material-symbols-outlined section-icon">flag</span>
 											<h3 class="schemes-title">Central Government Schemes</h3>
 										</div>
-										<span class="schemes-count">{(fundingSchemes.centralSchemes || []).filter(s => s.eligibilityStatus === 'eligible' || s.eligibilityStatus === 'partial').length} schemes</span>
+										<span class="schemes-count">{(fundingSchemes.centralSchemes || []).filter((s: any) => s.eligibilityStatus === 'eligible' || s.eligibilityStatus === 'partial').length} schemes</span>
 									</div>
 									<div class="schemes-grid">
-										{#each (fundingSchemes.centralSchemes || []).filter(s => s.eligibilityStatus === 'eligible' || s.eligibilityStatus === 'partial') as scheme}
+										{#each (fundingSchemes.centralSchemes || []).filter((s: any) => s.eligibilityStatus === 'eligible' || s.eligibilityStatus === 'partial') as scheme}
 											<div class="scheme-card">
 												<div class="scheme-header">
 													<div class="scheme-title-row">
@@ -5349,17 +5349,17 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 								</div>
 
 								<!-- State Government Schemes -->
-								{#if fundingSchemes.stateSchemes && fundingSchemes.stateSchemes.filter(s => s.eligibilityStatus === 'eligible' || s.eligibilityStatus === 'partial').length > 0}
+								{#if fundingSchemes.stateSchemes && fundingSchemes.stateSchemes.filter((s: any) => s.eligibilityStatus === 'eligible' || s.eligibilityStatus === 'partial').length > 0}
 									<div class="schemes-section state-schemes">
 										<div class="section-header">
 											<div class="section-title-row">
 												<span class="material-symbols-outlined section-icon">location_city</span>
 												<h3 class="schemes-title">State Government Schemes</h3>
 											</div>
-											<span class="schemes-count">{(fundingSchemes.stateSchemes || []).filter(s => s.eligibilityStatus === 'eligible' || s.eligibilityStatus === 'partial').length} schemes</span>
+											<span class="schemes-count">{(fundingSchemes.stateSchemes || []).filter((s: any) => s.eligibilityStatus === 'eligible' || s.eligibilityStatus === 'partial').length} schemes</span>
 										</div>
 										<div class="schemes-grid">
-										{#each (fundingSchemes.stateSchemes || []).filter(s => s.eligibilityStatus === 'eligible' || s.eligibilityStatus === 'partial') as scheme}
+										{#each (fundingSchemes.stateSchemes || []).filter((s: any) => s.eligibilityStatus === 'eligible' || s.eligibilityStatus === 'partial') as scheme}
 											<div class="scheme-card">
 												<div class="scheme-header">
 													<div class="scheme-title-row">
