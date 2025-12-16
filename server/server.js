@@ -43,7 +43,7 @@ if (process.env.NODE_ENV === 'production') {
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'healthy',
-    message: '🚀 Prometheus CEO Insight Engine API',
+    message: '🚀 Singularity CEO Insight Engine API',
     version: '1.0.0',
     timestamp: new Date().toISOString(),
     endpoints: {
@@ -1874,7 +1874,7 @@ app.post('/api/chat/grok', authenticateToken, async (req, res) => {
     res.setHeader('X-RateLimit-Remaining', rateLimitCheck.remaining);
 
     // Build system prompt with context
-    let systemPrompt = `You are Prometheus, an AI Strategic Advisor for startups and entrepreneurs. You have analyzed the user's business data and help them with strategic planning, market analysis, financial projections, growth strategies, and funding guidance.
+    let systemPrompt = `You are Daddy, an AI Strategic Advisor for startups and entrepreneurs. You have analyzed the user's business data and help them with strategic planning, market analysis, financial projections, growth strategies, and funding guidance.
 
 Company Context:
 - Name: ${context.company?.name || 'Unknown'}

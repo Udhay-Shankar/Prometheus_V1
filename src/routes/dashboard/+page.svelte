@@ -1987,7 +1987,7 @@
 		if (chatMessages.length === 0) {
 			chatMessages = [{
 				role: 'assistant',
-				content: `Hello! I am your AI Strategic Advisor, Prometheus. I have analyzed your business data and I am here to help you with:
+				content: `Hello! I am your AI Strategic Advisor, Daddy. I have analyzed your business data and I am here to help you with:
 
 • Strategic planning and decision-making
 • Market analysis and competitive insights  
@@ -2506,7 +2506,7 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 			<div class="logo-section">
 				<span class="material-symbols-outlined logo-icon">multimodal_hand_eye</span>
 				{#if !sidebarMinimized}
-					<span class="logo-text">CoFounder</span>
+					<span class="logo-text">Singularity</span>
 				{/if}
 			</div>
 			<button class="sidebar-toggle" on:click={toggleSidebar} aria-label="Toggle sidebar">
@@ -5457,7 +5457,7 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 		<footer class="dashboard-footer">
 			<div class="footer-content">
 				<div class="footer-left">
-					<span class="footer-logo">CoFounder</span>
+					<span class="footer-logo">Singularity</span>
 					<span class="footer-separator">•</span>
 					<span class="footer-copyright">© 2025 All rights reserved</span>
 				</div>
@@ -5697,7 +5697,7 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 					<div class="chatbot-header-content">
 						<span class="material-symbols-outlined">psychology</span>
 						<div>
-							<h3>Prometheus</h3>
+							<h3>Daddy</h3>
 							<span class="chatbot-badge">Your AI Strategic Advisor</span>
 						</div>
 					</div>

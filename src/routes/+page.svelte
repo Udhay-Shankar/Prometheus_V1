@@ -47,7 +47,7 @@
 </script>
 
 <svelte:head>
-	<title>CoFounder - AI-Powered Startup Valuation</title>
+	<title>Singularity - AI-Powered Startup Valuation</title>
 </svelte:head>
 
 <div class="landing-page">
@@ -63,7 +63,7 @@
 		<div class="hero-content">
 			<div class="logo-section">
 				<span class="material-symbols-outlined logo-icon">multimodal_hand_eye</span>
-				<h1 class="brand-name">CoFounder</h1>
+				<h1 class="brand-name">Singularity</h1>
 			</div>
 			
 			<h2 class="hero-title">
@@ -141,7 +141,7 @@
 
 			<div class="feature-card minimal-card">
 				<span class="material-symbols-outlined feature-icon">psychology</span>
-				<h3>Prometheus AI</h3>
+				<h3>Daddy AI</h3>
 				<p>Strategic advisor for what-if scenarios</p>
 			</div>
 		</div>
@@ -152,7 +152,7 @@
 		<div class="footer-content">
 			<div class="footer-brand">
 				<span class="material-symbols-outlined">multimodal_hand_eye</span>
-				<span>CoFounder</span>
+				<span>Singularity</span>
 			</div>
 			
 			<div class="footer-contact">
@@ -162,7 +162,7 @@
 		</div>
 		
 		<div class="footer-bottom">
-			<p>© 2025 CoFounder. All rights reserved.</p>
+			<p>© 2025 Singularity. All rights reserved.</p>
 		</div>
 	</footer>
 </div>
