@@ -1445,13 +1445,83 @@
 					amount: 'Up to ₹10 Lakhs',
 					eligibility: 'DPIIT recognized startups headquartered in Tamil Nadu',
 					benefits: 'Seed grants, incubation support, mentorship, investor connects',
-					eligible: location === 'Tamil Nadu' || location === 'Chennai',
-					eligibilityStatus: (location === 'Tamil Nadu' || location === 'Chennai') ? 'eligible' : 'partial',
-					reasoning: (location === 'Tamil Nadu' || location === 'Chennai')
+					eligible: location === 'Tamil Nadu',
+					eligibilityStatus: location === 'Tamil Nadu' ? 'eligible' : 'partial',
+					reasoning: location === 'Tamil Nadu'
 						? 'Tamil Nadu offers robust startup ecosystem support!'
 						: 'Available for Tamil Nadu registered startups',
 					url: 'https://startuptn.in/',
-					priority: (location === 'Tamil Nadu' || location === 'Chennai') ? 1 : 6
+					priority: location === 'Tamil Nadu' ? 1 : 6
+				},
+				// Tamil Nadu - TANSIDCO
+				{
+					name: 'TANSIDCO Startup Scheme',
+					amount: 'Up to ₹15 Lakhs',
+					eligibility: 'Manufacturing and technology startups in Tamil Nadu',
+					benefits: 'Capital subsidy, land allocation at subsidized rates, power tariff concession',
+					eligible: location === 'Tamil Nadu',
+					eligibilityStatus: location === 'Tamil Nadu' ? 'eligible' : 'partial',
+					reasoning: location === 'Tamil Nadu'
+						? 'TANSIDCO provides excellent industrial support for TN startups!'
+						: 'Available for Tamil Nadu registered startups only',
+					url: 'https://www.tansidco.tn.gov.in/',
+					priority: location === 'Tamil Nadu' ? 2 : 6
+				},
+				// Tamil Nadu - TIDCO
+				{
+					name: 'TIDCO Innovation Fund',
+					amount: 'Up to ₹25 Lakhs',
+					eligibility: 'Innovative startups with scalable technology solutions in Tamil Nadu',
+					benefits: 'Equity investment, mentorship, industry connects, export assistance',
+					eligible: location === 'Tamil Nadu',
+					eligibilityStatus: location === 'Tamil Nadu' ? 'eligible' : 'partial',
+					reasoning: location === 'Tamil Nadu'
+						? 'TIDCO backs high-growth TN startups with equity investment!'
+						: 'Available for Tamil Nadu registered startups only',
+					url: 'https://www.tidco.com/',
+					priority: location === 'Tamil Nadu' ? 2 : 6
+				},
+				// Tamil Nadu - TNIDB
+				{
+					name: 'TN Industrial Development Bank (TNIDB)',
+					amount: 'Up to ₹50 Lakhs',
+					eligibility: 'MSMEs and startups registered in Tamil Nadu',
+					benefits: 'Low-interest loans, working capital support, machinery finance',
+					eligible: location === 'Tamil Nadu',
+					eligibilityStatus: location === 'Tamil Nadu' ? 'eligible' : 'partial',
+					reasoning: location === 'Tamil Nadu'
+						? 'TNIDB offers competitive financing for TN businesses!'
+						: 'Available for Tamil Nadu registered businesses only',
+					url: 'https://www.tnidb.tn.gov.in/',
+					priority: location === 'Tamil Nadu' ? 3 : 6
+				},
+				// Tamil Nadu - StartupTN Scaleup
+				{
+					name: 'StartupTN Scaleup Program',
+					amount: 'Up to ₹1 Crore',
+					eligibility: 'Growth-stage startups with proven traction in Tamil Nadu',
+					benefits: 'Growth funding, market expansion support, corporate partnerships, international exposure',
+					eligible: location === 'Tamil Nadu',
+					eligibilityStatus: location === 'Tamil Nadu' ? 'eligible' : 'partial',
+					reasoning: location === 'Tamil Nadu'
+						? 'Flagship scaleup program for high-growth TN startups!'
+						: 'Available for Tamil Nadu registered startups only',
+					url: 'https://startuptn.in/scaleup/',
+					priority: location === 'Tamil Nadu' ? 2 : 6
+				},
+				// Tamil Nadu - MSME-TN
+				{
+					name: 'TN MSME Startup Assistance',
+					amount: 'Up to ₹20 Lakhs',
+					eligibility: 'MSME registered startups operating in Tamil Nadu',
+					benefits: 'Capital subsidy, patent cost reimbursement, quality certification support',
+					eligible: location === 'Tamil Nadu',
+					eligibilityStatus: location === 'Tamil Nadu' ? 'eligible' : 'partial',
+					reasoning: location === 'Tamil Nadu'
+						? 'Comprehensive MSME support from TN government!'
+						: 'Available for Tamil Nadu MSMEs only',
+					url: 'https://www.msmeonline.tn.gov.in/',
+					priority: location === 'Tamil Nadu' ? 3 : 6
 				},
 				// Maharashtra specific
 				{
@@ -1525,15 +1595,11 @@
 				}
 			];
 			
-			// Filter out not-eligible schemes, sort by priority, and take top 6
+			// Filter state schemes to ONLY show schemes from the user's region (eligible status)
+			// Don't show schemes from other states as they're not applicable
 			const stateSchemes = allStateSchemes
-				.filter(s => s.eligibilityStatus !== 'not-eligible') // Only show eligible or partially eligible
-				.sort((a, b) => {
-					// Prioritize 'eligible' over 'partial'
-					if (a.eligibilityStatus === 'eligible' && b.eligibilityStatus !== 'eligible') return -1;
-					if (b.eligibilityStatus === 'eligible' && a.eligibilityStatus !== 'eligible') return 1;
-					return a.priority - b.priority;
-				})
+				.filter(s => s.eligibilityStatus === 'eligible') // ONLY show schemes matching user's state
+				.sort((a, b) => a.priority - b.priority)
 				.slice(0, 6)
 				.map(({ priority, ...scheme }) => scheme); // Remove priority field from final output
 			
@@ -2861,9 +2927,9 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 							{:else}
 								<div class="backlog-list">
 									{#each backlogItems.slice(0, 5) as item, index}
-										<div class="backlog-item">
+										<div class="backlog-item" title={item.text}>
 											<span class="backlog-letter">{index + 1}.</span>
-											<span class="backlog-text">{item.text}</span>
+											<span class="backlog-text">{item.text.length > 15 ? item.text.substring(0, 15) + '...' : item.text}</span>
 											<div class="rag-buttons small">
 												<button class="rag-btn red" class:active={item.progress === 'red'} on:click={() => updateActionProgress(item.id, 'red')} title="Not Started"></button>
 												<button class="rag-btn amber" class:active={item.progress === 'amber'} on:click={() => updateActionProgress(item.id, 'amber')} title="In Progress"></button>
@@ -2876,7 +2942,7 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 						</div>
 					</div>
 
-					<!-- Row 2: News (Left) + Financial Health & Marketing (Right) -->
+					<!-- Row 2: News (Left) + inFINity & Gravity stats (Right) -->
 					<div class="home-split-section">
 						<!-- Left: News Section -->
 						<div class="news-section-container">
@@ -2940,11 +3006,11 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 							{/if}
 						</div>
 
-						<!-- Right: Financial Health + Marketing Snapshot -->
+						<!-- Right: inFINity stats + Gravity stats -->
 						<div class="dashboard-right-column">
-							<!-- Financial Health Panel -->
+							<!-- inFINity stats Panel -->
 							<div class="home-card financial-panel">
-								<h3 class="home-card-title">Financial Health</h3>
+								<h3 class="home-card-title">inFINity stats</h3>
 								{#if valuation}
 									<div class="financial-grid">
 										<div class="fin-metric">
@@ -2995,9 +3061,9 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 								{/if}
 							</div>
 
-							<!-- Marketing Snapshot Panel -->
+							<!-- Gravity stats Panel -->
 							<div class="home-card marketing-panel">
-								<h3 class="home-card-title">Marketing Snapshot</h3>
+								<h3 class="home-card-title">Gravity stats</h3>
 								{#if competitors}
 									<div class="marketing-grid">
 										<div class="mkt-metric">
@@ -3201,11 +3267,11 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 										</div>
 									</div>
 
-									<!-- Financial Health Metrics -->
+									<!-- inFINity stats Metrics -->
 									<div class="financial-health-section">
 										<h3 class="subsection-title">
 											<span class="material-symbols-outlined">health_and_safety</span>
-											Financial Health
+											inFINity stats
 										</h3>
 										<div class="health-metrics">
 											<div class="health-metric">
@@ -5353,17 +5419,17 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 								</div>
 
 								<!-- State Government Schemes -->
-								{#if fundingSchemes.stateSchemes && fundingSchemes.stateSchemes.filter((s: any) => s.eligibilityStatus === 'eligible' || s.eligibilityStatus === 'partial').length > 0}
+								{#if fundingSchemes.stateSchemes && fundingSchemes.stateSchemes.filter((s: any) => s.eligibilityStatus === 'eligible').length > 0}
 									<div class="schemes-section state-schemes">
 										<div class="section-header">
 											<div class="section-title-row">
 												<span class="material-symbols-outlined section-icon">location_city</span>
 												<h3 class="schemes-title">State Government Schemes</h3>
 											</div>
-											<span class="schemes-count">{(fundingSchemes.stateSchemes || []).filter((s: any) => s.eligibilityStatus === 'eligible' || s.eligibilityStatus === 'partial').length} schemes</span>
+											<span class="schemes-count">{(fundingSchemes.stateSchemes || []).filter((s: any) => s.eligibilityStatus === 'eligible').length} schemes</span>
 										</div>
 										<div class="schemes-grid">
-										{#each (fundingSchemes.stateSchemes || []).filter((s: any) => s.eligibilityStatus === 'eligible' || s.eligibilityStatus === 'partial') as scheme}
+										{#each (fundingSchemes.stateSchemes || []).filter((s: any) => s.eligibilityStatus === 'eligible') as scheme}
 											<div class="scheme-card">
 												<div class="scheme-header">
 													<div class="scheme-title-row">
@@ -5998,7 +6064,7 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 
 	.home-row-top {
 		display: grid;
-		grid-template-columns: 160px 1fr 200px;
+		grid-template-columns: 160px 1fr 220px;
 		gap: 1rem;
 		min-height: 280px;
 	}
@@ -6263,7 +6329,7 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 		gap: 1rem;
 	}
 
-	/* Financial Health Panel */
+	/* inFINity stats Panel */
 	.financial-panel {
 		border-top: 3px solid #3b82f6;
 	}
@@ -6316,7 +6382,7 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 		color: #ef4444;
 	}
 
-	/* Marketing Snapshot Panel */
+	/* Gravity stats Panel */
 	.marketing-panel {
 		border-top: 3px solid #f59e0b;
 	}
@@ -6566,7 +6632,7 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 	.backlog-list {
 		display: flex;
 		flex-direction: column;
-		gap: 0.3rem;
+		gap: 0.4rem;
 		overflow-y: auto;
 		flex: 1;
 	}
@@ -6574,9 +6640,9 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 	.backlog-item {
 		display: flex;
 		align-items: center;
-		gap: 0.3rem;
-		font-size: 0.7rem;
-		padding: 0.35rem;
+		gap: 0.4rem;
+		font-size: 0.75rem;
+		padding: 0.4rem;
 		background: rgba(0, 0, 0, 0.02);
 		border-radius: 4px;
 	}
@@ -6584,16 +6650,29 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 	.backlog-letter {
 		font-weight: 600;
 		color: var(--text-secondary);
-		font-size: 0.65rem;
-		min-width: 14px;
+		font-size: 0.7rem;
+		min-width: 18px;
+		flex-shrink: 0;
 	}
 
 	.backlog-text {
 		flex: 1;
 		color: var(--text-primary);
-		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
+		display: -webkit-box;
+		-webkit-line-clamp: 1;
+		-webkit-box-orient: vertical;
+		word-break: break-word;
+	}
+
+	.rag-buttons.small {
+		flex-shrink: 0;
+	}
+
+	.rag-buttons.small .rag-btn {
+		width: 14px;
+		height: 14px;
 	}
 
 	.no-actions-text, .no-backlog-text {
@@ -6701,7 +6780,7 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 		font-size: 0.75rem;
 	}
 
-	/* Financial Health Dashboard Card */
+	/* inFINity stats Dashboard Card */
 	.financial-health-card {
 		flex-direction: column;
 		align-items: stretch !important;
@@ -6768,7 +6847,7 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 		gap: 0.75rem;
 	}
 
-	/* Financial Health 2x2 Grid */
+	/* inFINity stats 2x2 Grid */
 	.metrics-row.financial-row {
 		grid-template-columns: repeat(2, 1fr);
 		gap: 0.75rem;
@@ -9883,6 +9962,7 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 		border-radius: 12px;
 		padding: 1.5rem;
 		transition: all 0.3s ease;
+		overflow: hidden;
 	}
 
 	.competitor-card:hover {
@@ -9915,6 +9995,7 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 
 	.competitor-stage {
 		display: flex;
+		flex-wrap: wrap;
 		gap: 0.5rem;
 		margin-bottom: 1rem;
 	}
@@ -11382,7 +11463,7 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 		display: inline-block;
 	}
 
-	/* Financial Health Metrics */
+	/* inFINity stats Metrics */
 	.health-metrics {
 		display: grid;
 		grid-template-columns: repeat(2, 1fr);

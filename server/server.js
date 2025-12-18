@@ -950,6 +950,10 @@ Provide specific reasoning for each scheme based on the company's actual profile
   }
 });
 
+// In-memory cache for competitor data to ensure consistency
+const competitorCache = new Map();
+const CACHE_DURATION = 30 * 60 * 1000; // 30 minutes
+
 // Market Trends & Competitor Analysis endpoint
 app.post('/api/analysis/competitors', authenticateToken, async (req, res) => {
   try {
@@ -968,6 +972,16 @@ app.post('/api/analysis/competitors', authenticateToken, async (req, res) => {
     const mentionedComps = userMentionedCompetitors 
       ? userMentionedCompetitors.split(',').map(c => c.trim()).filter(c => c.length > 0)
       : [];
+    
+    // Create cache key based on category and user-mentioned competitors
+    const cacheKey = `${category}_${mentionedComps.sort().join('_')}`;
+    
+    // Check if we have a recent cached result
+    const cachedResult = competitorCache.get(cacheKey);
+    if (cachedResult && (Date.now() - cachedResult.timestamp) < CACHE_DURATION) {
+      console.log('📦 Returning cached competitor data for:', category);
+      return res.json(cachedResult.data);
+    }
 
     console.log('📊 Fetching competitor valuation data for:', category, 'User mentioned:', mentionedComps);
 
@@ -1054,16 +1068,56 @@ Return ONLY valid JSON (no markdown, no code blocks):
       const searchResponse = await callGeminiWithSearch(searchPrompt, 
         'You are a financial data analyst. Provide ONLY verified, factual valuation data from real sources. Return pure JSON only.');
       
-      // Clean and parse response
-      let content = searchResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      // Clean and parse response - more robust cleaning
+      let content = searchResponse;
       
-      // Try to find JSON in the response
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        content = jsonMatch[0];
+      // Remove markdown code blocks
+      content = content.replace(/```json\s*/gi, '');
+      content = content.replace(/```\s*/gi, '');
+      
+      // Remove any text before the first { and after the last }
+      const firstBrace = content.indexOf('{');
+      const lastBrace = content.lastIndexOf('}');
+      
+      if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+        content = content.substring(firstBrace, lastBrace + 1);
       }
       
-      const analysis = JSON.parse(content);
+      // Fix common JSON issues
+      content = content.trim();
+      content = content.replace(/,\s*}/g, '}'); // Remove trailing commas before }
+      content = content.replace(/,\s*]/g, ']'); // Remove trailing commas before ]
+      content = content.replace(/[\u201C\u201D]/g, '"'); // Replace fancy quotes
+      content = content.replace(/[\u2018\u2019]/g, "'"); // Replace fancy apostrophes
+      
+      let analysis;
+      try {
+        analysis = JSON.parse(content);
+      } catch (parseError) {
+        console.error('JSON parse failed, trying to extract competitors array:', parseError.message);
+        
+        // Try to extract just the competitors array
+        const competitorsMatch = content.match(/"competitors"\s*:\s*\[([\s\S]*?)\]/);
+        if (competitorsMatch) {
+          try {
+            const competitorsJson = '[' + competitorsMatch[1] + ']';
+            const competitors = JSON.parse(competitorsJson.replace(/,\s*]/g, ']'));
+            analysis = { competitors };
+          } catch (e) {
+            throw parseError; // Re-throw original error
+          }
+        } else {
+          throw parseError;
+        }
+      }
+      
+      // Validate that competitors array exists and has data
+      if (!analysis.competitors || !Array.isArray(analysis.competitors) || analysis.competitors.length === 0) {
+        console.warn('No competitors in API response, falling back to defaults');
+        throw new Error('No competitors returned from API');
+      }
+      
+      console.log(`📊 Parsed ${analysis.competitors.length} competitors from API response`);
       
       // Post-process competitors to ensure all required fields exist with valid data
       // and categorize into verified vs potential competitors
@@ -1072,6 +1126,12 @@ Return ONLY valid JSON (no markdown, no code blocks):
       
       if (analysis.competitors) {
         analysis.competitors.forEach(comp => {
+          // Skip invalid entries
+          if (!comp.name || typeof comp.name !== 'string') {
+            console.warn('Skipping invalid competitor entry:', comp);
+            return;
+          }
+          
           // Calculate growth rate if not provided (based on valuation timeline)
           let growthRate = comp.growthRate || 0;
           let currentValuation = comp.currentValuation || 0;
@@ -1197,6 +1257,12 @@ Return ONLY valid JSON (no markdown, no code blocks):
           userMentionedCount: [...verifiedCompetitors, ...potentialCompetitors].filter(c => c.isUserMentioned).length
         }
       };
+      
+      // Cache successful result
+      competitorCache.set(cacheKey, {
+        timestamp: Date.now(),
+        data: result
+      });
       
       console.log('✅ Valuation timeline data fetched via Google Search for', category);
       console.log(`   - Verified competitors: ${verifiedCompetitors.length}, Potential: ${potentialCompetitors.length}`);
@@ -2019,6 +2085,39 @@ app.post('/api/notes/save', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error saving note:', error);
     res.status(500).json({ error: 'Failed to save note' });
+  }
+});
+
+// Create a new note (alternative endpoint for direct note creation)
+app.post('/api/notes', authenticateToken, async (req, res) => {
+  try {
+    const { chatMessage, response, noteTitle, category } = req.body;
+    const userId = req.user.userId;
+
+    if (!noteTitle || !response) {
+      return res.status(400).json({ error: 'Note title and content are required' });
+    }
+
+    const note = {
+      userId,
+      chatMessage: chatMessage || 'Manual Note',
+      response,
+      noteTitle: noteTitle,
+      category: category || 'General',
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+
+    const result = await notesCollection.insertOne(note);
+    
+    res.json({ 
+      success: true, 
+      noteId: result.insertedId,
+      message: 'Note created successfully' 
+    });
+  } catch (error) {
+    console.error('Error creating note:', error);
+    res.status(500).json({ error: 'Failed to create note' });
   }
 });
 
