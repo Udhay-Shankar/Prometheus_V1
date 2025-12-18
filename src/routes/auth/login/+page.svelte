@@ -67,9 +67,29 @@
 		}, 5000); // 5 seconds duration for celebration
 	}
 
+	function validatePassword(pwd: string): { valid: boolean; errors: string[] } {
+		const errors: string[] = [];
+		if (pwd.length < 8) errors.push('at least 8 characters');
+		if (!/[A-Z]/.test(pwd)) errors.push('one uppercase letter');
+		if (!/[a-z]/.test(pwd)) errors.push('one lowercase letter');
+		if (!/[0-9]/.test(pwd)) errors.push('one number');
+		if (!/[!@#$%^&*(),.?":{}|<>]/.test(pwd)) errors.push('one special character');
+		return { valid: errors.length === 0, errors };
+	}
+
 	async function handleSubmit() {
 		error = '';
 		loading = true;
+
+		// Client-side password validation for signup
+		if (!isLogin) {
+			const pwdValidation = validatePassword(password);
+			if (!pwdValidation.valid) {
+				showToast(`Password requires: ${pwdValidation.errors.join(', ')}`, 'error');
+				loading = false;
+				return;
+			}
+		}
 
 		try {
 			const endpoint = isLogin ? '/api/auth/login' : '/api/auth/signup';
@@ -252,8 +272,14 @@
 						bind:value={password}
 						placeholder="••••••••"
 						required
-						minlength="6"
+						minlength="8"
 					/>
+					{#if !isLogin}
+						<p class="password-requirements">
+							<span class="material-symbols-outlined info-icon">info</span>
+							Min 8 characters with uppercase, lowercase, number & special character (!@#$%^&*)
+						</p>
+					{/if}
 				</div>
 
 				{#if !isLogin}
@@ -552,6 +578,27 @@
 
 	.form-group input::placeholder {
 		color: var(--text-tertiary);
+	}
+
+	.password-requirements {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.4rem;
+		margin-top: 0.5rem;
+		padding: 0.5rem 0.75rem;
+		background: rgba(212, 175, 55, 0.08);
+		border-radius: 6px;
+		border-left: 3px solid var(--accent-primary, #D4AF37);
+		font-size: 0.75rem;
+		color: var(--text-secondary);
+		line-height: 1.4;
+	}
+
+	.password-requirements .info-icon {
+		font-size: 0.9rem;
+		color: var(--accent-primary, #D4AF37);
+		flex-shrink: 0;
+		margin-top: 0.05rem;
 	}
 
 	.socials-section {

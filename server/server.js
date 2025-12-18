@@ -6,6 +6,11 @@ import bcrypt from 'bcryptjs';
 import { MongoClient, ObjectId } from 'mongodb';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
+import mongoSanitize from 'express-mongo-sanitize';
+import hpp from 'hpp';
+import validator from 'validator';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -16,20 +21,151 @@ dotenv.config({ path: path.join(__dirname, '.env') });
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Middleware
-app.use(cors({
-  origin: [
-    'http://localhost:5173', 
-    'http://localhost:5174', 
-    'http://localhost:5175', 
-    'http://localhost:5176',
-    'https://prometheus-v1.onrender.com',
-    'https://prometheus-frontend.onrender.com',
-    /\.vercel\.app$/  // Allow any Vercel deployment
-  ],
-  credentials: true
+// ============================================
+// SECURITY MIDDLEWARE
+// ============================================
+
+// Security HTTP headers
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com"],
+      imgSrc: ["'self'", "data:", "https:", "blob:"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+      connectSrc: ["'self'", "https://generativelanguage.googleapis.com", "https://api.x.ai"],
+    },
+  },
+  crossOriginEmbedderPolicy: false, // Allow embedding for development
 }));
-app.use(express.json());
+
+// CORS configuration - more restrictive
+const allowedOrigins = [
+  'http://localhost:5173', 
+  'http://localhost:5174', 
+  'http://localhost:5175', 
+  'http://localhost:5176',
+  'https://prometheus-v1.onrender.com',
+  'https://prometheus-frontend.onrender.com'
+];
+
+app.use(cors({
+  origin: function (origin, callback) {
+    // Allow requests with no origin (mobile apps, curl, etc.)
+    if (!origin) return callback(null, true);
+    
+    // Check exact match or Vercel deployment pattern
+    if (allowedOrigins.includes(origin) || /^https:\/\/[\w-]+\.vercel\.app$/.test(origin)) {
+      return callback(null, true);
+    }
+    
+    return callback(new Error('Not allowed by CORS'), false);
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
+// Request body size limit (prevent DoS)
+app.use(express.json({ limit: '10kb' }));
+app.use(express.urlencoded({ extended: true, limit: '10kb' }));
+
+// NoSQL injection sanitization
+app.use(mongoSanitize({
+  replaceWith: '_',
+  onSanitize: ({ req, key }) => {
+    console.warn(`🛡️ Sanitized potential NoSQL injection in ${key}`);
+  }
+}));
+
+// HTTP Parameter Pollution protection
+app.use(hpp());
+
+// General rate limiter for all requests
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // 100 requests per window
+  message: { error: 'Too many requests, please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api/', generalLimiter);
+
+// Strict rate limiter for auth endpoints (brute force protection)
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // 5 attempts per window
+  message: { error: 'Too many login attempts. Please try again after 15 minutes.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true, // Don't count successful logins
+});
+
+// ============================================
+// VALIDATION HELPERS
+// ============================================
+
+// Password validation: min 8 chars, uppercase, lowercase, special char
+function validatePassword(password) {
+  const errors = [];
+  
+  if (!password || password.length < 8) {
+    errors.push('Password must be at least 8 characters long');
+  }
+  if (!/[A-Z]/.test(password)) {
+    errors.push('Password must contain at least one uppercase letter');
+  }
+  if (!/[a-z]/.test(password)) {
+    errors.push('Password must contain at least one lowercase letter');
+  }
+  if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) {
+    errors.push('Password must contain at least one special character (!@#$%^&*...)');
+  }
+  if (!/[0-9]/.test(password)) {
+    errors.push('Password must contain at least one number');
+  }
+  
+  return {
+    valid: errors.length === 0,
+    errors
+  };
+}
+
+// Email validation
+function validateEmail(email) {
+  if (!email) return { valid: false, error: 'Email is required' };
+  
+  // Use validator library for robust email validation
+  if (!validator.isEmail(email)) {
+    return { valid: false, error: 'Please enter a valid email address' };
+  }
+  
+  // Additional checks for common fake domains
+  const disposableDomains = ['tempmail.com', 'throwaway.com', 'mailinator.com', 'guerrillamail.com', 'fakeinbox.com'];
+  const domain = email.split('@')[1]?.toLowerCase();
+  if (disposableDomains.includes(domain)) {
+    return { valid: false, error: 'Disposable email addresses are not allowed' };
+  }
+  
+  return { valid: true };
+}
+
+// Sanitize string input (XSS prevention)
+function sanitizeInput(input) {
+  if (typeof input !== 'string') return input;
+  return validator.escape(validator.trim(input));
+}
+
+// Validate MongoDB ObjectId
+function isValidObjectId(id) {
+  if (!id) return false;
+  try {
+    return ObjectId.isValid(id) && new ObjectId(id).toString() === id;
+  } catch {
+    return false;
+  }
+}
 
 // Serve static frontend files in production (BEFORE API routes!)
 if (process.env.NODE_ENV === 'production') {
@@ -277,29 +413,51 @@ app.post('/api/auth/signup', async (req, res) => {
       return res.status(400).json({ error: 'Email, password, name, and company name are required' });
     }
 
+    // Validate email format
+    const emailValidation = validateEmail(email);
+    if (!emailValidation.valid) {
+      return res.status(400).json({ error: emailValidation.error });
+    }
+
+    // Validate password strength
+    const passwordValidation = validatePassword(password);
+    if (!passwordValidation.valid) {
+      return res.status(400).json({ 
+        error: 'Password does not meet requirements',
+        details: passwordValidation.errors 
+      });
+    }
+
+    // Sanitize inputs
+    const sanitizedName = sanitizeInput(name);
+    const sanitizedCompanyName = sanitizeInput(companyName);
+    const sanitizedEmail = validator.normalizeEmail(email) || email.toLowerCase().trim();
+
     // Check if user exists
-    const existingUser = await usersCollection.findOne({ email });
+    const existingUser = await usersCollection.findOne({ email: sanitizedEmail });
     if (existingUser) {
       return res.status(409).json({ error: 'Account already exists with this email' });
     }
 
-    // Hash password
-    const hashedPassword = await bcrypt.hash(password, 10);
+    // Hash password with higher cost factor for security
+    const hashedPassword = await bcrypt.hash(password, 12);
 
-    // Create user with optional socials (default to empty strings if not provided)
+    // Create user with sanitized inputs
     const user = {
-      email,
+      email: sanitizedEmail,
       password: hashedPassword,
-      name,
-      companyName,
+      name: sanitizedName,
+      companyName: sanitizedCompanyName,
       socials: {
-        linkedIn: socials?.linkedIn || '',
-        website: socials?.website || '',
-        instagram: socials?.instagram || '',
-        other: socials?.other || ''
+        linkedIn: sanitizeInput(socials?.linkedIn || ''),
+        website: sanitizeInput(socials?.website || ''),
+        instagram: sanitizeInput(socials?.instagram || ''),
+        other: sanitizeInput(socials?.other || '')
       },
       createdAt: new Date(),
-      role: 'founder'
+      role: 'founder',
+      loginAttempts: 0,
+      lockUntil: null
     };
 
     const result = await usersCollection.insertOne(user);
@@ -320,7 +478,7 @@ app.post('/api/auth/signup', async (req, res) => {
     res.json({
       accessToken,
       refreshToken,
-      user: { id: result.insertedId, email, name, companyName, socials: user.socials }
+      user: { id: result.insertedId, email: sanitizedEmail, name: sanitizedName, companyName: sanitizedCompanyName, socials: user.socials }
     });
   } catch (error) {
     console.error('Signup error:', error);
@@ -328,21 +486,66 @@ app.post('/api/auth/signup', async (req, res) => {
   }
 });
 
-app.post('/api/auth/login', async (req, res) => {
+// Login with rate limiting and account lockout
+app.post('/api/auth/login', authLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
 
+    // Validate inputs
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
+
+    // Normalize email
+    const normalizedEmail = validator.normalizeEmail(email) || email.toLowerCase().trim();
+
     // Find user
-    const user = await usersCollection.findOne({ email });
+    const user = await usersCollection.findOne({ email: normalizedEmail });
     if (!user) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+      // Don't reveal whether email exists (timing attack prevention)
+      await new Promise(resolve => setTimeout(resolve, 100));
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    // Check if account is locked
+    if (user.lockUntil && user.lockUntil > new Date()) {
+      const remainingTime = Math.ceil((user.lockUntil - new Date()) / 1000 / 60);
+      return res.status(423).json({ 
+        error: `Account temporarily locked. Try again in ${remainingTime} minutes.`,
+        lockedUntil: user.lockUntil
+      });
     }
 
     // Verify password
     const validPassword = await bcrypt.compare(password, user.password);
     if (!validPassword) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+      // Increment failed login attempts
+      const loginAttempts = (user.loginAttempts || 0) + 1;
+      const updateData = { loginAttempts };
+      
+      // Lock account after 5 failed attempts for 30 minutes
+      if (loginAttempts >= 5) {
+        updateData.lockUntil = new Date(Date.now() + 30 * 60 * 1000);
+        updateData.loginAttempts = 0; // Reset counter
+        await usersCollection.updateOne({ _id: user._id }, { $set: updateData });
+        return res.status(423).json({ 
+          error: 'Too many failed attempts. Account locked for 30 minutes.',
+          lockedUntil: updateData.lockUntil
+        });
+      }
+      
+      await usersCollection.updateOne({ _id: user._id }, { $set: updateData });
+      return res.status(401).json({ 
+        error: 'Invalid email or password',
+        attemptsRemaining: 5 - loginAttempts
+      });
     }
+
+    // Reset login attempts on successful login
+    await usersCollection.updateOne(
+      { _id: user._id }, 
+      { $set: { loginAttempts: 0, lockUntil: null, lastLogin: new Date() } }
+    );
 
     // Generate tokens
     const accessToken = jwt.sign(
@@ -2170,15 +2373,21 @@ app.put('/api/notes/:id', authenticateToken, async (req, res) => {
     const { noteTitle, category } = req.body;
     const userId = req.user.userId;
 
+    // Validate ObjectId to prevent crashes
+    if (!isValidObjectId(id)) {
+      return res.status(400).json({ error: 'Invalid note ID format' });
+    }
+
     const updateFields = {
       updatedAt: new Date()
     };
 
-    if (noteTitle) updateFields.noteTitle = noteTitle;
-    if (category) updateFields.category = category;
+    // Sanitize inputs
+    if (noteTitle) updateFields.noteTitle = sanitizeInput(noteTitle);
+    if (category) updateFields.category = sanitizeInput(category);
 
     const result = await notesCollection.updateOne(
-      { _id: new MongoClient.ObjectId(id), userId },
+      { _id: new ObjectId(id), userId },
       { $set: updateFields }
     );
 
@@ -2199,7 +2408,11 @@ app.delete('/api/notes/:id', authenticateToken, async (req, res) => {
     const { id } = req.params;
     const userId = req.user.userId;
 
-    const { ObjectId } = await import('mongodb');
+    // Validate ObjectId to prevent crashes
+    if (!isValidObjectId(id)) {
+      return res.status(400).json({ error: 'Invalid note ID format' });
+    }
+
     const result = await notesCollection.deleteOne({ 
       _id: new ObjectId(id), 
       userId 
