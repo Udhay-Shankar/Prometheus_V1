@@ -47,6 +47,7 @@ const allowedOrigins = new Set([
   'http://localhost:5175', 
   'http://localhost:5176',
   'https://prometheus-v1.onrender.com',
+  'https://prometheus-v1-1.onrender.com',
   'https://prometheus-frontend.onrender.com'
 ]);
 
@@ -54,6 +55,14 @@ app.use(cors({
   origin: function (origin, callback) {
     // Allow requests with no origin (mobile apps, curl, etc.)
     if (!origin) return callback(null, true);
+    
+    // In production, allow same-origin requests (no CORS needed for same domain)
+    if (process.env.NODE_ENV === 'production') {
+      // Allow all onrender.com subdomains
+      if (/^https:\/\/[\w-]+\.onrender\.com$/.test(origin)) {
+        return callback(null, true);
+      }
+    }
     
     // Check exact match or Vercel deployment pattern
     if (allowedOrigins.has(origin) || /^https:\/\/[\w-]+\.vercel\.app$/.test(origin)) {
