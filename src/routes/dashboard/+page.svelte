@@ -21,8 +21,13 @@
 	let competitors: any = null;
 	let verifiedCompetitors: any[] = []; // Competitors with verified revenue/customers
 	let potentialCompetitors: any[] = []; // Competitors without verified data
+	let userPickCompetitors: any[] = []; // User-mentioned competitors
+	let globalCompetitors: any[] = []; // Global/international competitors
+	let localCompetitors: any[] = []; // Local/Indian competitors
+	let rivalCompetitors: any[] = []; // Rival/emerging competitors
+	let allCompetitors: any[] = []; // All competitors combined
 	let competitorDataSummary: any = null; // Summary of competitor data
-	let activeCompetitorTab = 'verified'; // 'verified' | 'potential'
+	let activeCompetitorTab = 'all'; // 'all' | 'user-pick' | 'global' | 'local' | 'rival'
 	let compareMode = false; // Whether compare frame is active
 	let compareList: any[] = []; // List of competitors to compare
 	let compareSearchQuery = ''; // Search query in compare frame
@@ -37,10 +42,29 @@
 	let sidebarMinimized = false;
 	let theme = 'light';
 	let hasRevenue: boolean | null = null; // Track conditional path
+	let customBusinessCategory: string = ''; // For 'Other' business category
+	let pricingModel: string | null = null; // Track pricing model for revenue questions
 	let isPreRevenue = false; // Determined by Q9 answer
+	
+	// Helper function to convert multiselect arrays to display strings
+	function toDisplayString(value: any, separator: string = ', '): string {
+		if (Array.isArray(value)) {
+			return value.join(separator);
+		}
+		return value || '';
+	}
+	
+	// Helper function to get the primary (first) value from multiselect or single value
+	function getPrimaryValue(value: any, fallback: string = ''): string {
+		if (Array.isArray(value)) {
+			return value[0] || fallback;
+		}
+		return value || fallback;
+	}
 	let showChatbot = false; // Floating chatbot visibility
 	let selectedCompetitor: any = null; // For modal display
 	let showMethodologyModal = false; // For methodology breakdown modal
+	let showVrioInfo = false; // For VRIO framework explanation tooltip
 
 	// AI Chatbot state
 	let chatMessages: Array<{role: string, content: string, timestamp: Date, id?: string}> = [];
@@ -126,10 +150,21 @@
 		{
 			id: 3,
 			section: 'Business Foundation',
-			question: 'Business category selection',
-			type: 'dropdown',
+			question: 'Business category selection (select all that apply)',
+			type: 'multiselect',
 			options: ['SaaS', 'Mobile App', 'E-commerce', 'AI/ML', 'Hardware', 'Marketplace', 'Consulting', 'FMCG', 'Other'],
-			required: true
+			required: true,
+			hasOther: true // Shows textbox when 'Other' is selected
+		},
+		{
+			id: '3_other',
+			section: 'Business Foundation',
+			question: 'Please specify your business category',
+			type: 'text',
+			placeholder: 'Enter your specific business field/category',
+			required: true,
+			conditionalOn: 3,
+			conditionalValue: 'Other'
 		},
 		{
 			id: 4,
@@ -208,6 +243,15 @@
 			required: true
 		},
 		{
+			id: '11b',
+			section: 'Market Validation',
+			question: 'Pricing model (planned or existing)',
+			type: 'dropdown',
+			options: ['Monthly Recurring', 'Quarterly Recurring', 'Yearly Recurring', 'One-time Payment', 'Freemium', 'Usage-based', 'Hybrid'],
+			required: true,
+			pricingModel: true // This sets pricing model for revenue questions
+		},
+		{
 			id: 12,
 			section: 'Market Validation',
 			question: 'Paying customers status',
@@ -219,6 +263,75 @@
 	];
 
 	// SECTION 3A: Revenue Businesses (if Q12 = Yes)
+	// Revenue questions vary based on pricing model
+	function getSection3AQuestions() {
+		const pricing = ddqResponses['11b'] || 'Monthly Recurring';
+		
+		// Base questions
+		const questions = [
+			{
+				id: 15,
+				section: 'Revenue Metrics',
+				question: 'Total customer count',
+				type: 'number',
+				placeholder: 'Total paying customers',
+				required: true
+			}
+		];
+		
+		// Revenue questions based on pricing model
+		if (pricing === 'Monthly Recurring') {
+			questions.unshift(
+				{ id: 13, section: 'Revenue Metrics', question: 'Current monthly recurring revenue (MRR)', type: 'number', placeholder: 'Enter MRR in INR', required: true },
+				{ id: 14, section: 'Revenue Metrics', question: 'MRR 3 months ago', type: 'number', placeholder: 'Enter in INR', required: true }
+			);
+		} else if (pricing === 'Quarterly Recurring') {
+			questions.unshift(
+				{ id: 13, section: 'Revenue Metrics', question: 'Current quarterly recurring revenue (QRR)', type: 'number', placeholder: 'Enter QRR in INR', required: true },
+				{ id: 14, section: 'Revenue Metrics', question: 'QRR last quarter', type: 'number', placeholder: 'Enter in INR', required: true }
+			);
+		} else if (pricing === 'Yearly Recurring') {
+			questions.unshift(
+				{ id: 13, section: 'Revenue Metrics', question: 'Annual recurring revenue (ARR)', type: 'number', placeholder: 'Enter ARR in INR', required: true },
+				{ id: 14, section: 'Revenue Metrics', question: 'ARR last year', type: 'number', placeholder: 'Enter in INR', required: true }
+			);
+		} else if (pricing === 'One-time Payment') {
+			questions.unshift(
+				{ id: 13, section: 'Revenue Metrics', question: 'Total revenue this month', type: 'number', placeholder: 'Enter in INR', required: true },
+				{ id: 14, section: 'Revenue Metrics', question: 'Total revenue 3 months ago', type: 'number', placeholder: 'Enter in INR', required: true }
+			);
+		} else {
+			// Freemium, Usage-based, Hybrid - ask for monthly equivalent
+			questions.unshift(
+				{ id: 13, section: 'Revenue Metrics', question: 'Current monthly revenue (all sources)', type: 'number', placeholder: 'Enter in INR', required: true },
+				{ id: 14, section: 'Revenue Metrics', question: 'Revenue 3 months ago', type: 'number', placeholder: 'Enter in INR', required: true }
+			);
+		}
+		
+		// Add Customer count question
+		questions.push({
+			id: 15,
+			section: 'Revenue Metrics',
+			question: 'Total customer count',
+			type: 'number',
+			placeholder: 'Total paying customers',
+			required: true
+		});
+		
+		// Add ARPC question
+		questions.push({
+			id: 16,
+			section: 'Revenue Metrics',
+			question: pricing === 'One-time Payment' ? 'Average revenue per customer (one-time)' : 'Average revenue per customer (per period)',
+			type: 'number',
+			placeholder: 'Enter in INR (approx)',
+			required: true
+		});
+		
+		return questions;
+	}
+	
+	// Legacy constant for backward compatibility
 	const section3AQuestions = [
 		{
 			id: 13,
@@ -303,16 +416,16 @@
 		{
 			id: 18,
 			section: 'Team & Operations',
-			question: 'Founder background',
-			type: 'dropdown',
+			question: 'Founder background (select all that apply)',
+			type: 'multiselect',
 			options: ['Technical', 'Business', 'Industry Expert', 'Previous Startup', 'Finance', 'Marketing', 'Other'],
 			required: true
 		},
 		{
 			id: 19,
 			section: 'Team & Operations',
-			question: 'Biggest current challenge',
-			type: 'dropdown',
+			question: 'Biggest current challenges (select all that apply)',
+			type: 'multiselect',
 			options: ['Customers', 'Product', 'Funding', 'Team', 'Competition', 'Regulations', 'Tech', 'Other'],
 			required: true
 		}
@@ -323,8 +436,8 @@
 		{
 			id: 20,
 			section: 'Growth Strategy',
-			question: 'Customer acquisition strategy',
-			type: 'dropdown',
+			question: 'Customer acquisition strategies (select all that apply)',
+			type: 'multiselect',
 			options: ['Online marketing', 'Direct sales', 'Word of mouth', 'Partnerships', 'App stores', 'Social media', 'Other'],
 			required: true
 		},
@@ -351,8 +464,8 @@
 		{
 			id: 23,
 			section: 'Risk Assessment',
-			question: 'Primary business risk',
-			type: 'dropdown',
+			question: 'Primary business risks (select all that apply)',
+			type: 'multiselect',
 			options: ['Competition', 'No demand', 'Funding', 'Technical', 'Regulatory', 'Key person', 'Economic', 'Other'],
 			required: true
 		}
@@ -383,11 +496,11 @@
 			ddqQuestions = [
 				...section1Questions,
 				...section2Questions,
-				...section3AQuestions,
+				...getSection3AQuestions(), // Use dynamic questions based on pricing model
 				...section4Questions,
 				...section5Questions,
 				...section6Questions
-			];
+			].filter(q => shouldShowQuestion(q));
 		} else if (answer === 'No') {
 			hasRevenue = false;
 			isPreRevenue = true;
@@ -398,10 +511,31 @@
 				...section4Questions,
 				...section5Questions,
 				...section6Questions
-			];
+			].filter(q => shouldShowQuestion(q));
 		}
 		// Force reactivity update
 		ddqQuestions = ddqQuestions;
+	}
+	
+	// Check if a conditional question should be shown
+	function shouldShowQuestion(question: any): boolean {
+		if (!question.conditionalOn) return true;
+		const parentAnswer = ddqResponses[question.conditionalOn];
+		if (Array.isArray(parentAnswer)) {
+			return parentAnswer.includes(question.conditionalValue);
+		}
+		return parentAnswer === question.conditionalValue;
+	}
+	
+	// Rebuild questions when conditional answers change
+	function rebuildQuestions() {
+		const baseQuestions = hasRevenue === null 
+			? [...section1Questions, ...section2Questions]
+			: hasRevenue 
+				? [...section1Questions, ...section2Questions, ...getSection3AQuestions(), ...section4Questions, ...section5Questions, ...section6Questions]
+				: [...section1Questions, ...section2Questions, ...section3BQuestions, ...section4Questions, ...section5Questions, ...section6Questions];
+		
+		ddqQuestions = baseQuestions.filter(q => shouldShowQuestion(q));
 	}
 
 	// Reactive declarations for DDQ
@@ -590,9 +724,24 @@
 			return;
 		}
 		
-		// Check if this is Q11 (paying customers decision - the conditional trigger)
+		// Check if this is Q12 (paying customers decision - the conditional trigger)
 		if (currentQuestionData.conditional && ddqResponses[currentQuestionData.id]) {
 			handleRevenueDecision(ddqResponses[currentQuestionData.id]);
+		}
+		
+		// Check if Q3 (business category) was answered with 'Other' - need to show Q3_other
+		if (currentQuestionData.id === 3) {
+			const categories = ddqResponses[3] || [];
+			if (Array.isArray(categories) && categories.includes('Other')) {
+				// Make sure Q3_other will be shown
+				rebuildQuestions();
+			}
+		}
+		
+		// Check if pricing model changed - rebuild revenue questions
+		if (currentQuestionData.pricingModel) {
+			pricingModel = ddqResponses['11b'];
+			// Revenue questions will be regenerated when handleRevenueDecision is called
 		}
 		
 		// Save current answer to localStorage
@@ -600,6 +749,10 @@
 
 		if (currentQuestion < ddqQuestions.length - 1) {
 			currentQuestion++;
+			// Skip conditional questions that shouldn't show
+			while (currentQuestion < ddqQuestions.length - 1 && !shouldShowQuestion(ddqQuestions[currentQuestion])) {
+				currentQuestion++;
+			}
 		} else {
 			completeDDQ();
 		}
@@ -616,6 +769,11 @@
 		console.log('Answer updated:', currentQuestionData.id, '=', value);
 		ddqResponses[currentQuestionData.id] = value;
 		ddqResponses = { ...ddqResponses }; // Trigger reactivity
+		
+		// If this question has hasOther flag, check if we need to show/hide the other textbox
+		if (currentQuestionData.hasOther && Array.isArray(value)) {
+			rebuildQuestions();
+		}
 	}
 
 	// Handle logo file upload
@@ -731,7 +889,7 @@
 				fundingNeeded: parseInt(ddqResponses[22]) || 0, // Q22: Funding needed for goals (was Q21)
 				category: ddqResponses[3], // Q3: Business category (unchanged)
 				totalInvestment: parseInt(ddqResponses[11]) || 0, // Q11: Total investment received (was Q10)
-				monthlyExpenses: hasRevenue ? 0 : (parseInt(ddqResponses[16]) || 0), // Q16: Monthly expenses (was Q15)
+				monthlyExpenses: hasRevenue ? 0 : (parseInt(ddqResponses[16]) || 0), // Q16: Monthly expenses for pre-revenue
 				customerCount: hasRevenue ? (parseInt(ddqResponses[15]) || 0) : 0 // Q15: Total customer count (was Q14)
 			})
 		});			if (!response.ok) {
@@ -802,25 +960,29 @@
 	function calculateTeamScore(): number {
 		let score = 3; // Base score
 	const teamSize = parseInt(ddqResponses[17]) || 1; // Q17: Team size including founder (was Q16)
-	const founderBackground = ddqResponses[18] || 'Other'; // Q18: Founder background (was Q17)		// Team size bonus
+	const founderBackgrounds = ddqResponses[18] || []; // Q18: Founder background (now multiselect)
+	const backgrounds = Array.isArray(founderBackgrounds) ? founderBackgrounds : [founderBackgrounds];
+	
+	// Team size bonus
 		if (teamSize >= 20) score += 1.5;
 		else if (teamSize >= 11) score += 1.2;
 		else if (teamSize >= 6) score += 0.8;
 		else if (teamSize >= 4) score += 0.5;
 		else if (teamSize >= 2) score += 0.3;
 
-		// Founder background bonus
-		if (founderBackground === 'Previous Startup') score += 1.2;
-		else if (founderBackground === 'Industry Expert') score += 1.0;
-		else if (founderBackground === 'Technical') score += 0.8;
-		else if (founderBackground === 'Business' || founderBackground === 'Finance') score += 0.6;
+		// Founder background bonus (now checks multiple backgrounds)
+		if (backgrounds.includes('Previous Startup')) score += 1.2;
+		if (backgrounds.includes('Industry Expert')) score += 0.8;
+		if (backgrounds.includes('Technical')) score += 0.6;
+		if (backgrounds.includes('Business') || backgrounds.includes('Finance')) score += 0.4;
+		if (backgrounds.includes('Marketing')) score += 0.3;
 
 		return Math.min(score, 5);
 	}
 
 	function calculateProductScore(): number {
 		let score = 2; // Base score
-		const stage = ddqResponses[4] || 'Idea'; // Q4: Product stage
+		const stage = ddqResponses[5] || 'Idea'; // Q5: Product stage (was Q4)
 
 		// Product stage scoring (updated stages)
 		if (stage === 'Established') score = 5;
@@ -835,19 +997,20 @@
 
 	function calculateMarketScore(): number {
 		let score = 3; // Base score
-		const marketType = ddqResponses[8] || 'B2C'; // Q8: Type of marketing preferred
-		const category = ddqResponses[3] || 'Other'; // Q3: Business category
-		const interviews = ddqResponses[9] || '0'; // Q9: Customer interviews completed
+		const marketType = ddqResponses[9] || 'B2C'; // Q9: Type of marketing preferred (was Q8)
+		const categories = ddqResponses[3] || []; // Q3: Business category (now multiselect)
+		const categoryList = Array.isArray(categories) ? categories : [categories];
+		const interviews = ddqResponses[10] || '0'; // Q10: Customer interviews completed (was Q9)
 
 		// Marketing type bonus
 		if (marketType.includes('B2B')) score += 0.8; // B2B typically higher valuation
 		else if (marketType.includes('B2G')) score += 1.0; // Government contracts can be lucrative
 		else if (marketType.includes('B2C')) score += 0.5;
 
-		// High-growth category bonus (updated categories)
+		// High-growth category bonus (now checks multiple categories)
 		const highGrowthCategories = ['SaaS', 'AI/ML', 'Mobile App'];
-		if (highGrowthCategories.includes(category)) score += 0.7;
-		else if (category === 'E-commerce' || category === 'Marketplace') score += 0.5;
+		if (categoryList.some((c: string) => highGrowthCategories.includes(c))) score += 0.7;
+		else if (categoryList.includes('E-commerce') || categoryList.includes('Marketplace')) score += 0.5;
 
 		// Customer validation bonus (interviews conducted)
 		if (interviews === '50+') score += 1.0;
@@ -972,8 +1135,16 @@
 				return;
 			}
 
+		// Get business categories (now multiselect)
+		const categories = ddqResponses[3] || [];
+		const categoryString = toDisplayString(categories);
+		// Include custom category if 'Other' was selected
+		const fullCategory = ddqResponses['3_other'] 
+			? (categoryString ? `${categoryString}, ${ddqResponses['3_other']}` : ddqResponses['3_other'])
+			: categoryString;
+
 		console.log('📊 Generating SWOT analysis...', {
-			industry: ddqResponses[3],
+			industry: fullCategory,
 			competitors: ddqResponses[6], // Q6 (was Q5)
 			stage: ddqResponses[5] // Q5 (was Q4)
 		});
@@ -987,12 +1158,12 @@
 			body: JSON.stringify({
 				companyData: {
 					name: ddqResponses[1],
-					category: ddqResponses[3],
+					category: fullCategory, // Now uses multiselect + custom
 					stage: ddqResponses[5], // Q5 (was Q4)
 					hasRevenue,
 					targetCustomer: ddqResponses[8] // Q8 (was Q7)
 				},
-				industry: ddqResponses[3],
+				industry: fullCategory, // Now uses multiselect + custom
 				competitors: ddqResponses[6] // Q6 (was Q5)
 			})
 		});			if (!response.ok) {
@@ -1008,15 +1179,19 @@
 		} catch (error) {
 			console.error('❌ Error generating SWOT:', error);
 		// INTELLIGENT fallback SWOT based on analyzing user's actual data
-		const industry = ddqResponses[3] || 'Technology';
+		const industryCategories = ddqResponses[3] || [];
+		const industry = toDisplayString(industryCategories) || 'Technology';
 		const state = ddqResponses[4] || 'Other'; // Q4: State (NEW)
 		const stage = ddqResponses[5] || 'Growing'; // Q5 (was Q4)
 		const competitors = ddqResponses[6] || 'Market competitors'; // Q6 (was Q5)
 		const uniqueValue = ddqResponses[7] || ''; // Q7 (was Q6)
 		const teamSize = parseInt(ddqResponses[17]) || 1; // Q17 (was Q16) - CORRECT NOW
-		const founderBackground = ddqResponses[18] || ''; // Q18 (was Q17) - CORRECT NOW
-		const mainChallenge = ddqResponses[19] || ''; // Q19 (was Q18) - CORRECT NOW
-		const acquisitionChannel = ddqResponses[20] || ''; // Q20 (was Q19)
+		const founderBackgrounds = ddqResponses[18] || []; // Q18: Now multiselect
+		const founderBackground = toDisplayString(founderBackgrounds); // Convert to string for display
+		const mainChallenges = ddqResponses[19] || []; // Q19: Now multiselect
+		const mainChallenge = toDisplayString(mainChallenges); // Convert to string for display
+		const acquisitionChannels = ddqResponses[20] || []; // Q20: Now multiselect
+		const acquisitionChannel = toDisplayString(acquisitionChannels); // Convert to string for display
 		
 		console.log('🔍 Analyzing user data for intelligent SWOT fallback:', {
 			industry,
@@ -1042,19 +1217,20 @@
 				strengths.push(`Lean and focused founding team committed to ${industry} innovation`);
 			}
 			
-			// Founder background strength
-			if (founderBackground.includes('Previous Startup')) {
+			// Founder background strength (now handles array)
+			const bgArray = Array.isArray(founderBackgrounds) ? founderBackgrounds : [founderBackgrounds];
+			if (bgArray.includes('Previous Startup')) {
 				strengths.push('Proven entrepreneurial experience from previous startup journey');
-			} else if (founderBackground.includes('Industry Expert')) {
+			} else if (bgArray.includes('Industry Expert')) {
 				strengths.push(`Deep industry expertise and networks in ${industry} sector`);
-			} else if (founderBackground.includes('Technical')) {
+			} else if (bgArray.includes('Technical')) {
 				strengths.push('Strong technical foundation for product development and innovation');
 			}
 			
 			// Revenue/Traction strength
 			if (hasRevenue) {
-				const revenue = parseInt(ddqResponses[12]) || 0;
-				const customers = parseInt(ddqResponses[14]) || 0;
+				const revenue = parseInt(ddqResponses[13]) || 0; // Q13 for revenue
+				const customers = parseInt(ddqResponses[15]) || 0; // Q15 for customers
 				strengths.push(`Proven business model with ₹${(revenue/100000).toFixed(1)}L monthly revenue from ${customers} customers`);
 			} else {
 				strengths.push(`${stage} stage focus on product-market fit and early customer validation`);
@@ -1673,16 +1849,21 @@
 			// Handle categorized competitors from server
 			verifiedCompetitors = data.verifiedCompetitors || [];
 			potentialCompetitors = data.potentialCompetitors || [];
+			userPickCompetitors = data.userPickCompetitors || [];
+			globalCompetitors = data.globalCompetitors || [];
+			localCompetitors = data.localCompetitors || [];
+			rivalCompetitors = data.rivalCompetitors || [];
+			allCompetitors = data.competitors || [];
 			competitorDataSummary = data.summary || null;
 			
-			// Main competitors array for backwards compatibility (verified ones)
-			competitors = verifiedCompetitors.length > 0 ? verifiedCompetitors : (data.competitors || []);
+			// Main competitors array for backwards compatibility (all competitors)
+			competitors = allCompetitors.length > 0 ? allCompetitors : (verifiedCompetitors.length > 0 ? verifiedCompetitors : []);
 			
 			marketTrends = data.marketTrends || [];
 			marketOpportunities = data.marketOpportunities || null;
 			strategicRecommendations = data.strategicRecommendations || [];
 			
-			console.log(`📊 Competitor summary: ${verifiedCompetitors.length} verified, ${potentialCompetitors.length} potential`);
+			console.log(`📊 Competitor summary: User picks: ${userPickCompetitors.length}, Global: ${globalCompetitors.length}, Local: ${localCompetitors.length}, Rival: ${rivalCompetitors.length}`);
 		} catch (error) {
 			console.error('❌ Error getting competitors:', error);
 			// INTELLIGENT fallback based on user's actual data
@@ -1820,20 +2001,31 @@
 			}
 			
 			// Mark fallback competitors and categorize
-			intelligentCompetitors = intelligentCompetitors.map(c => ({
+			intelligentCompetitors = intelligentCompetitors.map((c, index) => ({
 				...c,
 				isVerified: c.revenue > 0 || c.customers > 0,
 				dataConfidence: (c.revenue > 0 || c.customers > 0) ? 'high' : 'low',
-				flagshipProduct: c.flagshipProduct || (c.products && c.products.length > 0 ? c.products[0] : 'Core Product')
+				flagshipProduct: c.flagshipProduct || (c.products && c.products.length > 0 ? c.products[0] : 'Core Product'),
+				region: index === 0 ? 'global' : index === 1 ? 'global' : index === 2 ? 'local' : index === 3 ? 'local' : 'rival',
+				isUserMentioned: false
 			}));
 			
 			competitors = intelligentCompetitors;
+			allCompetitors = intelligentCompetitors;
 			verifiedCompetitors = intelligentCompetitors.filter(c => c.isVerified);
 			potentialCompetitors = intelligentCompetitors.filter(c => !c.isVerified);
+			userPickCompetitors = intelligentCompetitors.filter(c => c.isUserMentioned);
+			globalCompetitors = intelligentCompetitors.filter(c => c.region === 'global');
+			localCompetitors = intelligentCompetitors.filter(c => c.region === 'local');
+			rivalCompetitors = intelligentCompetitors.filter(c => c.region === 'rival');
 			competitorDataSummary = {
 				totalCompetitors: intelligentCompetitors.length,
 				verifiedCount: verifiedCompetitors.length,
-				potentialCount: potentialCompetitors.length
+				potentialCount: potentialCompetitors.length,
+				userPickCount: userPickCompetitors.length,
+				globalCount: globalCompetitors.length,
+				localCount: localCompetitors.length,
+				rivalCount: rivalCompetitors.length
 			};
 			
 			console.log(`📝 Using intelligent fallback competitors based on user's ${category} business and mentioned competitors: ${userCompetitors}`);
@@ -1997,7 +2189,7 @@
 					interviews: ddqResponses[10], // Q10: Customer interviews completed (was Q9)
 					totalInvestment: ddqResponses[11], // Q11: Total investment received (was Q10)
 					monthlyRevenue: hasRevenue ? ddqResponses[13] : 0, // Q13: Current monthly revenue (was Q12)
-					expenses: hasRevenue ? 0 : ddqResponses[16], // Q16: Monthly expenses (was Q15)
+					expenses: hasRevenue ? 0 : ddqResponses[16], // Q16: Monthly expenses for pre-revenue
 					funding: ddqResponses[11], // Q11: Total investment (same as totalInvestment)
 					customers: hasRevenue ? ddqResponses[15] : 0, // Q15: Total customer count (was Q14)
 					teamSize: ddqResponses[17], // Q17: Team size (was Q16)
@@ -2217,8 +2409,9 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 				})
 			});
 
-			if (response.ok) {
-				const data = await response.json();
+			const data = await response.json();
+			
+			if (response.ok && data.success) {
 				alert('✅ Note created successfully!');
 				newNoteTitle = '';
 				newNoteContent = '';
@@ -2226,13 +2419,16 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 				isCreatingNote = false;
 				loadNotes();
 				// Select the newly created note
-				selectedNote = data.note;
+				if (data.note) {
+					selectedNote = data.note;
+				}
 			} else {
-				alert('Failed to create note');
+				console.error('Note creation error:', data);
+				alert(`Failed to create note: ${data.error || 'Unknown error'}`);
 			}
 		} catch (error) {
 			console.error('Error creating note:', error);
-			alert('Failed to create note');
+			alert('Failed to create note: Network error');
 		}
 	}
 
@@ -2694,10 +2890,15 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 			});
 
 			if (!response.ok) {
-				throw new Error('Failed to generate proposal');
+				const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+				throw new Error(errorData.error || `HTTP ${response.status}`);
 			}
 
 			const data = await response.json();
+			
+			if (!data.success || !data.proposal) {
+				throw new Error('Invalid response from server');
+			}
 			
 			// Create .doc file content (RTF format for Word compatibility)
 			const docContent = generateDocContent(data.proposal, scheme);
@@ -2705,9 +2906,9 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 			// Download the file
 			downloadDoc(docContent, `${scheme.name.replace(/[^a-zA-Z0-9]/g, '_')}_Proposal.doc`);
 
-		} catch (error) {
+		} catch (error: any) {
 			console.error('Error creating proposal:', error);
-			alert('Failed to generate proposal. Please try again.');
+			alert(`Failed to generate proposal: ${error.message || 'Please try again.'}`);
 		} finally {
 			proposalLoading = false;
 			proposalScheme = null;
@@ -3352,47 +3553,48 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 							<div class="home-card financial-panel">
 								<h3 class="home-card-title">inFINity stats</h3>
 								{#if valuation}
+									{@const hasRevenue = ddqResponses[12] === 'Yes'}
+									{@const monthlyRevenue = hasRevenue ? (Number(ddqResponses[13]) || 0) : 0}
+									{@const previousRevenue = hasRevenue ? (Number(ddqResponses[14]) || 0) : 0}
+									{@const estimatedBurn = hasRevenue ? Math.round(monthlyRevenue * 0.6) : (Number(ddqResponses[16]) || 0)}
+									{@const totalInvestment = Number(ddqResponses[11]) || 0}
+									{@const netProfit = monthlyRevenue - estimatedBurn}
+									{@const runway = estimatedBurn > 0 ? Math.floor((totalInvestment + (netProfit > 0 ? netProfit * 12 : 0)) / estimatedBurn) : 999}
+									{@const revenueGrowth = previousRevenue > 0 ? ((monthlyRevenue - previousRevenue) / previousRevenue * 100) : 0}
+									{@const isProfitable = hasRevenue && netProfit > 0}
 									<div class="financial-grid">
 										<div class="fin-metric">
 											<span class="fin-label">Total Revenue</span>
-											<span class="fin-value revenue">₹{((Number(ddqResponses[13]) || 0) * 12 / 100000).toFixed(1)}L</span>
+											<span class="fin-value revenue">₹{(monthlyRevenue * 12 / 100000).toFixed(1)}L</span>
 										</div>
 										<div class="fin-metric">
-											<span class="fin-label">Total Expense</span>
-											<span class="fin-value burn">₹{((Number(ddqResponses[16]) || 0) * 12 / 100000).toFixed(1)}L</span>
+											<span class="fin-label">Total Investment</span>
+											<span class="fin-value">₹{(totalInvestment / 100000).toFixed(1)}L</span>
 										</div>
 										<div class="fin-metric">
 											<span class="fin-label">Monthly Revenue</span>
-											<span class="fin-value revenue">₹{(Number(ddqResponses[13]) / 100000 || 0).toFixed(1)}L</span>
+											<span class="fin-value revenue">₹{(monthlyRevenue / 100000).toFixed(1)}L</span>
 										</div>
 										<div class="fin-metric">
-											<span class="fin-label">Monthly BurnRate</span>
-											<span class="fin-value burn">₹{(Number(ddqResponses[16]) / 100000 || 0).toFixed(1)}L</span>
+											<span class="fin-label">Monthly Burn</span>
+											<span class="fin-value burn">₹{(estimatedBurn / 100000).toFixed(1)}L</span>
 										</div>
 										<div class="fin-metric">
 											<span class="fin-label">Runway</span>
 											<span class="fin-value">
-												{#if ddqResponses[14] && ddqResponses[16]}
-													{Math.max(1, Math.floor(Number(ddqResponses[14]) / (Number(ddqResponses[16]) || 1)))} mo
-												{:else}
-													N/A
-												{/if}
+												{runway > 100 ? '100+ mo' : runway + ' mo'}
 											</span>
 										</div>
 										<div class="fin-metric">
 											<span class="fin-label">Status</span>
-											<span class="fin-value {Number(ddqResponses[13]) >= Number(ddqResponses[16]) ? 'profitable' : 'burning'}">
-												{Number(ddqResponses[13]) >= Number(ddqResponses[16]) ? 'Profitable' : 'Burning'}
+											<span class="fin-value {isProfitable ? 'profitable' : 'burning'}">
+												{isProfitable ? 'Profitable' : (hasRevenue ? 'Growing' : 'Pre-Revenue')}
 											</span>
 										</div>
 										<div class="fin-metric full-width">
-											<span class="fin-label">Margin</span>
-											<span class="fin-value {(Number(ddqResponses[13]) - Number(ddqResponses[16])) >= 0 ? 'profitable' : 'burning'}">
-												{#if ddqResponses[13] && ddqResponses[16]}
-													{(((Number(ddqResponses[13]) - Number(ddqResponses[16])) / (Number(ddqResponses[13]) || 1)) * 100).toFixed(1)}%
-												{:else}
-													N/A
-												{/if}
+											<span class="fin-label">Revenue Growth</span>
+											<span class="fin-value {revenueGrowth >= 0 ? 'profitable' : 'burning'}">
+												{(revenueGrowth >= 0 ? '+' : '') + revenueGrowth.toFixed(1)}%
 											</span>
 										</div>
 									</div>
@@ -3775,10 +3977,45 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 											{/if}
 										</p>
 										<div class="competitive-advantage">
-											<strong>Your Advantage:</strong> {ddqResponses[6] || 'Building unique value proposition'}
+											<strong>Your Advantage:</strong> {ddqResponses[7] || 'Building unique value proposition'}
 										</div>
 									</div>
 								{/if}
+							</div>
+
+							<!-- Porter's 5 Forces Explanation -->
+							<div class="framework-explanation porters-explanation">
+								<h4>
+									<span class="material-symbols-outlined">info</span>
+									Understanding Porter's 5 Forces
+								</h4>
+								<p class="explanation-intro">Porter's 5 Forces helps assess industry attractiveness and your competitive position. Higher forces = harder market, lower profitability.</p>
+								<div class="explanation-grid">
+									<div class="explanation-item">
+										<strong>🚀 New Entrants</strong>
+										<p>How easily can new competitors enter? High barriers (patents, capital, regulations) protect you.</p>
+									</div>
+									<div class="explanation-item">
+										<strong>📦 Supplier Power</strong>
+										<p>How much leverage do suppliers have? Few suppliers or unique inputs = higher power over you.</p>
+									</div>
+									<div class="explanation-item">
+										<strong>🛒 Buyer Power</strong>
+										<p>How much leverage do customers have? Many alternatives or low switching costs = buyer power.</p>
+									</div>
+									<div class="explanation-item">
+										<strong>🔄 Substitutes</strong>
+										<p>Can customers solve their problem differently? Alternative solutions reduce your pricing power.</p>
+									</div>
+									<div class="explanation-item central-explanation">
+										<strong>⚔️ Rivalry (Center)</strong>
+										<p>How intense is competition? Many similar competitors with low differentiation = high rivalry.</p>
+									</div>
+								</div>
+								<div class="strategic-insight">
+									<span class="material-symbols-outlined">lightbulb</span>
+									<p><strong>Strategic Insight:</strong> Focus on forces you can influence. Build barriers through proprietary technology, create switching costs for customers, and differentiate strongly to reduce rivalry impact.</p>
+								</div>
 							</div>
 						</div>
 
@@ -4027,30 +4264,7 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 								</div>
 							</div>
 
-							<!-- Balance Indicator -->
-							{#if swotAnalysis}
-								{@const strengthCount = swotAnalysis.strengths?.length || 0}
-								{@const weaknessCount = swotAnalysis.weaknesses?.length || 0}
-								{@const total = strengthCount + weaknessCount}
-								{@const strengthPercent = total > 0 ? (strengthCount / total) * 100 : 50}
-								<div class="balance-indicator">
-									<div class="balance-label">Internal Balance Score</div>
-									<div class="balance-bar">
-										<div class="balance-fill strengths-fill" style="width: {strengthPercent}%"></div>
-										<div class="balance-fill weaknesses-fill" style="width: {100 - strengthPercent}%"></div>
-									</div>
-									<div class="balance-stats">
-										<span class="stat-item strengths-stat">
-											<span class="material-symbols-outlined">trending_up</span>
-											{strengthCount} Strengths
-										</span>
-										<span class="stat-item weaknesses-stat">
-											<span class="material-symbols-outlined">trending_down</span>
-											{weaknessCount} Weaknesses
-										</span>
-									</div>
-								</div>
-							{/if}
+<!-- Internal Balance Score removed -->
 
 							<!-- Opportunities vs Threats Section -->
 							<div class="opportunities-threats-section" style="margin-top: 2rem;">
@@ -4108,30 +4322,7 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 									</div>
 								</div>
 
-								<!-- External Balance Indicator -->
-								{#if swotAnalysis}
-									{@const opportunityCount = swotAnalysis.opportunities?.length || 0}
-									{@const threatCount = swotAnalysis.threats?.length || 0}
-									{@const total = opportunityCount + threatCount}
-									{@const opportunityPercent = total > 0 ? (opportunityCount / total) * 100 : 50}
-									<div class="balance-indicator">
-										<div class="balance-label">External Environment Score</div>
-										<div class="balance-bar">
-											<div class="balance-fill opportunities-fill" style="width: {opportunityPercent}%"></div>
-											<div class="balance-fill threats-fill" style="width: {100 - opportunityPercent}%"></div>
-										</div>
-										<div class="balance-stats">
-											<span class="stat-item opportunities-stat">
-												<span class="material-symbols-outlined">check_circle</span>
-												{opportunityCount} Opportunities
-											</span>
-											<span class="stat-item threats-stat">
-												<span class="material-symbols-outlined">warning</span>
-												{threatCount} Threats
-											</span>
-										</div>
-									</div>
-								{/if}
+								<!-- External Balance Indicator removed -->
 							</div>
 
 							<!-- VRIO Analysis Framework -->
@@ -4158,143 +4349,218 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 							{@const customerRare = Number(ddqResponses[15]) > 500}
 							{@const hardToSteal = Number(ddqResponses[15]) > 1000 || String(ddqResponses[19] || '').includes('Referrals')}
 							
+							{@const uvpStrong = (uniqueValue?.length || 0) > 50}
+							{@const uvpDifferentiated = !String(ddqResponses[5] || '').toLowerCase().includes('none')}
 							
-							<div class="vrio-grid">
-								<!-- Proprietary Technology/IP -->
-								{#if hasProprietaryTech}
-									{@const isRare = hasTechnicalFounder && hasProprietaryTech}
-									{@const hardToImitate = hasTechnicalFounder && hasProprietaryTech}
-									{@const advantage = isOrganized && hardToImitate && isRare ? 'Sustained Competitive Advantage' : hardToImitate && isRare ? 'Temporary Advantage' : isRare ? 'Competitive Parity' : 'Competitive Disadvantage'}
-										<div class="vrio-card {advantage.toLowerCase().replace(/\s+/g, '-')}">
-											<div class="vrio-resource">
-												<span class="material-symbols-outlined">verified</span>
-												<h4>Proprietary Technology/IP</h4>
-											</div>
-											<div class="vrio-checks">
-												<div class="vrio-check check-yes">
-													<span class="material-symbols-outlined">check_circle</span>
-													<span>Valuable</span>
-												</div>
-												<div class="vrio-check {isRare ? 'check-yes' : 'check-no'}">
-													<span class="material-symbols-outlined">{isRare ? 'check_circle' : 'cancel'}</span>
-													<span>{isRare ? 'Rare' : 'Common'}</span>
-												</div>
-												<div class="vrio-check {hardToImitate ? 'check-yes' : 'check-no'}">
-													<span class="material-symbols-outlined">{hardToImitate ? 'check_circle' : 'cancel'}</span>
-													<span>{hardToImitate ? 'Hard to Imitate' : 'Easy to Copy'}</span>
-												</div>
-												<div class="vrio-check {isOrganized ? 'check-yes' : 'check-no'}">
-													<span class="material-symbols-outlined">{isOrganized ? 'check_circle' : 'cancel'}</span>
-													<span>{isOrganized ? 'Organized' : 'Not Organized'}</span>
-												</div>
-											</div>
-											<div class="vrio-result">
-												<strong>{advantage}</strong>
-											</div>
+							{@const expertiseAdvantage = hasExpertise && expertiseRare && isOrganized ? 'sustained' : hasExpertise && expertiseRare ? 'temporary' : hasExpertise ? 'parity' : 'disadvantage'}
+							{@const tractionAdvantage = customerValue && customerRare && hardToSteal && isOrganized ? 'sustained' : customerValue && customerRare && hardToSteal ? 'temporary' : customerValue ? 'parity' : 'disadvantage'}
+							{@const uvpAdvantage = uvpStrong && uvpDifferentiated && isOrganized ? 'temporary' : uvpStrong ? 'parity' : 'disadvantage'}
+							
+							<!-- Dynamic contextual explanations -->
+							{@const expertiseExplanation = (() => {
+								if (hasExpertise && expertiseRare && isOrganized) return "Strong founder background with rare skill combo. Team is leveraging it well — sustainable moat.";
+								if (hasExpertise && expertiseRare) return "Rare expertise exists but team structure limits leverage. Build the team to capitalize.";
+								if (hasExpertise && isOrganized) return "Solid expertise but common in the market. Others can hire similar talent easily.";
+								if (hasExpertise) return "You have relevant experience but it's not rare. Competitors can match this.";
+								if (isOrganized) return "Team structure is good but founder expertise needs strengthening. Consider advisors or co-founders.";
+								return "Limited founder expertise for this domain. Consider building advisory network or upskilling.";
+							})()}
+							
+							{@const tractionExplanation = (() => {
+								if (customerValue && customerRare && hardToSteal && isOrganized) return "Strong customer base with high switching costs. Well-organized to scale — major competitive moat.";
+								if (customerValue && customerRare && hardToSteal) return "Great traction with sticky customers but team capacity limits growth. Scale operations.";
+								if (customerValue && customerRare) return "Good customer numbers but they can easily switch. Build loyalty programs and integrations.";
+								if (customerValue && isOrganized) return "Revenue exists but customer base is still early. Focus on growth and retention.";
+								if (customerValue) return "Some traction but not at scale yet. Keep pushing customer acquisition.";
+								if (isOrganized) return "Team is ready but traction is weak. Prioritize product-market fit and sales.";
+								return "Early stage with minimal traction. Focus on acquiring first customers and proving demand.";
+							})()}
+							
+							{@const uvpExplanation = (() => {
+								if (uvpStrong && uvpDifferentiated && isOrganized) return "Clear differentiation with solid execution. But UVPs can be copied — keep innovating.";
+								if (uvpStrong && uvpDifferentiated) return "You have differentiation — good sign. But competitors can replicate. Execution needs work.";
+								if (uvpStrong && isOrganized) return "Well-articulated UVP with good execution. But it's not unique enough — refine positioning.";
+								if (uvpDifferentiated && isOrganized) return "You have differentiation and execution is solid, but defensibility is weak.";
+								if (uvpStrong) return "UVP is defined but not differentiated enough. Study competitors and find unique angles.";
+								if (uvpDifferentiated) return "Differentiation exists but not well-articulated. Clarify your value proposition.";
+								if (isOrganized) return "Team is executing but UVP is unclear. Define what makes you truly different.";
+								return "Value proposition needs work. Clearly define why customers should choose you over alternatives.";
+							})()}
+							
+							<!-- VRIO Matrix Table -->
+							<div class="vrio-matrix-container">
+								<button class="vrio-info-btn" on:click={() => showVrioInfo = !showVrioInfo} title="What is VRIO?">
+									<span class="material-symbols-outlined">info</span>
+								</button>
+								
+								{#if showVrioInfo}
+								<div class="vrio-info-popup">
+									<div class="vrio-info-header">
+										<h4>Understanding VRIO Framework</h4>
+										<button class="close-btn" on:click={() => showVrioInfo = false}>
+											<span class="material-symbols-outlined">close</span>
+										</button>
+									</div>
+									<div class="explanation-grid">
+										<div class="explanation-item">
+											<strong>V - Valuable</strong>
+											<p>Does this resource help exploit opportunities or neutralize threats?</p>
 										</div>
-									{/if}
-
-								<!-- Founder Expertise -->
-								{#if true}
-								{@const expertiseAdvantage = hasExpertise && expertiseRare && isOrganized ? 'Sustained Competitive Advantage' : hasExpertise && expertiseRare ? 'Temporary Advantage' : hasExpertise ? 'Competitive Parity' : 'Competitive Disadvantage'}
-									<div class="vrio-card {expertiseAdvantage.toLowerCase().replace(/\s+/g, '-')}">
-										<div class="vrio-resource">
-											<span class="material-symbols-outlined">school</span>
-											<h4>Founder Expertise</h4>
+										<div class="explanation-item">
+											<strong>R - Rare</strong>
+											<p>Is this resource scarce in the market?</p>
 										</div>
-										<div class="vrio-checks">
-											<div class="vrio-check {hasExpertise ? 'check-yes' : 'check-no'}">
-												<span class="material-symbols-outlined">{hasExpertise ? 'check_circle' : 'cancel'}</span>
-												<span>{hasExpertise ? 'Valuable' : 'Limited Value'}</span>
-											</div>
-											<div class="vrio-check {expertiseRare ? 'check-yes' : 'check-no'}">
-												<span class="material-symbols-outlined">{expertiseRare ? 'check_circle' : 'cancel'}</span>
-												<span>{expertiseRare ? 'Rare Combination' : 'Common'}</span>
-											</div>
-											<div class="vrio-check check-no">
-												<span class="material-symbols-outlined">cancel</span>
-												<span>Can Be Replicated</span>
-											</div>
-											<div class="vrio-check {isOrganized ? 'check-yes' : 'check-no'}">
-												<span class="material-symbols-outlined">{isOrganized ? 'check_circle' : 'cancel'}</span>
-												<span>{isOrganized ? 'Team Leverages' : 'Solo Effort'}</span>
-											</div>
+										<div class="explanation-item">
+											<strong>I - Inimitable</strong>
+											<p>Is it difficult to copy or replicate?</p>
 										</div>
-										<div class="vrio-result">
-											<strong>{expertiseAdvantage}</strong>
+										<div class="explanation-item">
+											<strong>O - Organized</strong>
+											<p>Is your organization structured to exploit these resources?</p>
 										</div>
 									</div>
-								{/if}
-
-								<!-- Customer Base & Traction -->
-								{#if true}
-								{@const tractionAdvantage = customerValue && customerRare && hardToSteal && isOrganized ? 'Sustained Competitive Advantage' : customerValue && customerRare && hardToSteal ? 'Temporary Advantage' : customerValue ? 'Competitive Parity' : 'Competitive Disadvantage'}
-									<div class="vrio-card {tractionAdvantage.toLowerCase().replace(/\s+/g, '-')}">
-										<div class="vrio-resource">
-											<span class="material-symbols-outlined">groups</span>
-											<h4>Customer Base & Traction</h4>
-										</div>
-										<div class="vrio-checks">
-											<div class="vrio-check {customerValue ? 'check-yes' : 'check-no'}">
-												<span class="material-symbols-outlined">{customerValue ? 'check_circle' : 'cancel'}</span>
-												<span>{customerValue ? 'Valuable' : 'Building'}</span>
-											</div>
-											<div class="vrio-check {customerRare ? 'check-yes' : 'check-no'}">
-												<span class="material-symbols-outlined">{customerRare ? 'check_circle' : 'cancel'}</span>
-												<span>{customerRare ? 'Significant Scale' : 'Early Stage'}</span>
-											</div>
-											<div class="vrio-check {hardToSteal ? 'check-yes' : 'check-no'}">
-												<span class="material-symbols-outlined">{hardToSteal ? 'check_circle' : 'cancel'}</span>
-												<span>{hardToSteal ? 'Sticky Customers' : 'At Risk'}</span>
-											</div>
-											<div class="vrio-check {isOrganized ? 'check-yes' : 'check-no'}">
-												<span class="material-symbols-outlined">{isOrganized ? 'check_circle' : 'cancel'}</span>
-												<span>{isOrganized ? 'Organized to Scale' : 'Limited Capacity'}</span>
-											</div>
-										</div>
-										<div class="vrio-result">
-											<strong>{tractionAdvantage}</strong>
-										</div>
+									<div class="implications-list">
+										<div class="implication-row"><span class="dot disadvantage"></span><span><strong>Competitive Disadvantage:</strong> Resource is not valuable — address urgently</span></div>
+										<div class="implication-row"><span class="dot parity"></span><span><strong>Competitive Parity:</strong> Valuable but not rare — meets baseline</span></div>
+										<div class="implication-row"><span class="dot temporary"></span><span><strong>Temporary Advantage:</strong> Valuable & rare but can be copied</span></div>
+										<div class="implication-row"><span class="dot sustained"></span><span><strong>Sustained Advantage:</strong> V+R+I+O — your strategic moat</span></div>
 									</div>
-								{/if}
-
-
-								<!-- Unique Value Proposition -->
-								{#if true}
-								{@const uvpStrong = uniqueValue.length > 50}
-								{@const uvpDifferentiated = !String(ddqResponses[5] || '').toLowerCase().includes('none')}
-								{@const uvpAdvantage = uvpStrong && isOrganized ? 'Temporary Advantage' : uvpStrong ? 'Competitive Parity' : 'Competitive Disadvantage'}
-																	<div class="vrio-card {uvpAdvantage.toLowerCase().replace(/\s+/g, '-')}">
-										<div class="vrio-resource">
-											<span class="material-symbols-outlined">auto_awesome</span>
-											<h4>Unique Value Proposition</h4>
-										</div>
-										<div class="vrio-checks">
-											<div class="vrio-check {uvpStrong ? 'check-yes' : 'check-no'}">
-												<span class="material-symbols-outlined">{uvpStrong ? 'check_circle' : 'cancel'}</span>
-												<span>{uvpStrong ? 'Well-Defined' : 'Needs Work'}</span>
-											</div>
-											<div class="vrio-check {uvpDifferentiated ? 'check-yes' : 'check-no'}">
-												<span class="material-symbols-outlined">{uvpDifferentiated ? 'check_circle' : 'cancel'}</span>
-												<span>{uvpDifferentiated ? 'Differentiated' : 'First Mover'}</span>
-											</div>
-											<div class="vrio-check check-no">
-												<span class="material-symbols-outlined">cancel</span>
-												<span>Can Be Copied</span>
-											</div>
-											<div class="vrio-check {isOrganized ? 'check-yes' : 'check-no'}">
-												<span class="material-symbols-outlined">{isOrganized ? 'check_circle' : 'cancel'}</span>
-												<span>{isOrganized ? 'Executing Well' : 'Execution Risk'}</span>
-											</div>
-										</div>
-										<div class="vrio-result">
-											<strong>{uvpAdvantage}</strong>
-										</div>
-									</div>
-								{/if}
 								</div>
+								{/if}
+								
+								<table class="vrio-matrix">
+									<thead>
+										<tr>
+											<th class="resource-col">Resource</th>
+											<th>Valuable</th>
+											<th>Rare</th>
+											<th>Hard to Imitate</th>
+											<th>Organized</th>
+											<th class="outcome-col">Insight</th>
+										</tr>
+									</thead>
+									<tbody>
+										<!-- Founder Expertise Row -->
+										<tr>
+											<td class="resource-name">Founder expertise</td>
+											<td class="vrio-cell">
+												<span class="vrio-icon {hasExpertise ? 'yes' : 'no'}">
+													{#if hasExpertise}✓{:else}✗{/if}
+												</span>
+											</td>
+											<td class="vrio-cell">
+												<span class="vrio-icon {expertiseRare ? 'yes' : 'no'}">
+													{#if expertiseRare}✓{:else}✗{/if}
+												</span>
+											</td>
+											<td class="vrio-cell">
+												<span class="vrio-icon no">✗</span>
+											</td>
+											<td class="vrio-cell">
+												<span class="vrio-icon {isOrganized ? 'yes' : 'no'}">
+													{#if isOrganized}✓{:else}✗{/if}
+												</span>
+											</td>
+											<td class="outcome-cell {expertiseAdvantage}">
+												{expertiseExplanation}
+											</td>
+										</tr>
+										
+										<!-- Customer Traction Row -->
+										<tr>
+											<td class="resource-name">Customer traction</td>
+											<td class="vrio-cell">
+												<span class="vrio-icon {customerValue ? 'yes' : 'no'}">
+													{#if customerValue}✓{:else}✗{/if}
+												</span>
+											</td>
+											<td class="vrio-cell">
+												<span class="vrio-icon {customerRare ? 'yes' : 'no'}">
+													{#if customerRare}✓{:else}✗{/if}
+												</span>
+											</td>
+											<td class="vrio-cell">
+												<span class="vrio-icon {hardToSteal ? 'yes' : 'no'}">
+													{#if hardToSteal}✓{:else}✗{/if}
+												</span>
+											</td>
+											<td class="vrio-cell">
+												<span class="vrio-icon {isOrganized ? 'yes' : 'no'}">
+													{#if isOrganized}✓{:else}✗{/if}
+												</span>
+											</td>
+											<td class="outcome-cell {tractionAdvantage}">
+												{tractionExplanation}
+											</td>
+										</tr>
+										
+										<!-- UVP Row -->
+										<tr>
+											<td class="resource-name">UVP</td>
+											<td class="vrio-cell">
+												<span class="vrio-icon {uvpStrong ? 'yes' : 'no'}">
+													{#if uvpStrong}✓{:else}✗{/if}
+												</span>
+											</td>
+											<td class="vrio-cell">
+												<span class="vrio-icon {uvpDifferentiated ? 'yes' : 'no'}">
+													{#if uvpDifferentiated}✓{:else}✗{/if}
+												</span>
+											</td>
+											<td class="vrio-cell">
+												<span class="vrio-icon no">✗</span>
+											</td>
+											<td class="vrio-cell">
+												<span class="vrio-icon {isOrganized ? 'yes' : 'no'}">
+													{#if isOrganized}✓{:else}✗{/if}
+												</span>
+											</td>
+											<td class="outcome-cell {uvpAdvantage}">
+												{uvpExplanation}
+											</td>
+										</tr>
+										
+										<!-- Proprietary Technology Row (if applicable) -->
+										{#if hasProprietaryTech}
+										{@const techRare = hasTechnicalFounder && hasProprietaryTech}
+										{@const techHardToImitate = hasTechnicalFounder && hasProprietaryTech}
+										{@const techAdvantage = isOrganized && techHardToImitate && techRare ? 'sustained' : techHardToImitate && techRare ? 'temporary' : techRare ? 'parity' : 'disadvantage'}
+										{@const techExplanation = (() => {
+											if (isOrganized && techHardToImitate && techRare) return "Proprietary tech with technical depth and team to scale. Strong defensible moat.";
+											if (techHardToImitate && techRare) return "Solid tech IP but team structure limits leverage. Build engineering capacity.";
+											if (techRare) return "Tech exists but can be replicated. Consider patents or deeper technical moats.";
+											return "Tech claimed but not differentiated. Invest in R&D or unique technical approaches.";
+										})()}
+										<tr>
+											<td class="resource-name">Proprietary tech/IP</td>
+											<td class="vrio-cell">
+												<span class="vrio-icon yes">✓</span>
+											</td>
+											<td class="vrio-cell">
+												<span class="vrio-icon {techRare ? 'yes' : 'no'}">
+													{#if techRare}✓{:else}✗{/if}
+												</span>
+											</td>
+											<td class="vrio-cell">
+												<span class="vrio-icon {techHardToImitate ? 'yes' : 'no'}">
+													{#if techHardToImitate}✓{:else}✗{/if}
+												</span>
+											</td>
+											<td class="vrio-cell">
+												<span class="vrio-icon {isOrganized ? 'yes' : 'no'}">
+													{#if isOrganized}✓{:else}✗{/if}
+												</span>
+											</td>
+											<td class="outcome-cell {techAdvantage}">
+												{techExplanation}
+											</td>
+										</tr>
+										{/if}
+									</tbody>
+								</table>
+							</div>
 
-								<!-- VRIO Summary -->
+								<!-- VRIO Summary & Explanations -->
 								<div class="vrio-summary">
 									<h4>
 										<span class="material-symbols-outlined">summarize</span>
@@ -4306,19 +4572,290 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 									hasExpertise && expertiseRare && isOrganized ? 1 : 0,
 									customerValue && customerRare && hardToSteal && isOrganized ? 1 : 0
 								].reduce((a, b) => a + b, 0)}
+								{@const categories = toDisplayString(ddqResponses[3]) || 'Technology'}
+								{@const productStage = ddqResponses[5] || 'MVP'}
+								{@const mainChallenges = toDisplayString(ddqResponses[19]) || 'Growth'}
 									<p>
 										{#if sustainedCount >= 2}
-											<strong>Strong Position:</strong> You have {sustainedCount} resources with sustained competitive advantages. 
-											Focus on protecting and leveraging these assets while scaling operations.
+											<strong>Strong Position for {categories}:</strong> With {sustainedCount} sustained competitive advantages, your {productStage}-stage startup has solid foundations. 
+											<span class="recommendation-detail">Priority Actions: 1) Protect IP through patents/trade secrets, 2) Build organizational processes to scale your {categories} expertise, 3) Deepen customer relationships to increase switching costs.</span>
 										{:else if sustainedCount === 1}
-											<strong>Developing Position:</strong> You have 1 sustainable advantage. 
-											Work on strengthening other resources and building organizational capabilities.
+											<strong>Developing Position in {categories}:</strong> You have 1 sustainable advantage which is good for {productStage} stage.
+											<span class="recommendation-detail">Priority Actions: 1) {!hasProprietaryTech ? 'Invest in proprietary technology/IP development' : 'Strengthen team expertise'}, 2) {mainChallenges.includes('Customers') ? 'Focus on customer acquisition and retention strategies' : 'Build organizational capabilities'}, 3) Document and protect your competitive advantages.</span>
 										{:else}
-											<strong>Building Phase:</strong> Focus on developing rare and hard-to-imitate resources. 
-											Consider building proprietary technology, deepening expertise, and growing your customer base.
+											<strong>Building Phase for {categories} Startup:</strong> As a {productStage}-stage company facing {mainChallenges} challenges, focus on developing defensible advantages.
+											<span class="recommendation-detail">Priority Actions: 1) {categories.includes('AI') || categories.includes('SaaS') ? 'Develop proprietary algorithms or unique data moats' : 'Create unique processes or partnerships'}, 2) Build founder expertise through industry networking and certifications, 3) Focus on early customer wins to build traction moat.</span>
 										{/if}
 									</p>
 								{/if}
+								</div>
+
+								<!-- Product Insight - Performance Comparison -->
+								<div class="product-insight-section">
+									<h4>
+										<span class="material-symbols-outlined">insights</span>
+										Product Insight
+									</h4>
+									<p class="insight-subtitle">How your product performs against market benchmarks</p>
+									
+									{#if true}
+									{@const userRevenue = Number(ddqResponses[13]) || 0}
+									{@const userInvestment = Number(ddqResponses[11]) || 0}
+									{@const userBurnRate = Number(ddqResponses[16]) || (userRevenue * 0.6)}
+									{@const userRunway = userBurnRate > 0 ? Math.round((userInvestment + (userRevenue * 12)) / (userBurnRate * 12)) : 0}
+									{@const userMarketingSpend = Math.round(userBurnRate * 0.25)}
+									
+									{@const globalBenchmark = {
+										revenue: 5000000,
+										investment: 50000000,
+										burnRate: 3000000,
+										runway: 18,
+										marketingSpend: 750000
+									}}
+									
+									{@const localBenchmark = {
+										revenue: 1500000,
+										investment: 10000000,
+										burnRate: 800000,
+										runway: 14,
+										marketingSpend: 200000
+									}}
+									
+									<div class="insight-comparison-grid">
+										<!-- Revenue Comparison -->
+										<div class="insight-metric-card">
+											<div class="metric-header">
+												<span class="material-symbols-outlined">payments</span>
+												<span>Monthly Revenue</span>
+											</div>
+											<div class="metric-comparison">
+												<div class="your-value">
+													<span class="label">You</span>
+													<span class="value">₹{(userRevenue / 100000).toFixed(1)}L</span>
+												</div>
+												<div class="benchmark-values">
+													<div class="benchmark local">
+														<span class="label">Local Avg</span>
+														<span class="value">₹{(localBenchmark.revenue / 100000).toFixed(1)}L</span>
+													</div>
+													<div class="benchmark global">
+														<span class="label">Global Avg</span>
+														<span class="value">₹{(globalBenchmark.revenue / 100000).toFixed(1)}L</span>
+													</div>
+												</div>
+											</div>
+											<div class="progress-bar-container">
+												<div class="progress-bar your" style="width: {Math.min((userRevenue / globalBenchmark.revenue) * 100, 100)}%"></div>
+											</div>
+											<span class="comparison-text {userRevenue >= localBenchmark.revenue ? 'positive' : 'negative'}">
+												{#if userRevenue >= globalBenchmark.revenue}
+													🚀 Outperforming global benchmarks!
+												{:else if userRevenue >= localBenchmark.revenue}
+													✓ Above local average, growing well
+												{:else if userRevenue > 0}
+													↗ Building momentum, focus on growth
+												{:else}
+													⚠ Pre-revenue — prioritize first sales
+												{/if}
+											</span>
+										</div>
+
+										<!-- Investment Comparison -->
+										<div class="insight-metric-card">
+											<div class="metric-header">
+												<span class="material-symbols-outlined">account_balance</span>
+												<span>Total Investment</span>
+											</div>
+											<div class="metric-comparison">
+												<div class="your-value">
+													<span class="label">You</span>
+													<span class="value">₹{(userInvestment / 10000000).toFixed(2)}Cr</span>
+												</div>
+												<div class="benchmark-values">
+													<div class="benchmark local">
+														<span class="label">Local Avg</span>
+														<span class="value">₹{(localBenchmark.investment / 10000000).toFixed(1)}Cr</span>
+													</div>
+													<div class="benchmark global">
+														<span class="label">Global Avg</span>
+														<span class="value">₹{(globalBenchmark.investment / 10000000).toFixed(1)}Cr</span>
+													</div>
+												</div>
+											</div>
+											<div class="progress-bar-container">
+												<div class="progress-bar your" style="width: {Math.min((userInvestment / globalBenchmark.investment) * 100, 100)}%"></div>
+											</div>
+											<span class="comparison-text {userInvestment >= localBenchmark.investment ? 'positive' : 'neutral'}">
+												{#if userInvestment >= globalBenchmark.investment}
+													💰 Well-funded for aggressive growth
+												{:else if userInvestment >= localBenchmark.investment}
+													✓ Adequately funded for stage
+												{:else if userInvestment > 0}
+													💡 Lean operation — capital efficient
+												{:else}
+													🎯 Bootstrapped — impressive if growing
+												{/if}
+											</span>
+										</div>
+
+										<!-- Burn Rate Comparison -->
+										<div class="insight-metric-card">
+											<div class="metric-header">
+												<span class="material-symbols-outlined">local_fire_department</span>
+												<span>Monthly Burn Rate</span>
+											</div>
+											<div class="metric-comparison">
+												<div class="your-value">
+													<span class="label">You</span>
+													<span class="value">₹{(userBurnRate / 100000).toFixed(1)}L</span>
+												</div>
+												<div class="benchmark-values">
+													<div class="benchmark local">
+														<span class="label">Local Avg</span>
+														<span class="value">₹{(localBenchmark.burnRate / 100000).toFixed(1)}L</span>
+													</div>
+													<div class="benchmark global">
+														<span class="label">Global Avg</span>
+														<span class="value">₹{(globalBenchmark.burnRate / 100000).toFixed(1)}L</span>
+													</div>
+												</div>
+											</div>
+											<div class="progress-bar-container">
+												<div class="progress-bar burn" style="width: {Math.min((userBurnRate / globalBenchmark.burnRate) * 100, 100)}%"></div>
+											</div>
+											<span class="comparison-text {userBurnRate <= localBenchmark.burnRate ? 'positive' : 'warning'}">
+												{#if userBurnRate <= localBenchmark.burnRate * 0.5}
+													💚 Very lean operation — efficient spending
+												{:else if userBurnRate <= localBenchmark.burnRate}
+													✓ Burn rate under control
+												{:else if userBurnRate <= globalBenchmark.burnRate}
+													⚠ Higher than local avg — monitor closely
+												{:else}
+													🔥 High burn — ensure runway is sufficient
+												{/if}
+											</span>
+										</div>
+
+										<!-- Runway Comparison -->
+										<div class="insight-metric-card">
+											<div class="metric-header">
+												<span class="material-symbols-outlined">timer</span>
+												<span>Runway (Months)</span>
+											</div>
+											<div class="metric-comparison">
+												<div class="your-value">
+													<span class="label">You</span>
+													<span class="value">{userRunway} mo</span>
+												</div>
+												<div class="benchmark-values">
+													<div class="benchmark local">
+														<span class="label">Local Avg</span>
+														<span class="value">{localBenchmark.runway} mo</span>
+													</div>
+													<div class="benchmark global">
+														<span class="label">Global Avg</span>
+														<span class="value">{globalBenchmark.runway} mo</span>
+													</div>
+												</div>
+											</div>
+											<div class="progress-bar-container">
+												<div class="progress-bar runway {userRunway >= 12 ? 'good' : userRunway >= 6 ? 'warning' : 'danger'}" style="width: {Math.min((userRunway / globalBenchmark.runway) * 100, 100)}%"></div>
+											</div>
+											<span class="comparison-text {userRunway >= 12 ? 'positive' : userRunway >= 6 ? 'warning' : 'negative'}">
+												{#if userRunway >= 18}
+													🛡️ Strong runway — flexibility to pivot
+												{:else if userRunway >= 12}
+													✓ Healthy runway — plan next raise
+												{:else if userRunway >= 6}
+													⚠ Start fundraising conversations
+												{:else}
+													🚨 Critical — immediate funding needed
+												{/if}
+											</span>
+										</div>
+
+										<!-- Marketing Spend Comparison -->
+										<div class="insight-metric-card">
+											<div class="metric-header">
+												<span class="material-symbols-outlined">campaign</span>
+												<span>Marketing Spend</span>
+											</div>
+											<div class="metric-comparison">
+												<div class="your-value">
+													<span class="label">You (Est.)</span>
+													<span class="value">₹{(userMarketingSpend / 100000).toFixed(1)}L</span>
+												</div>
+												<div class="benchmark-values">
+													<div class="benchmark local">
+														<span class="label">Local Avg</span>
+														<span class="value">₹{(localBenchmark.marketingSpend / 100000).toFixed(1)}L</span>
+													</div>
+													<div class="benchmark global">
+														<span class="label">Global Avg</span>
+														<span class="value">₹{(globalBenchmark.marketingSpend / 100000).toFixed(1)}L</span>
+													</div>
+												</div>
+											</div>
+											<div class="progress-bar-container">
+												<div class="progress-bar marketing" style="width: {Math.min((userMarketingSpend / globalBenchmark.marketingSpend) * 100, 100)}%"></div>
+											</div>
+											<span class="comparison-text neutral">
+												{#if userMarketingSpend >= globalBenchmark.marketingSpend}
+													📢 Aggressive marketing — track ROI
+												{:else if userMarketingSpend >= localBenchmark.marketingSpend}
+													✓ Competitive marketing spend
+												{:else if userMarketingSpend > 0}
+													💡 Consider increasing for growth
+												{:else}
+													🌱 Organic growth — efficient but limited
+												{/if}
+											</span>
+										</div>
+
+										<!-- Revenue Efficiency -->
+										<div class="insight-metric-card">
+											<div class="metric-header">
+												<span class="material-symbols-outlined">speed</span>
+												<span>Revenue Efficiency</span>
+											</div>
+											{#if true}
+											{@const efficiency = userBurnRate > 0 ? (userRevenue / userBurnRate) * 100 : 0}
+											{@const localEfficiency = (localBenchmark.revenue / localBenchmark.burnRate) * 100}
+											{@const globalEfficiency = (globalBenchmark.revenue / globalBenchmark.burnRate) * 100}
+											<div class="metric-comparison">
+												<div class="your-value">
+													<span class="label">You</span>
+													<span class="value">{efficiency.toFixed(0)}%</span>
+												</div>
+												<div class="benchmark-values">
+													<div class="benchmark local">
+														<span class="label">Local Avg</span>
+														<span class="value">{localEfficiency.toFixed(0)}%</span>
+													</div>
+													<div class="benchmark global">
+														<span class="label">Global Avg</span>
+														<span class="value">{globalEfficiency.toFixed(0)}%</span>
+													</div>
+												</div>
+											</div>
+											<div class="progress-bar-container">
+												<div class="progress-bar efficiency" style="width: {Math.min(efficiency, 100)}%"></div>
+											</div>
+											<span class="comparison-text {efficiency >= 100 ? 'positive' : efficiency >= 50 ? 'neutral' : 'warning'}">
+												{#if efficiency >= 100}
+													🎯 Profitable — revenue exceeds burn
+												{:else if efficiency >= 75}
+													📈 Near profitability — keep pushing
+												{:else if efficiency >= 50}
+													⚡ Growing — improve unit economics
+												{:else}
+													🔧 Focus on revenue growth or cut costs
+												{/if}
+											</span>
+											{/if}
+										</div>
+									</div>
+									{/if}
 								</div>
 							{/if}
 						</div>
@@ -4903,24 +5440,57 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 									<div class="tabs-row">
 										<button 
 											class="tab-btn" 
-											class:active={activeCompetitorTab === 'verified'}
-											on:click={() => activeCompetitorTab = 'verified'}
+											class:active={activeCompetitorTab === 'all'}
+											on:click={() => activeCompetitorTab = 'all'}
 										>
-											<span class="material-symbols-outlined">verified</span>
-											Verified Competitors
-											{#if verifiedCompetitors.length > 0}
-												<span class="tab-count">{verifiedCompetitors.length}</span>
+											<span class="material-symbols-outlined">grid_view</span>
+											All
+											{#if allCompetitors.length > 0}
+												<span class="tab-count">{allCompetitors.length}</span>
+											{/if}
+										</button>
+										{#if userPickCompetitors.length > 0}
+											<button 
+												class="tab-btn" 
+												class:active={activeCompetitorTab === 'user-pick'}
+												on:click={() => activeCompetitorTab = 'user-pick'}
+											>
+												<span class="material-symbols-outlined">person</span>
+												Your Picks
+												<span class="tab-count">{userPickCompetitors.length}</span>
+											</button>
+										{/if}
+										<button 
+											class="tab-btn" 
+											class:active={activeCompetitorTab === 'global'}
+											on:click={() => activeCompetitorTab = 'global'}
+										>
+											<span class="material-symbols-outlined">public</span>
+											Global
+											{#if globalCompetitors.length > 0}
+												<span class="tab-count">{globalCompetitors.length}</span>
 											{/if}
 										</button>
 										<button 
 											class="tab-btn" 
-											class:active={activeCompetitorTab === 'potential'}
-											on:click={() => activeCompetitorTab = 'potential'}
+											class:active={activeCompetitorTab === 'local'}
+											on:click={() => activeCompetitorTab = 'local'}
 										>
-											<span class="material-symbols-outlined">psychology_alt</span>
-											Potential Competitors
-											{#if potentialCompetitors.length > 0}
-												<span class="tab-count">{potentialCompetitors.length}</span>
+											<span class="material-symbols-outlined">location_on</span>
+											Local
+											{#if localCompetitors.length > 0}
+												<span class="tab-count">{localCompetitors.length}</span>
+											{/if}
+										</button>
+										<button 
+											class="tab-btn" 
+											class:active={activeCompetitorTab === 'rival'}
+											on:click={() => activeCompetitorTab = 'rival'}
+										>
+											<span class="material-symbols-outlined">sports_martial_arts</span>
+											Rival
+											{#if rivalCompetitors.length > 0}
+												<span class="tab-count">{rivalCompetitors.length}</span>
 											{/if}
 										</button>
 									</div>
@@ -4937,26 +5507,50 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 								<!-- Data Quality Summary -->
 								{#if competitorDataSummary}
 									<div class="data-quality-summary">
-										<div class="summary-item verified">
-											<span class="material-symbols-outlined">verified</span>
-											<span><strong>{competitorDataSummary.verifiedCount || verifiedCompetitors.length}</strong> with verified data</span>
+										<div class="summary-item user-pick">
+											<span class="material-symbols-outlined">person</span>
+											<span><strong>{competitorDataSummary.userPickCount || userPickCompetitors.length}</strong> Your Picks</span>
 										</div>
-										<div class="summary-item potential">
-											<span class="material-symbols-outlined">help_outline</span>
-											<span><strong>{competitorDataSummary.potentialCount || potentialCompetitors.length}</strong> with estimated data</span>
+										<div class="summary-item global">
+											<span class="material-symbols-outlined">public</span>
+											<span><strong>{competitorDataSummary.globalCount || globalCompetitors.length}</strong> Global</span>
+										</div>
+										<div class="summary-item local">
+											<span class="material-symbols-outlined">location_on</span>
+											<span><strong>{competitorDataSummary.localCount || localCompetitors.length}</strong> Local</span>
+										</div>
+										<div class="summary-item rival">
+											<span class="material-symbols-outlined">sports_martial_arts</span>
+											<span><strong>{competitorDataSummary.rivalCount || rivalCompetitors.length}</strong> Rival</span>
 										</div>
 									</div>
 								{/if}
 
 								<!-- Tab Content -->
-								{#if activeCompetitorTab === 'verified'}
+								{#if allCompetitors}
+									{@const displayCompetitors = 
+										activeCompetitorTab === 'all' ? allCompetitors :
+										activeCompetitorTab === 'user-pick' ? userPickCompetitors :
+										activeCompetitorTab === 'global' ? globalCompetitors :
+										activeCompetitorTab === 'local' ? localCompetitors :
+										activeCompetitorTab === 'rival' ? rivalCompetitors :
+										allCompetitors
+									}
+									{@const tabDescription = 
+										activeCompetitorTab === 'all' ? 'All competitors including your picks, global leaders, local players, and emerging rivals.' :
+										activeCompetitorTab === 'user-pick' ? 'Competitors you mentioned during the questionnaire.' :
+										activeCompetitorTab === 'global' ? 'International companies that compete or could enter the Indian market.' :
+										activeCompetitorTab === 'local' ? 'Well-established major players in India.' :
+										activeCompetitorTab === 'rival' ? 'Emerging companies that could be direct future threats.' :
+										'All competitors'
+									}
 									<div class="tab-description">
 										<span class="material-symbols-outlined">info</span>
-										<p>Competitors with publicly available revenue and customer data from verified sources.</p>
+										<p>{tabDescription}</p>
 									</div>
 									<div class="competitors-grid">
-										{#each verifiedCompetitors.length > 0 ? verifiedCompetitors : competitors.filter((c: any) => c.isVerified !== false) as competitor, index}
-											<div class="competitor-card" class:hidden={!competitor.visible}>
+										{#each displayCompetitors as competitor, index}
+											<div class="competitor-card {competitor.region}" class:hidden={!competitor.visible}>
 												<div class="competitor-header">
 													<h4>{competitor.name}</h4>
 													<div class="competitor-actions">
@@ -5002,11 +5596,14 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 												
 												<div class="competitor-stage">
 													<span class="stage-badge">{competitor.stage || 'N/A'}</span>
-													<span class="category-badge">{competitor.category || 'Unknown'}</span>
-													{#if competitor.isUserMentioned}
-														<span class="user-pick-badge">Your Pick</span>
+													<span class="region-badge {competitor.region || 'local'}">
+														{competitor.region === 'user-pick' ? 'Your Pick' :
+														 competitor.region === 'global' ? 'Global' :
+														 competitor.region === 'rival' ? 'Rival' : 'Local'}
+													</span>
+													{#if competitor.isVerified}
+														<span class="verified-badge">✓ Verified</span>
 													{/if}
-													<span class="verified-badge">✓ Verified</span>
 												</div>
 
 												<div class="competitor-metrics">
@@ -5042,112 +5639,10 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 												</button>
 											</div>
 										{/each}
-										{#if verifiedCompetitors.length === 0 && competitors.filter((c: any) => c.isVerified !== false).length === 0}
+										{#if displayCompetitors.length === 0}
 											<div class="empty-tab-state">
 												<span class="material-symbols-outlined">search_off</span>
-												<p>No verified competitor data available yet</p>
-											</div>
-										{/if}
-									</div>
-								{:else}
-									<div class="tab-description potential">
-										<span class="material-symbols-outlined">warning</span>
-										<p>Competitors without publicly disclosed revenue or customer counts. Data shown is estimated based on industry averages.</p>
-									</div>
-									<div class="competitors-grid">
-										{#each potentialCompetitors as competitor, index}
-											<div class="competitor-card potential" class:hidden={!competitor.visible}>
-												<div class="competitor-header">
-													<h4>{competitor.name}</h4>
-													<div class="competitor-actions">
-														{#if compareMode}
-															{#if compareList.find(c => c.name === competitor.name)}
-																<button 
-																	class="btn-icon-danger"
-																	on:click={() => removeFromCompare(competitor.name)}
-																	title="Remove from comparison"
-																>
-																	<span class="material-symbols-outlined">remove_circle</span>
-																</button>
-															{:else}
-																<button 
-																	class="btn-icon-success"
-																	on:click={() => addToCompare(competitor)}
-																	title="Add to comparison"
-																>
-																	<span class="material-symbols-outlined">add_circle</span>
-																</button>
-															{/if}
-														{/if}
-														<button 
-															class="btn-icon" 
-															on:click={() => toggleCompetitorVisibility(index)}
-															title={competitor.visible ? 'Hide from graph' : 'Show in graph'}
-														>
-															<span class="material-symbols-outlined">
-																{competitor.visible ? 'visibility' : 'visibility_off'}
-															</span>
-														</button>
-														<button 
-															class="btn-icon"
-															on:click={() => monitoredCompetitors.includes(competitor.name) ? removeFromMonitoring(competitor.name) : addToMonitoring(competitor.name)}
-															title={monitoredCompetitors.includes(competitor.name) ? 'Remove from monitoring' : 'Add to monitoring'}
-														>
-															<span class="material-symbols-outlined">
-																{monitoredCompetitors.includes(competitor.name) ? 'star' : 'star_border'}
-															</span>
-														</button>
-													</div>
-												</div>
-												
-												<div class="competitor-stage">
-													<span class="stage-badge">{competitor.stage || 'N/A'}</span>
-													<span class="category-badge">{competitor.category || 'Unknown'}</span>
-													{#if competitor.isUserMentioned}
-														<span class="user-pick-badge">Your Pick</span>
-													{/if}
-													<span class="estimated-badge">⚠ Estimated</span>
-												</div>
-
-												<div class="competitor-metrics">
-													<div class="metric-item">
-														<span class="material-symbols-outlined">trending_up</span>
-														<div>
-															<div class="metric-label">Growth Rate</div>
-															<div class="metric-value estimate">{competitor.growthRate || 0}%*</div>
-														</div>
-													</div>
-													<div class="metric-item">
-														<span class="material-symbols-outlined">currency_rupee</span>
-														<div>
-															<div class="metric-label">Revenue</div>
-															<div class="metric-value estimate">₹{((competitor.revenue || 0) / 10000000).toFixed(1)}Cr*</div>
-														</div>
-													</div>
-													<div class="metric-item">
-														<span class="material-symbols-outlined">groups</span>
-														<div>
-															<div class="metric-label">Customers</div>
-															<div class="metric-value estimate">{(competitor.customers || 0).toLocaleString()}*</div>
-														</div>
-													</div>
-												</div>
-
-												<div class="estimate-note">* Estimated based on industry averages</div>
-
-												<button 
-													class="btn-secondary full-width"
-													on:click={() => showCompetitorDetails(competitor)}
-												>
-													<span class="material-symbols-outlined">info</span>
-													View Details
-												</button>
-											</div>
-										{/each}
-										{#if potentialCompetitors.length === 0}
-											<div class="empty-tab-state">
-												<span class="material-symbols-outlined">check_circle</span>
-												<p>All competitors have verified data!</p>
+												<p>No competitors found in this category</p>
 											</div>
 										{/if}
 									</div>
@@ -5692,7 +6187,12 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 										<span class="schemes-count">{(fundingSchemes.centralSchemes || []).filter((s: any) => s.eligibilityStatus === 'eligible' || s.eligibilityStatus === 'partial').length} schemes</span>
 									</div>
 									<div class="schemes-grid">
-										{#each (fundingSchemes.centralSchemes || []).filter((s: any) => s.eligibilityStatus === 'eligible' || s.eligibilityStatus === 'partial') as scheme}
+										{#each (fundingSchemes.centralSchemes || [])
+											.filter((s: any) => s.eligibilityStatus === 'eligible' || s.eligibilityStatus === 'partial')
+											.sort((a: any, b: any) => {
+												const order: Record<string, number> = { 'eligible': 0, 'partial': 1, 'not-eligible': 2 };
+												return (order[a.eligibilityStatus] ?? 2) - (order[b.eligibilityStatus] ?? 2);
+											}) as scheme}
 											<div class="scheme-card">
 												<div class="scheme-header">
 													<div class="scheme-title-row">
@@ -5759,17 +6259,22 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 								</div>
 
 								<!-- State Government Schemes -->
-								{#if fundingSchemes.stateSchemes && fundingSchemes.stateSchemes.filter((s: any) => s.eligibilityStatus === 'eligible').length > 0}
+								{#if fundingSchemes.stateSchemes && fundingSchemes.stateSchemes.filter((s: any) => s.eligibilityStatus === 'eligible' || s.eligibilityStatus === 'partial').length > 0}
 									<div class="schemes-section state-schemes">
 										<div class="section-header">
 											<div class="section-title-row">
 												<span class="material-symbols-outlined section-icon">location_city</span>
 												<h3 class="schemes-title">State Government Schemes</h3>
 											</div>
-											<span class="schemes-count">{(fundingSchemes.stateSchemes || []).filter((s: any) => s.eligibilityStatus === 'eligible').length} schemes</span>
+											<span class="schemes-count">{(fundingSchemes.stateSchemes || []).filter((s: any) => s.eligibilityStatus === 'eligible' || s.eligibilityStatus === 'partial').length} schemes</span>
 										</div>
 										<div class="schemes-grid">
-										{#each (fundingSchemes.stateSchemes || []).filter((s: any) => s.eligibilityStatus === 'eligible') as scheme}
+										{#each (fundingSchemes.stateSchemes || [])
+											.filter((s: any) => s.eligibilityStatus === 'eligible' || s.eligibilityStatus === 'partial')
+											.sort((a: any, b: any) => {
+												const order: Record<string, number> = { 'eligible': 0, 'partial': 1, 'not-eligible': 2 };
+												return (order[a.eligibilityStatus] ?? 2) - (order[b.eligibilityStatus] ?? 2);
+											}) as scheme}
 											<div class="scheme-card">
 												<div class="scheme-header">
 													<div class="scheme-title-row">
@@ -10221,6 +10726,68 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 		font-weight: 600;
 	}
 
+	/* Region badges */
+	.region-badge {
+		padding: 0.25rem 0.5rem;
+		border-radius: 12px;
+		font-size: 0.7rem;
+		font-weight: 600;
+	}
+
+	.region-badge.user-pick {
+		background: rgba(156, 39, 176, 0.15);
+		color: #ce93d8;
+	}
+
+	.region-badge.global {
+		background: rgba(59, 130, 246, 0.15);
+		color: #60a5fa;
+	}
+
+	.region-badge.local {
+		background: rgba(34, 197, 94, 0.15);
+		color: #4ade80;
+	}
+
+	.region-badge.rival {
+		background: rgba(239, 68, 68, 0.15);
+		color: #f87171;
+	}
+
+	/* Competitor card region styling */
+	.competitor-card.user-pick {
+		border-left: 3px solid #ce93d8;
+	}
+
+	.competitor-card.global {
+		border-left: 3px solid #60a5fa;
+	}
+
+	.competitor-card.local {
+		border-left: 3px solid #4ade80;
+	}
+
+	.competitor-card.rival {
+		border-left: 3px solid #f87171;
+	}
+
+	/* Data quality summary items */
+	.summary-item.user-pick {
+		color: #ce93d8;
+	}
+
+	.summary-item.global {
+		color: #60a5fa;
+	}
+
+	.summary-item.local {
+		color: #4ade80;
+	}
+
+	.summary-item.rival {
+		color: #f87171;
+	}
+
 	/* Potential competitor card styling */
 	.competitor-card.potential {
 		border-color: rgba(251, 191, 36, 0.3);
@@ -11691,9 +12258,7 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 	}
 
 	.nav-item.logout-nav-item {
-		margin-top: auto;
-		border-top: 1px solid var(--border-color);
-		padding-top: 1rem;
+		margin-top: 0;
 	}
 
 	.nav-item.logout-nav-item:hover {
@@ -12025,6 +12590,248 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 		margin-top: 0.5rem;
 	}
 
+	/* VRIO Matrix Table Styles */
+	.vrio-matrix-container {
+		margin-top: 1.5rem;
+		overflow-x: auto;
+		border-radius: 12px;
+		background: var(--bg-secondary);
+		position: relative;
+	}
+
+	.vrio-info-btn {
+		position: absolute;
+		top: 0.75rem;
+		right: 0.75rem;
+		background: transparent;
+		border: 1px solid var(--border-color);
+		border-radius: 50%;
+		width: 28px;
+		height: 28px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		cursor: pointer;
+		z-index: 10;
+		transition: all 0.2s ease;
+	}
+
+	.vrio-info-btn:hover {
+		background: var(--accent-primary);
+		border-color: var(--accent-primary);
+	}
+
+	.vrio-info-btn .material-symbols-outlined {
+		font-size: 1rem;
+		color: var(--text-secondary);
+	}
+
+	.vrio-info-btn:hover .material-symbols-outlined {
+		color: white;
+	}
+
+	.vrio-info-popup {
+		position: absolute;
+		top: 3rem;
+		right: 0.75rem;
+		width: 400px;
+		max-width: calc(100vw - 2rem);
+		background: var(--card-bg);
+		border: 1px solid var(--border-color);
+		border-radius: 12px;
+		padding: 1rem;
+		z-index: 100;
+		box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+	}
+
+	.vrio-info-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 1rem;
+		padding-bottom: 0.75rem;
+		border-bottom: 1px solid var(--border-color);
+	}
+
+	.vrio-info-header h4 {
+		margin: 0;
+		font-size: 0.95rem;
+		color: var(--accent-primary);
+	}
+
+	.vrio-info-header .close-btn {
+		background: transparent;
+		border: none;
+		cursor: pointer;
+		padding: 0.25rem;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 4px;
+	}
+
+	.vrio-info-header .close-btn:hover {
+		background: var(--bg-secondary);
+	}
+
+	.vrio-info-header .close-btn .material-symbols-outlined {
+		font-size: 1.25rem;
+		color: var(--text-secondary);
+	}
+
+	.vrio-info-popup .explanation-grid {
+		display: grid;
+		grid-template-columns: repeat(2, 1fr);
+		gap: 0.75rem;
+		margin-bottom: 1rem;
+	}
+
+	.vrio-info-popup .explanation-item {
+		background: var(--bg-secondary);
+		padding: 0.75rem;
+		border-radius: 8px;
+	}
+
+	.vrio-info-popup .explanation-item strong {
+		color: #d4af37;
+		font-size: 0.8rem;
+		display: block;
+		margin-bottom: 0.25rem;
+	}
+
+	.vrio-info-popup .explanation-item p {
+		margin: 0;
+		font-size: 0.75rem;
+		color: var(--text-secondary);
+		line-height: 1.4;
+	}
+
+	.vrio-info-popup .implications-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.vrio-info-popup .implication-row {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-size: 0.75rem;
+		color: var(--text-secondary);
+		padding: 0.5rem;
+		background: var(--bg-secondary);
+		border-radius: 6px;
+	}
+
+	.vrio-info-popup .implication-row .dot {
+		width: 10px;
+		height: 10px;
+		border-radius: 50%;
+		flex-shrink: 0;
+	}
+
+	.vrio-info-popup .dot.disadvantage { background: #ff3b30; }
+	.vrio-info-popup .dot.parity { background: #ffcc00; }
+	.vrio-info-popup .dot.temporary { background: #5ac8fa; }
+	.vrio-info-popup .dot.sustained { background: #4cd964; }
+
+	.vrio-matrix {
+		width: 100%;
+		border-collapse: collapse;
+		font-size: 0.9rem;
+	}
+
+	.vrio-matrix thead {
+		background: var(--bg-tertiary);
+	}
+
+	.vrio-matrix th {
+		padding: 1rem 1.25rem;
+		text-align: center;
+		font-weight: 600;
+		color: var(--text-secondary);
+		font-size: 0.85rem;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		border-bottom: 2px solid var(--border-color);
+	}
+
+	.vrio-matrix th.resource-col {
+		text-align: left;
+		width: 180px;
+	}
+
+	.vrio-matrix th.outcome-col {
+		text-align: left;
+		min-width: 280px;
+	}
+
+	.vrio-matrix tbody tr {
+		border-bottom: 1px solid var(--border-color);
+		transition: background 0.2s ease;
+	}
+
+	.vrio-matrix tbody tr:last-child {
+		border-bottom: none;
+	}
+
+	.vrio-matrix tbody tr:hover {
+		background: rgba(var(--accent-primary-rgb), 0.05);
+	}
+
+	.vrio-matrix td {
+		padding: 1rem 1.25rem;
+		vertical-align: middle;
+	}
+
+	.vrio-matrix .resource-name {
+		font-weight: 500;
+		color: var(--accent-primary);
+		text-align: left;
+	}
+
+	.vrio-matrix .vrio-cell {
+		text-align: center;
+	}
+
+	.vrio-matrix .vrio-icon {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 28px;
+		height: 28px;
+		border-radius: 6px;
+		font-weight: 700;
+		font-size: 1rem;
+	}
+
+	.vrio-matrix .vrio-icon.yes {
+		background: rgba(76, 217, 100, 0.15);
+		color: #4cd964;
+	}
+
+	.vrio-matrix .vrio-icon.no {
+		background: rgba(255, 59, 48, 0.15);
+		color: #ff3b30;
+	}
+
+	.vrio-matrix .outcome-cell {
+		font-weight: 400;
+		font-size: 0.8rem;
+		text-align: left;
+		line-height: 1.4;
+		color: var(--text-secondary);
+	}
+
+	/* Remove color coding from outcome cells */
+	.vrio-matrix .outcome-cell.sustained,
+	.vrio-matrix .outcome-cell.temporary,
+	.vrio-matrix .outcome-cell.parity,
+	.vrio-matrix .outcome-cell.disadvantage {
+		color: var(--text-secondary);
+	}
+
+	/* Keep old styles for backward compatibility */
 	.vrio-grid {
 		display: grid;
 		gap: 1.5rem;
@@ -12146,6 +12953,200 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 
 	.vrio-summary strong {
 		font-weight: 700;
+	}
+
+	/* Product Insight Section */
+	.product-insight-section {
+		margin-top: 2rem;
+		padding-top: 2rem;
+		border-top: 1px solid var(--border-color);
+	}
+
+	.product-insight-section h4 {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-size: 1.25rem;
+		font-weight: 600;
+		color: var(--text-primary);
+		margin-bottom: 0.5rem;
+	}
+
+	.product-insight-section h4 .material-symbols-outlined {
+		color: var(--accent-primary);
+		font-size: 1.5rem;
+	}
+
+	.insight-subtitle {
+		font-size: 0.9rem;
+		color: var(--text-secondary);
+		margin-bottom: 1.5rem;
+	}
+
+	.insight-comparison-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+		gap: 1.25rem;
+	}
+
+	.insight-metric-card {
+		background: var(--card-bg);
+		border: 1px solid var(--border-color);
+		border-radius: 16px;
+		padding: 1.25rem;
+		transition: all 0.3s ease;
+	}
+
+	.insight-metric-card:hover {
+		transform: translateY(-2px);
+		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+		border-color: var(--accent-primary);
+	}
+
+	.metric-header {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		margin-bottom: 1rem;
+		padding-bottom: 0.75rem;
+		border-bottom: 1px solid var(--border-color);
+	}
+
+	.metric-header .material-symbols-outlined {
+		font-size: 1.25rem;
+		color: var(--accent-primary);
+	}
+
+	.metric-header span:last-child {
+		font-weight: 600;
+		font-size: 0.95rem;
+		color: var(--text-primary);
+	}
+
+	.metric-comparison {
+		display: flex;
+		justify-content: space-between;
+		align-items: flex-start;
+		margin-bottom: 1rem;
+	}
+
+	.your-value {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+	}
+
+	.your-value .label {
+		font-size: 0.75rem;
+		color: var(--text-secondary);
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+	}
+
+	.your-value .value {
+		font-size: 1.5rem;
+		font-weight: 700;
+		color: var(--accent-primary);
+	}
+
+	.benchmark-values {
+		display: flex;
+		gap: 1.25rem;
+	}
+
+	.benchmark {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-end;
+		gap: 0.125rem;
+	}
+
+	.benchmark .label {
+		font-size: 0.65rem;
+		color: var(--text-tertiary);
+		text-transform: uppercase;
+		letter-spacing: 0.3px;
+	}
+
+	.benchmark .value {
+		font-size: 0.9rem;
+		font-weight: 500;
+	}
+
+	.benchmark.local .value {
+		color: #5ac8fa;
+	}
+
+	.benchmark.global .value {
+		color: #ff9500;
+	}
+
+	.progress-bar-container {
+		height: 6px;
+		background: var(--bg-tertiary);
+		border-radius: 3px;
+		overflow: hidden;
+		margin-bottom: 0.75rem;
+	}
+
+	.progress-bar {
+		height: 100%;
+		border-radius: 3px;
+		transition: width 0.5s ease;
+	}
+
+	.progress-bar.your {
+		background: linear-gradient(90deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
+	}
+
+	.progress-bar.burn {
+		background: linear-gradient(90deg, #ff9500 0%, #ff3b30 100%);
+	}
+
+	.progress-bar.runway {
+		background: linear-gradient(90deg, #4cd964 0%, #5ac8fa 100%);
+	}
+
+	.progress-bar.runway.good {
+		background: linear-gradient(90deg, #4cd964 0%, #34c759 100%);
+	}
+
+	.progress-bar.runway.warning {
+		background: linear-gradient(90deg, #ffcc00 0%, #ff9500 100%);
+	}
+
+	.progress-bar.runway.danger {
+		background: linear-gradient(90deg, #ff3b30 0%, #ff453a 100%);
+	}
+
+	.progress-bar.marketing {
+		background: linear-gradient(90deg, #5856d6 0%, #af52de 100%);
+	}
+
+	.progress-bar.efficiency {
+		background: linear-gradient(90deg, #34c759 0%, #4cd964 100%);
+	}
+
+	.comparison-text {
+		display: block;
+		font-size: 0.8rem;
+		line-height: 1.4;
+	}
+
+	.comparison-text.positive {
+		color: #4cd964;
+	}
+
+	.comparison-text.negative {
+		color: #ff3b30;
+	}
+
+	.comparison-text.warning {
+		color: #ff9500;
+	}
+
+	.comparison-text.neutral {
+		color: var(--text-secondary);
 	}
 
 	/* SWOT Grid Styles */
@@ -13119,6 +14120,191 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 		color: var(--text-primary);
 		display: block;
 		margin-bottom: 0.25rem;
+	}
+
+	/* Framework Explanation Section Styles */
+	.framework-explanation {
+		margin-top: 2rem;
+		padding: 1.5rem;
+		background: linear-gradient(135deg, rgba(102, 126, 234, 0.08), rgba(118, 75, 162, 0.04));
+		border: 1px solid rgba(102, 126, 234, 0.2);
+		border-radius: 16px;
+	}
+
+	.framework-explanation h4 {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-size: 1.125rem;
+		font-weight: 600;
+		color: var(--accent-primary);
+		margin-bottom: 1rem;
+	}
+
+	.framework-explanation h4 .material-symbols-outlined {
+		font-size: 1.25rem;
+		color: var(--accent-primary);
+	}
+
+	.framework-explanation .explanation-intro {
+		color: var(--text-secondary);
+		font-size: 0.9rem;
+		margin-bottom: 1.25rem;
+		line-height: 1.5;
+	}
+
+	.explanation-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+		gap: 1rem;
+		margin-bottom: 1.5rem;
+	}
+
+	.explanation-item {
+		padding: 1rem;
+		background: var(--card-bg);
+		border: 1px solid var(--border-color);
+		border-radius: 12px;
+		transition: all 0.2s ease;
+	}
+
+	.explanation-item:hover {
+		border-color: var(--accent-primary);
+		transform: translateY(-2px);
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+	}
+
+	.explanation-item strong {
+		display: block;
+		font-size: 0.95rem;
+		font-weight: 600;
+		color: var(--accent-primary);
+		margin-bottom: 0.5rem;
+	}
+
+	.explanation-item p {
+		font-size: 0.85rem;
+		color: var(--text-secondary);
+		line-height: 1.5;
+		margin: 0;
+	}
+
+	.explanation-item.central-explanation {
+		grid-column: 1 / -1;
+		background: linear-gradient(135deg, rgba(255, 193, 7, 0.1), rgba(255, 215, 0, 0.05));
+		border-color: rgba(255, 193, 7, 0.3);
+	}
+
+	.implications-table {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+		padding-top: 1rem;
+		border-top: 1px solid var(--border-color);
+	}
+
+	.implication-row {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 0.75rem 1rem;
+		background: var(--card-bg);
+		border-radius: 8px;
+		font-size: 0.875rem;
+		color: var(--text-primary);
+		transition: all 0.2s ease;
+	}
+
+	.implication-row:hover {
+		transform: translateX(4px);
+	}
+
+	.implication-row strong {
+		color: var(--text-primary);
+	}
+
+	.dot {
+		width: 12px;
+		height: 12px;
+		border-radius: 50%;
+		flex-shrink: 0;
+	}
+
+	.dot.disadvantage {
+		background: #ef4444;
+		box-shadow: 0 0 8px rgba(239, 68, 68, 0.4);
+	}
+
+	.dot.parity {
+		background: #f59e0b;
+		box-shadow: 0 0 8px rgba(245, 158, 11, 0.4);
+	}
+
+	.dot.temporary {
+		background: #3b82f6;
+		box-shadow: 0 0 8px rgba(59, 130, 246, 0.4);
+	}
+
+	.dot.sustained {
+		background: #22c55e;
+		box-shadow: 0 0 8px rgba(34, 197, 94, 0.4);
+	}
+
+	.strategic-insight {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.75rem;
+		margin-top: 1.25rem;
+		padding: 1rem;
+		background: linear-gradient(135deg, rgba(255, 193, 7, 0.1), rgba(255, 215, 0, 0.05));
+		border: 1px solid rgba(255, 193, 7, 0.3);
+		border-radius: 12px;
+	}
+
+	.strategic-insight .material-symbols-outlined {
+		font-size: 1.5rem;
+		color: #ffc107;
+		flex-shrink: 0;
+	}
+
+	.strategic-insight p {
+		font-size: 0.9rem;
+		color: var(--text-primary);
+		line-height: 1.6;
+		margin: 0;
+	}
+
+	.strategic-insight p strong {
+		color: var(--accent-primary);
+	}
+
+	/* Porter's specific styling */
+	.porters-explanation {
+		background: linear-gradient(135deg, rgba(59, 130, 246, 0.08), rgba(139, 92, 246, 0.04));
+		border-color: rgba(59, 130, 246, 0.2);
+	}
+
+	.porters-explanation h4 {
+		color: #3b82f6;
+	}
+
+	.porters-explanation h4 .material-symbols-outlined {
+		color: #3b82f6;
+	}
+
+	@media (max-width: 768px) {
+		.explanation-grid {
+			grid-template-columns: 1fr;
+		}
+		
+		.framework-explanation {
+			padding: 1rem;
+		}
+		
+		.implication-row {
+			font-size: 0.8rem;
+			padding: 0.5rem 0.75rem;
+		}
 	}
 </style>
 

@@ -658,39 +658,68 @@ app.get('/api/ddq/latest', authenticateToken, async (req, res) => {
 // Valuation Routes
 app.post('/api/valuation/calculate', authenticateToken, async (req, res) => {
   try {
-    const { scores, companyStage, revenue, category, totalInvestment, monthlyExpenses } = req.body;
+    const { scores, companyStage, revenue, category, totalInvestment, monthlyExpenses, userValuation, productDescription } = req.body;
 
-    // Industry-specific revenue multiples (AGGRESSIVE UPDATE for 90% accuracy target)
-    const industryMultiples = {
-      'SaaS': { min: 10, max: 25, avg: 15 }, // Much higher multiples
-      'Mobile App': { min: 4, max: 8, avg: 6 },
-      'E-commerce': { min: 4, max: 12, avg: 8 }, // Increased significantly
-      'Marketplace': { min: 5, max: 15, avg: 10 }, // Increased significantly
-      'AI/ML': { min: 12, max: 30, avg: 18 },
-      'FinTech': { min: 8, max: 25, avg: 15 }, // Much higher for FinTech
-      'EdTech': { min: 6, max: 15, avg: 10 },
-      'HealthTech': { min: 6, max: 18, avg: 12 },
-      'Hardware': { min: 4, max: 8, avg: 6 },
-      'Consulting': { min: 4, max: 8, avg: 6 },
-      'FMCG': { min: 3, max: 6, avg: 4.5 },
-      'Other': { min: 4, max: 10, avg: 7 }
+    // INDIAN MARKET - Realistic revenue multiples based on 2024-2025 Indian startup ecosystem
+    // These are conservative, grounded in actual Indian deals (not US/Global inflated multiples)
+    const indianIndustryMultiples = {
+      'SaaS': { min: 4, max: 12, avg: 7 },         // Indian SaaS: Freshworks, Zoho benchmarks
+      'Mobile App': { min: 2, max: 6, avg: 4 },    // Indian app ecosystem
+      'E-commerce': { min: 1.5, max: 5, avg: 3 },  // Indian e-commerce (lower margins)
+      'Marketplace': { min: 2, max: 8, avg: 4 },   // Indian marketplaces
+      'AI/ML': { min: 5, max: 15, avg: 8 },        // Indian AI premium but realistic
+      'FinTech': { min: 3, max: 10, avg: 6 },      // Indian FinTech (regulated sector)
+      'EdTech': { min: 2, max: 8, avg: 4 },        // Post-2022 correction
+      'HealthTech': { min: 3, max: 10, avg: 5 },   // Indian healthtech
+      'Hardware': { min: 1.5, max: 4, avg: 2.5 },  // Hardware lower in India
+      'Consulting': { min: 2, max: 5, avg: 3 },    // Services business
+      'AgriTech': { min: 2, max: 6, avg: 3.5 },    // Indian agritech
+      'FoodTech': { min: 1.5, max: 5, avg: 3 },    // Food delivery/tech
+      'Logistics': { min: 2, max: 6, avg: 3.5 },   // Indian logistics
+      'CleanTech': { min: 3, max: 10, avg: 5 },    // Green premium
+      'D2C': { min: 1.5, max: 5, avg: 3 },         // Direct-to-consumer
+      'FMCG': { min: 1.5, max: 4, avg: 2.5 },      // FMCG lower multiples
+      'Other': { min: 2, max: 6, avg: 3.5 }
     };
 
-    const categoryMultiple = industryMultiples[category] || industryMultiples['Other'];
+    // Stage-based valuation caps for Indian market (realistic ceiling based on stage)
+    const stageValuationCaps = {
+      'Idea': 10000000,        // ₹1 Cr max for idea stage
+      'MVP': 30000000,         // ₹3 Cr max for MVP
+      'Beta': 50000000,        // ₹5 Cr max for beta
+      'Launched': 150000000,   // ₹15 Cr max for launched
+      'Growing': 500000000,    // ₹50 Cr max for growing
+      'Established': 2000000000 // ₹200 Cr max for established
+    };
 
-    // Berkus Method calculation (for pre-revenue/early stage)
+    // Stage-based base valuations for Indian market (without revenue)
+    const stageBaseValuations = {
+      'Idea': 5000000,         // ₹50 Lakhs base
+      'MVP': 15000000,         // ₹1.5 Cr base
+      'Beta': 30000000,        // ₹3 Cr base
+      'Launched': 50000000,    // ₹5 Cr base
+      'Growing': 100000000,    // ₹10 Cr base
+      'Established': 250000000 // ₹25 Cr base
+    };
+
+    const categoryMultiple = indianIndustryMultiples[category] || indianIndustryMultiples['Other'];
+    const stageCap = stageValuationCaps[companyStage] || stageValuationCaps['Launched'];
+    const stageBase = stageBaseValuations[companyStage] || stageBaseValuations['Launched'];
+
+    // Berkus Method calculation (for pre-revenue/early stage) - INDIAN ADJUSTED
+    // Max ₹50L per factor (Indian seed stage reality)
     const berkusFactors = {
-      soundIdea: Math.min(scores.productScore * 100000, 500000),
-      qualityTeam: Math.min(scores.teamScore * 100000, 500000),
-      prototype: Math.min(scores.productScore * 100000, 500000),
-      strategicRelationships: Math.min(scores.marketScore * 100000, 500000),
-      productRollout: Math.min(scores.salesScore * 80000, 400000)
+      soundIdea: Math.min(scores.productScore * 100000, 500000),         // Max ₹5L
+      qualityTeam: Math.min(scores.teamScore * 100000, 500000),          // Max ₹5L
+      prototype: Math.min(scores.productScore * 100000, 500000),         // Max ₹5L
+      strategicRelationships: Math.min(scores.marketScore * 100000, 500000), // Max ₹5L
+      productRollout: Math.min(scores.salesScore * 80000, 400000)        // Max ₹4L
     };
 
     const berkusValuation = Object.values(berkusFactors).reduce((a, b) => a + b, 0);
 
-    // Scorecard Method calculation
-    const baseValuation = 50000000; // ₹5 Cr in INR (base for Indian seed companies)
+    // Scorecard Method calculation - INDIAN BENCHMARK
+    const baseValuation = stageBase; // Use stage-appropriate base
     
     const scorecardMultipliers = {
       team: 0.25 * (scores.teamScore / 5),
@@ -704,29 +733,33 @@ app.post('/api/valuation/calculate', authenticateToken, async (req, res) => {
     const totalMultiplier = Object.values(scorecardMultipliers).reduce((a, b) => a + b, 0);
     const scorecardValuation = baseValuation * (0.5 + totalMultiplier * 1.5);
 
-    // Revenue Multiple Method (if revenue exists)
+    // Revenue Multiple Method (if revenue exists) - INDIAN MARKET REALISTIC
     let revenueMultipleValuation = 0;
     let annualRevenue = 0;
     if (revenue && revenue > 0) {
       annualRevenue = revenue * 12; // Convert monthly to annual
       
-      // Adjust multiple based on stage and growth potential - MAXIMUM AGGRESSIVE
+      // Use conservative Indian multiples based on stage
       let adjustedMultiple = categoryMultiple.avg;
-      if (companyStage === 'Growing' || companyStage === 'Established') {
-        adjustedMultiple = categoryMultiple.max * 2.2; // MAXIMUM for growth (was 1.8)
+      
+      // Stage-based multiple adjustment (Indian realistic)
+      if (companyStage === 'Established') {
+        adjustedMultiple = categoryMultiple.max * 0.9; // 90% of max for established
+      } else if (companyStage === 'Growing') {
+        adjustedMultiple = categoryMultiple.avg * 1.2; // Slight premium for growth
       } else if (companyStage === 'Launched') {
-        adjustedMultiple = categoryMultiple.avg * 2.5; // Much higher for launched
+        adjustedMultiple = categoryMultiple.avg; // Average multiple
       } else {
-        adjustedMultiple = categoryMultiple.min * 2.5; // Higher for early traction
+        adjustedMultiple = categoryMultiple.min * 1.2; // Lower for early stage
       }
       
-      // Further adjust based on scores - MAXIMUM BOOST
+      // Score-based adjustment (conservative)
       const avgScore = (scores.teamScore + scores.productScore + scores.marketScore + scores.salesScore + scores.financingScore + scores.competitiveScore) / 6;
-      if (avgScore >= 4.5) adjustedMultiple *= 2.2; // Maximum
-      else if (avgScore >= 4.0) adjustedMultiple *= 2.0; // Higher
-      else if (avgScore >= 3.5) adjustedMultiple *= 1.8; // Higher
-      else if (avgScore >= 3.0) adjustedMultiple *= 1.5; // Higher
-      else adjustedMultiple *= 1.2; // Baseline
+      if (avgScore >= 4.5) adjustedMultiple *= 1.3;      // Good scores = 30% premium max
+      else if (avgScore >= 4.0) adjustedMultiple *= 1.2; // 20% premium
+      else if (avgScore >= 3.5) adjustedMultiple *= 1.1; // 10% premium
+      else if (avgScore >= 3.0) adjustedMultiple *= 1.0; // No adjustment
+      else adjustedMultiple *= 0.8;                       // Below average = discount
       
       revenueMultipleValuation = annualRevenue * adjustedMultiple;
     }
@@ -736,80 +769,103 @@ app.post('/api/valuation/calculate', authenticateToken, async (req, res) => {
     let valuationMethod;
     
     if (revenue && revenue > 0 && (companyStage === 'Growing' || companyStage === 'Established' || companyStage === 'Launched')) {
-      // Use revenue multiple method with MAXIMUM weighting (was 80/20, now 90/10)
-      finalValuationINR = (revenueMultipleValuation * 0.9 + scorecardValuation * 0.1);
-      valuationMethod = 'Revenue Multiple + Scorecard';
+      // Revenue-based companies: weighted combination
+      finalValuationINR = (revenueMultipleValuation * 0.7 + scorecardValuation * 0.3);
+      valuationMethod = 'Revenue Multiple + Scorecard (Indian Benchmark)';
     } else if (companyStage === 'Idea' || companyStage === 'MVP') {
-      // Use Berkus for very early stage
+      // Pre-revenue: Use Berkus + Scorecard
       finalValuationINR = (berkusValuation * 0.6 + scorecardValuation * 0.4);
-      valuationMethod = 'Berkus + Scorecard';
+      valuationMethod = 'Berkus + Scorecard (Pre-Revenue)';
     } else {
-      // Use scorecard + berkus for mid-stage
-      finalValuationINR = (berkusValuation * 0.3 + scorecardValuation * 0.7);
-      valuationMethod = 'Scorecard + Berkus';
+      // Beta/early launched without revenue
+      finalValuationINR = (berkusValuation * 0.4 + scorecardValuation * 0.6);
+      valuationMethod = 'Scorecard + Berkus (Early Stage)';
     }
 
+    // CRITICAL: Apply stage-based cap (Indian market reality)
+    const stageCappedValuation = Math.min(finalValuationINR, stageCap);
+    
+    // CRITICAL: If user provided their own valuation, respect it as upper bound
+    // The user's self-assessment based on their phase should not be exceeded
+    let userCappedValuation = stageCappedValuation;
+    let userValuationApplied = false;
+    
+    if (userValuation && userValuation > 0) {
+      // User's valuation acts as a ceiling - we should not exceed their own assessment
+      // Allow 20% variance above user valuation max for market adjustment
+      const userCeiling = userValuation * 1.2;
+      if (stageCappedValuation > userCeiling) {
+        userCappedValuation = userCeiling;
+        userValuationApplied = true;
+      }
+    }
+
+    // Final valuation after all caps
+    finalValuationINR = userCappedValuation;
+    
     const finalValuationUSD = finalValuationINR / 83; // Current exchange rate
 
-    // Calculate TAM, SAM, SOM (simplified estimates based on category and market)
-    const marketSizeEstimates = {
-      'SaaS': { tam: 5000000000000, samPercent: 5, somPercent: 1 }, // ₹50,000 Cr TAM
-      'Mobile App': { tam: 2000000000000, samPercent: 3, somPercent: 0.5 },
-      'E-commerce': { tam: 10000000000000, samPercent: 2, somPercent: 0.3 },
-      'Marketplace': { tam: 8000000000000, samPercent: 4, somPercent: 0.8 },
-      'AI/ML': { tam: 3000000000000, samPercent: 10, somPercent: 2 },
-      'Hardware': { tam: 4000000000000, samPercent: 3, somPercent: 0.5 },
-      'Consulting': { tam: 1500000000000, samPercent: 5, somPercent: 1 },
-      'FMCG': { tam: 15000000000000, samPercent: 1, somPercent: 0.1 },
-      'Other': { tam: 2000000000000, samPercent: 3, somPercent: 0.5 }
+    // Calculate TAM, SAM, SOM (INDIAN MARKET SPECIFIC)
+    const indianMarketSizeEstimates = {
+      'SaaS': { tam: 2500000000000, samPercent: 3, somPercent: 0.5 },    // ₹25,000 Cr TAM (India SaaS)
+      'Mobile App': { tam: 1000000000000, samPercent: 2, somPercent: 0.3 },
+      'E-commerce': { tam: 8000000000000, samPercent: 1, somPercent: 0.1 }, // Large but low capture
+      'Marketplace': { tam: 4000000000000, samPercent: 2, somPercent: 0.3 },
+      'AI/ML': { tam: 500000000000, samPercent: 5, somPercent: 1 },      // Growing but smaller
+      'FinTech': { tam: 3000000000000, samPercent: 2, somPercent: 0.3 },
+      'EdTech': { tam: 2000000000000, samPercent: 2, somPercent: 0.3 },
+      'HealthTech': { tam: 1500000000000, samPercent: 3, somPercent: 0.5 },
+      'Hardware': { tam: 2000000000000, samPercent: 2, somPercent: 0.2 },
+      'Consulting': { tam: 800000000000, samPercent: 3, somPercent: 0.5 },
+      'AgriTech': { tam: 1000000000000, samPercent: 3, somPercent: 0.5 },
+      'FoodTech': { tam: 2000000000000, samPercent: 2, somPercent: 0.3 },
+      'FMCG': { tam: 10000000000000, samPercent: 0.5, somPercent: 0.05 },
+      'Other': { tam: 1000000000000, samPercent: 2, somPercent: 0.3 }
     };
 
-    const marketEstimate = marketSizeEstimates[category] || marketSizeEstimates['Other'];
+    const marketEstimate = indianMarketSizeEstimates[category] || indianMarketSizeEstimates['Other'];
     const TAM = marketEstimate.tam;
     const SAM = TAM * (marketEstimate.samPercent / 100);
     const SOM = SAM * (marketEstimate.somPercent / 100);
 
-    // Calculate CAGR (estimate based on stage and sales performance)
+    // Calculate CAGR (estimate based on stage and sales performance) - INDIAN REALISTIC
     let CAGR = 0;
     
-    // Base CAGR on stage
-    if (companyStage === 'Idea' || companyStage === 'MVP') CAGR = 150; // 150% for early stage
-    else if (companyStage === 'Launched') CAGR = 100; // 100% for launched
-    else if (companyStage === 'Beta') CAGR = 120; // 120% for beta
-    else if (companyStage === 'Growing') CAGR = 75; // 75% for growing
-    else if (companyStage === 'Established') CAGR = 40; // 40% for established
+    // Base CAGR on stage (Indian startup growth rates)
+    if (companyStage === 'Idea' || companyStage === 'MVP') CAGR = 100; // 100% for early stage
+    else if (companyStage === 'Launched') CAGR = 80;  // 80% for launched
+    else if (companyStage === 'Beta') CAGR = 90;      // 90% for beta
+    else if (companyStage === 'Growing') CAGR = 60;   // 60% for growing
+    else if (companyStage === 'Established') CAGR = 30; // 30% for established
     
-    // Adjust based on sales score (performance indicator)
+    // Adjust based on sales score
     CAGR *= (scores.salesScore / 5);
     
-    // Further boost if revenue exists (proven traction)
+    // Revenue traction boost
     if (revenue && revenue > 0) {
-      CAGR *= 1.2; // 20% boost for having actual revenue
+      CAGR *= 1.1; // 10% boost for having actual revenue
     }
 
     // Calculate Runway (months of operation remaining)
     let runway = 0;
     let burnRate = monthlyExpenses || 0;
     
-    // For revenue businesses, estimate burn from expenses if not provided
     if (revenue && revenue > 0 && burnRate === 0) {
-      // Assume 70% of revenue goes to expenses (conservative estimate)
-      burnRate = revenue * 0.7;
+      burnRate = revenue * 0.7; // Assume 70% expense ratio
     }
     
     if (totalInvestment && burnRate > 0) {
-      const netBurn = burnRate - (revenue || 0); // Revenue reduces burn
+      const netBurn = burnRate - (revenue || 0);
       if (netBurn > 0) {
         runway = Math.floor(totalInvestment / netBurn);
       } else {
-        runway = 999; // Profitable, essentially infinite runway
+        runway = 999; // Profitable
       }
     } else if (revenue && revenue > burnRate) {
-      // Profitable without needing investment
-      runway = 999;
+      runway = 999; // Profitable
     }
 
-    // Return comprehensive valuation data
+    // Return comprehensive valuation data with Indian context
     res.json({
       // Valuation methods
       berkusValuation,
@@ -819,16 +875,22 @@ app.post('/api/valuation/calculate', authenticateToken, async (req, res) => {
       finalValuationUSD,
       valuationMethod,
       
+      // Caps applied
+      stageCap,
+      userValuationApplied,
+      userValuationProvided: userValuation || null,
+      
       // Breakdown
       scorecardMultipliers,
       berkusFactors,
       industryMultiple: categoryMultiple,
       
-      // Market metrics
+      // Market metrics (Indian)
       TAM,
       SAM,
       SOM,
       marketPenetration: annualRevenue > 0 ? ((annualRevenue / SOM) * 100).toFixed(2) : 0,
+      marketContext: 'Indian Market',
       
       // Growth metrics
       CAGR,
@@ -839,6 +901,9 @@ app.post('/api/valuation/calculate', authenticateToken, async (req, res) => {
       burnRate,
       monthlyRevenue: revenue || 0,
       isProfitable: revenue > burnRate,
+      
+      // Methodology notes
+      notes: `Valuation based on Indian market benchmarks for ${category} sector at ${companyStage} stage. ${userValuationApplied ? 'Capped to respect user-provided valuation ceiling.' : ''} Revenue multiple of ${categoryMultiple.avg}x used (Indian ${category} average).`,
       
       calculatedAt: new Date()
     });
@@ -862,41 +927,67 @@ app.post('/api/analysis/swot', authenticateToken, async (req, res) => {
       });
     }
 
-    const prompt = `As a Senior Venture Capital Analyst, provide a comprehensive SWOT analysis for a ${industry} startup with the following profile:
-    
-Company Stage: ${companyData.stage}
-Team Score: ${companyData.teamScore}/5
-Product Score: ${companyData.productScore}/5
-Market Opportunity: ${companyData.marketScore}/5
-Current Revenue: ${companyData.revenue}
-Key Competitors: ${Array.isArray(competitors) ? competitors.join(', ') : (competitors || 'None specified')}
-Target Customer: ${companyData.targetCustomer || 'Not specified'}
-Has Revenue: ${companyData.hasRevenue ? 'Yes' : 'No'}
+    // Use Google Search grounded prompt for real-time market news
+    const prompt = `As a Senior Venture Capital Analyst with access to CURRENT market data and news, provide a comprehensive SWOT analysis for a ${industry} startup in INDIA.
 
-Provide a detailed, personalized SWOT analysis in JSON format. Be specific to THIS ${industry} company, mention their actual competitors (${Array.isArray(competitors) ? competitors.join(', ') : competitors}), and tailor strengths/weaknesses based on their ${companyData.stage} stage.
+COMPANY PROFILE:
+- Stage: ${companyData.stage}
+- Team Score: ${companyData.teamScore}/5
+- Product Score: ${companyData.productScore}/5
+- Market Opportunity: ${companyData.marketScore}/5
+- Current Revenue: ${companyData.revenue}
+- Key Competitors: ${Array.isArray(competitors) ? competitors.join(', ') : (competitors || 'None specified')}
+- Target Customer: ${companyData.targetCustomer || 'Not specified'}
+- Has Revenue: ${companyData.hasRevenue ? 'Yes' : 'No'}
 
+CRITICAL REQUIREMENTS:
+
+1. STRENGTHS & WEAKNESSES: Based on the company profile above - specific to their ${companyData.stage} stage and ${industry} industry.
+
+2. OPPORTUNITIES - MUST be based on REAL, CURRENT market scenarios and recent news:
+   - Search for recent ${industry} industry news in India (2024-2025)
+   - Include specific government policies, funding trends, market growth data
+   - Reference actual regulatory changes, investment announcements, or market expansions
+   - Example: "Government's Digital India push allocating ₹X crore for ${industry}" or "Recent funding surge in Indian ${industry} sector"
+
+3. THREATS - MUST be based on REAL, CURRENT market risks and news:
+   - Search for recent challenges, regulatory concerns, or market disruptions in ${industry}
+   - Include specific competitor moves, funding winter impacts, or policy changes
+   - Reference actual news about market saturation, new entrants, or economic factors
+   - Example: "RBI's new ${industry} regulations impacting startups" or "Increased competition from ${competitors} expanding in India"
+
+Return ONLY valid JSON (no markdown):
 {
-  "strengths": ["strength1", "strength2", "strength3", "strength4"],
-  "weaknesses": ["weakness1", "weakness2", "weakness3", "weakness4"],
-  "opportunities": ["opportunity1", "opportunity2", "opportunity3", "opportunity4"],
-  "threats": ["threat1", "threat2", "threat3", "threat4"]
+  "strengths": ["specific strength 1", "specific strength 2", "specific strength 3", "specific strength 4"],
+  "weaknesses": ["specific weakness 1", "specific weakness 2", "specific weakness 3", "specific weakness 4"],
+  "opportunities": ["NEWS-BASED opportunity with specific data/policy reference", "market trend opportunity with numbers", "government initiative opportunity", "growth opportunity based on current events"],
+  "threats": ["NEWS-BASED threat with specific reference", "regulatory/policy threat", "competitive threat from market news", "economic/market threat based on current data"]
 }`;
 
-    // Use Gemini API directly (Grok is deprecated)
+    // Use Google Search grounded Gemini for real-time market data
     try {
-      const systemContext = 'You are a Senior Venture Capital Analyst specializing in early-stage startup evaluation. Return ONLY valid JSON, no markdown formatting, no explanations.';
-      const geminiResponse = await callGemini(prompt, systemContext);
+      const systemContext = 'You are a Senior Venture Capital Analyst with real-time access to Indian market news, government policies, and industry reports. Your opportunities and threats MUST reference CURRENT (2024-2025) market conditions, news events, and data. Return ONLY valid JSON.';
+      const geminiResponse = await callGeminiWithSearch(prompt, systemContext);
       
       // Clean and parse
       let content = geminiResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
       const analysis = JSON.parse(content);
       
-      console.log('✅ SWOT analysis from Gemini API for', industry);
+      console.log('✅ SWOT analysis with market news from Gemini for', industry);
       return res.json(analysis);
       
     } catch (geminiError) {
-      console.warn('Gemini failed for SWOT:', geminiError.message);
-      throw geminiError;
+      console.warn('Gemini Search failed for SWOT, trying regular Gemini:', geminiError.message);
+      
+      // Fallback to regular Gemini without search
+      try {
+        const fallbackResponse = await callGemini(prompt, 'Return ONLY valid JSON, no markdown.');
+        let content = fallbackResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+        const analysis = JSON.parse(content);
+        return res.json(analysis);
+      } catch (fallbackError) {
+        throw fallbackError;
+      }
     }
 
   } catch (error) {
@@ -1196,8 +1287,7 @@ Provide specific reasoning for each scheme based on the company's actual profile
     
     const userStateSchemes = stateSchemes[userState] || [];
     
-    res.json({
-      centralSchemes: [
+    const centralSchemes = [
         {
           name: 'Startup India Seed Fund Scheme (SISFS)',
           amount: 'Up to ₹50 Lakhs',
@@ -1438,8 +1528,20 @@ Provide specific reasoning for each scheme based on the company's actual profile
           reasoning: 'All DPIIT recognized startups qualify for IP rebate',
           type: 'Rebate'
         }
-      ],
-      stateSchemes: userStateSchemes.length > 0 ? userStateSchemes : [{
+      ];
+      
+      // Sort schemes by eligibility: eligible first, then partial, then not-eligible
+      const sortByEligibility = (schemes) => {
+        const eligibilityOrder = { 'eligible': 0, 'partial': 1, 'not-eligible': 2 };
+        return schemes.sort((a, b) => {
+          const orderA = eligibilityOrder[a.eligibilityStatus] ?? 2;
+          const orderB = eligibilityOrder[b.eligibilityStatus] ?? 2;
+          return orderA - orderB;
+        });
+      };
+      
+      const sortedCentralSchemes = sortByEligibility(centralSchemes);
+      const sortedStateSchemes = sortByEligibility(userStateSchemes.length > 0 ? userStateSchemes : [{
         name: `${userState} State Startup Support`,
         amount: 'Varies by state',
         eligibility: `Startups registered in ${userState}`,
@@ -1448,11 +1550,17 @@ Provide specific reasoning for each scheme based on the company's actual profile
         eligibilityStatus: 'partial',
         reasoning: `${userState}-based startups may qualify for state programs - verify with state startup cell`,
         type: 'Grant'
-      }],
-      priority: `For ${stage} stage ${category} startup in ${userState}: ${isEligibleForSISFS ? 'SISFS is recommended as primary scheme for early-stage funding support. ' : ''}${userStateSchemes.length > 0 ? `Also explore ${userStateSchemes[0].name} for state-specific benefits. ` : ''}${hasRevenue ? 'CGSS can provide collateral-free working capital for growth.' : ''}`
-    });
-  }
-});
+      }]);
+      
+      console.log('📊 Sorted schemes by eligibility - Central:', sortedCentralSchemes.map(s => `${s.name}: ${s.eligibilityStatus}`).slice(0, 5));
+      
+      res.json({
+        centralSchemes: sortedCentralSchemes,
+        stateSchemes: sortedStateSchemes,
+        priority: `For ${stage} stage ${category} startup in ${userState}: ${isEligibleForSISFS ? 'SISFS is recommended as primary scheme for early-stage funding support. ' : ''}${userStateSchemes.length > 0 ? `Also explore ${userStateSchemes[0].name} for state-specific benefits. ` : ''}${hasRevenue ? 'CGSS can provide collateral-free working capital for growth.' : ''}`
+      });
+    }
+  });
 
 // In-memory cache for competitor data to ensure consistency
 const competitorCache = new Map();
@@ -2627,7 +2735,10 @@ app.post('/api/notes', authenticateToken, async (req, res) => {
     const { chatMessage, response, noteTitle, category } = req.body;
     const userId = req.user.userId;
 
+    console.log('📝 Creating note for user:', userId, { noteTitle, category });
+
     if (!noteTitle || !response) {
+      console.error('❌ Note creation failed: Missing title or content');
       return res.status(400).json({ error: 'Note title and content are required' });
     }
 
@@ -2643,14 +2754,18 @@ app.post('/api/notes', authenticateToken, async (req, res) => {
 
     const result = await notesCollection.insertOne(note);
     
+    console.log('✅ Note created successfully:', result.insertedId);
+    
+    // Return the full note with its ID
     res.json({ 
       success: true, 
       noteId: result.insertedId,
+      note: { ...note, _id: result.insertedId },
       message: 'Note created successfully' 
     });
   } catch (error) {
-    console.error('Error creating note:', error);
-    res.status(500).json({ error: 'Failed to create note' });
+    console.error('❌ Error creating note:', error);
+    res.status(500).json({ error: 'Failed to create note', details: error.message });
   }
 });
 
