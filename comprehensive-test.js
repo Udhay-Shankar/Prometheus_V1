@@ -442,10 +442,7 @@ async function testCase5_AIMLStartup() {
   
   // Verify competitor data has all required fields for UI
   const competitors = competitorsRes.data?.competitors || [];
-  const uiFieldsValid = competitors.length === 0 || competitors.every(c => {
-    // Check fields that are used in UI (with fallbacks)
-    return c.name !== undefined;
-  });
+  const uiFieldsValid = competitors.every(c => c.name !== undefined && c.name !== null);
   logTest('5.4 UI-Required Fields Present', uiFieldsValid,
     'Checking competitor fields for UI rendering');
   
@@ -520,7 +517,7 @@ async function runAllTests() {
   }
   
   console.log('\n' + '='.repeat(60));
-  if (parseFloat(score) >= 90) {
+  if (Number.parseFloat(score) >= 90) {
     console.log('🎉 SUCCESS! Score is >= 90%');
     console.log('✅ All major features are working correctly!');
   } else {
@@ -529,7 +526,7 @@ async function runAllTests() {
   }
   console.log('='.repeat(60));
   
-  return parseFloat(score);
+  return Number.parseFloat(score);
 }
 
 runAllTests().then(score => {

@@ -4,8 +4,8 @@ import dotenv from 'dotenv';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { MongoClient, ObjectId } from 'mongodb';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import mongoSanitize from 'express-mongo-sanitize';
@@ -41,14 +41,14 @@ app.use(helmet({
 }));
 
 // CORS configuration - more restrictive
-const allowedOrigins = [
+const allowedOrigins = new Set([
   'http://localhost:5173', 
   'http://localhost:5174', 
   'http://localhost:5175', 
   'http://localhost:5176',
   'https://prometheus-v1.onrender.com',
   'https://prometheus-frontend.onrender.com'
-];
+]);
 
 app.use(cors({
   origin: function (origin, callback) {
@@ -56,7 +56,7 @@ app.use(cors({
     if (!origin) return callback(null, true);
     
     // Check exact match or Vercel deployment pattern
-    if (allowedOrigins.includes(origin) || /^https:\/\/[\w-]+\.vercel\.app$/.test(origin)) {
+    if (allowedOrigins.has(origin) || /^https:\/\/[\w-]+\.vercel\.app$/.test(origin)) {
       return callback(null, true);
     }
     
@@ -119,10 +119,10 @@ function validatePassword(password) {
   if (!/[a-z]/.test(password)) {
     errors.push('Password must contain at least one lowercase letter');
   }
-  if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) {
+  if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>?]/.test(password)) {
     errors.push('Password must contain at least one special character (!@#$%^&*...)');
   }
-  if (!/[0-9]/.test(password)) {
+  if (!/\d/.test(password)) {
     errors.push('Password must contain at least one number');
   }
   
@@ -508,8 +508,8 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
     }
 
     // Check if account is locked
-    if (user.lockUntil && user.lockUntil > new Date()) {
-      const remainingTime = Math.ceil((user.lockUntil - new Date()) / 1000 / 60);
+    if (user.lockUntil && user.lockUntil > Date.now()) {
+      const remainingTime = Math.ceil((user.lockUntil - Date.now()) / 1000 / 60);
       return res.status(423).json({ 
         error: `Account temporarily locked. Try again in ${remainingTime} minutes.`,
         lockedUntil: user.lockUntil
@@ -658,7 +658,7 @@ app.get('/api/ddq/latest', authenticateToken, async (req, res) => {
 // Valuation Routes
 app.post('/api/valuation/calculate', authenticateToken, async (req, res) => {
   try {
-    const { scores, companyStage, revenue, category, totalInvestment, monthlyExpenses, userValuation, productDescription } = req.body;
+    const { scores, companyStage, revenue, category, totalInvestment, monthlyExpenses, userValuation } = req.body;
 
     // INDIAN MARKET - Realistic revenue multiples based on 2024-2025 Indian startup ecosystem
     // These are conservative, grounded in actual Indian deals (not US/Global inflated multiples)
@@ -723,10 +723,10 @@ app.post('/api/valuation/calculate', authenticateToken, async (req, res) => {
     
     const scorecardMultipliers = {
       team: 0.25 * (scores.teamScore / 5),
-      market: 0.20 * (scores.marketScore / 5),
+      market: 0.2 * (scores.marketScore / 5),
       product: 0.18 * (scores.productScore / 5),
       sales: 0.15 * (scores.salesScore / 5),
-      financing: 0.10 * (scores.financingScore / 5),
+      financing: 0.1 * (scores.financingScore / 5),
       competitive: 0.12 * (scores.competitiveScore / 5)
     };
 
@@ -756,9 +756,9 @@ app.post('/api/valuation/calculate', authenticateToken, async (req, res) => {
       // Score-based adjustment (conservative)
       const avgScore = (scores.teamScore + scores.productScore + scores.marketScore + scores.salesScore + scores.financingScore + scores.competitiveScore) / 6;
       if (avgScore >= 4.5) adjustedMultiple *= 1.3;      // Good scores = 30% premium max
-      else if (avgScore >= 4.0) adjustedMultiple *= 1.2; // 20% premium
+      else if (avgScore >= 4) adjustedMultiple *= 1.2; // 20% premium
       else if (avgScore >= 3.5) adjustedMultiple *= 1.1; // 10% premium
-      else if (avgScore >= 3.0) adjustedMultiple *= 1.0; // No adjustment
+      else if (avgScore >= 3) adjustedMultiple *= 1; // No adjustment
       else adjustedMultiple *= 0.8;                       // Below average = discount
       
       revenueMultipleValuation = annualRevenue * adjustedMultiple;
@@ -970,7 +970,7 @@ Return ONLY valid JSON (no markdown):
       const geminiResponse = await callGeminiWithSearch(prompt, systemContext);
       
       // Clean and parse
-      let content = geminiResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      let content = geminiResponse.replaceAll(/```json\n?/g, '').replaceAll(/```\n?/g, '').trim();
       const analysis = JSON.parse(content);
       
       console.log('✅ SWOT analysis with market news from Gemini for', industry);
@@ -980,14 +980,10 @@ Return ONLY valid JSON (no markdown):
       console.warn('Gemini Search failed for SWOT, trying regular Gemini:', geminiError.message);
       
       // Fallback to regular Gemini without search
-      try {
-        const fallbackResponse = await callGemini(prompt, 'Return ONLY valid JSON, no markdown.');
-        let content = fallbackResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-        const analysis = JSON.parse(content);
-        return res.json(analysis);
-      } catch (fallbackError) {
-        throw fallbackError;
-      }
+      const fallbackResponse = await callGemini(prompt, 'Return ONLY valid JSON, no markdown.');
+      let content = fallbackResponse.replaceAll(/```json\n?/g, '').replaceAll(/```\n?/g, '').trim();
+      const analysis = JSON.parse(content);
+      return res.json(analysis);
     }
 
   } catch (error) {
@@ -1119,10 +1115,7 @@ app.post('/api/analysis/funding-schemes', authenticateToken, async (req, res) =>
     };
 
     // Personalized eligibility logic
-    const isEligibleForSISFS = totalInvestment < 5000000; // < ₹50L
-    const isEducationTech = category === 'EdTech' || category === 'Education' || category === 'E-learning';
     const userState = state || location || 'Other';
-    const stateSpecificSchemes = stateSchemes[userState] || [];
 
     const prompt = `As an expert on Indian Government funding schemes for startups, analyze eligibility for a ${category} startup:
 
@@ -1220,7 +1213,7 @@ Provide specific reasoning for each scheme based on the company's actual profile
       const geminiResponse = await callGemini(prompt, systemContext);
       
       // Clean and parse
-      let content = geminiResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      let content = geminiResponse.replaceAll(/```json\n?/g, '').replaceAll(/```\n?/g, '').trim();
       const schemes = JSON.parse(content);
       
       console.log('✅ Funding schemes from Gemini API for', category, 'in', userState);
@@ -1324,8 +1317,8 @@ Provide specific reasoning for each scheme based on the company's actual profile
           eligibility: 'DPIIT recognized startups, through SEBI registered AIFs',
           benefits: 'Access to VC funding through government-backed fund of funds',
           eligible: stage !== 'Idea',
-          eligibilityStatus: stage !== 'Idea' ? 'eligible' : 'partial',
-          reasoning: stage !== 'Idea' ? 'Post-idea stage startups can access FFS through AIFs' : 'Move past idea stage to access FFS',
+          eligibilityStatus: stage === 'Idea' ? 'partial' : 'eligible',
+          reasoning: stage === 'Idea' ? 'Move past idea stage to access FFS' : 'Post-idea stage startups can access FFS through AIFs',
           type: 'Equity'
         },
         {
@@ -1554,10 +1547,22 @@ Provide specific reasoning for each scheme based on the company's actual profile
       
       console.log('📊 Sorted schemes by eligibility - Central:', sortedCentralSchemes.map(s => `${s.name}: ${s.eligibilityStatus}`).slice(0, 5));
       
+      // Build priority message without nested template literals
+      let priorityMsg = 'For ' + stage + ' stage ' + category + ' startup in ' + userState + ': ';
+      if (totalInvestment < 5000000) {
+        priorityMsg += 'SISFS is recommended as primary scheme for early-stage funding support. ';
+      }
+      if (userStateSchemes.length > 0) {
+        priorityMsg += 'Also explore ' + userStateSchemes[0].name + ' for state-specific benefits. ';
+      }
+      if (hasRevenue) {
+        priorityMsg += 'CGSS can provide collateral-free working capital for growth.';
+      }
+      
       res.json({
         centralSchemes: sortedCentralSchemes,
         stateSchemes: sortedStateSchemes,
-        priority: `For ${stage} stage ${category} startup in ${userState}: ${isEligibleForSISFS ? 'SISFS is recommended as primary scheme for early-stage funding support. ' : ''}${userStateSchemes.length > 0 ? `Also explore ${userStateSchemes[0].name} for state-specific benefits. ` : ''}${hasRevenue ? 'CGSS can provide collateral-free working capital for growth.' : ''}`
+        priority: priorityMsg
       });
     }
   });
@@ -1569,7 +1574,7 @@ const CACHE_DURATION = 30 * 60 * 1000; // 30 minutes
 // Market Trends & Competitor Analysis endpoint
 app.post('/api/analysis/competitors', authenticateToken, async (req, res) => {
   try {
-    const { category, stage, revenue, userMentionedCompetitors } = req.body;
+    const { category, userMentionedCompetitors } = req.body;
     const userId = req.user.userId;
 
     // Check rate limit
@@ -1693,8 +1698,8 @@ Return ONLY valid JSON (no markdown, no code blocks):
       let content = searchResponse;
       
       // Remove markdown code blocks
-      content = content.replace(/```json\s*/gi, '');
-      content = content.replace(/```\s*/gi, '');
+      content = content.replaceAll(/```json\s*/gi, '');
+      content = content.replaceAll(/```\s*/gi, '');
       
       // Remove any text before the first { and after the last }
       const firstBrace = content.indexOf('{');
@@ -1706,10 +1711,10 @@ Return ONLY valid JSON (no markdown, no code blocks):
       
       // Fix common JSON issues
       content = content.trim();
-      content = content.replace(/,\s*}/g, '}'); // Remove trailing commas before }
-      content = content.replace(/,\s*]/g, ']'); // Remove trailing commas before ]
-      content = content.replace(/[\u201C\u201D]/g, '"'); // Replace fancy quotes
-      content = content.replace(/[\u2018\u2019]/g, "'"); // Replace fancy apostrophes
+      content = content.replaceAll(/,\s*}/g, '}'); // Remove trailing commas before }
+      content = content.replaceAll(/,\s*]/g, ']'); // Remove trailing commas before ]
+      content = content.replaceAll(/[\u201C\u201D]/g, '"'); // Replace fancy quotes
+      content = content.replaceAll(/[\u2018\u2019]/g, "'"); // Replace fancy apostrophes
       
       let analysis;
       try {
@@ -1722,9 +1727,10 @@ Return ONLY valid JSON (no markdown, no code blocks):
         if (competitorsMatch) {
           try {
             const competitorsJson = '[' + competitorsMatch[1] + ']';
-            const competitors = JSON.parse(competitorsJson.replace(/,\s*]/g, ']'));
+            const competitors = JSON.parse(competitorsJson.replaceAll(/,\s*]/g, ']'));
             analysis = { competitors };
-          } catch (e) {
+          } catch (extractError) {
+            console.error('Failed to extract competitors:', extractError.message);
             throw parseError; // Re-throw original error
           }
         } else {
@@ -1919,7 +1925,7 @@ Return ONLY valid JSON (no markdown, no code blocks):
     console.error('Competitor analysis error:', error.message);
     
     // Return smart fallback data with valuation timelines
-    const { category, stage, userMentionedCompetitors } = req.body;
+    const { category, userMentionedCompetitors } = req.body;
     const mentionedComps = userMentionedCompetitors 
       ? userMentionedCompetitors.split(',').map(c => c.trim()).filter(c => c.length > 0)
       : [];
@@ -2299,46 +2305,59 @@ Return ONLY valid JSON (no markdown, no code blocks):
 
     console.log(`Returning ${selectedCompetitors.length} competitors with valuation timelines for ${category}`);
     
+    // Helper function for category-based values
+    const getCategoryValue = (valueMap, cat) => valueMap[cat] || valueMap['default'];
+    
+    // Category-specific market data
+    const cagrValues = { 'SaaS': '35% vs 25%', 'FinTech': '31% vs 22%', 'AI/ML': '38% vs 28%', 'default': '33% vs 27%' };
+    const fundingValues = { 'SaaS': '$2.1B', 'FinTech': '$3.2B', 'AI/ML': '$1.5B', 'default': '$1.8B' };
+    const marketSizeValues = { 'SaaS': '$15B', 'FinTech': '$85B', 'AI/ML': '$8B', 'default': '$12B' };
+    const yoyGrowthValues = { 'SaaS': '+32%', 'FinTech': '+28%', 'AI/ML': '+45%', 'default': '+25%' };
+    const startupCountValues = { 'SaaS': '2,500+', 'FinTech': '3,000+', 'AI/ML': '1,200+', 'default': '1,800+' };
+    const unicornCountValues = { 'SaaS': '15', 'FinTech': '22', 'AI/ML': '8', 'default': '12' };
+    const dealSizeValues = { 'SaaS': '$18M', 'FinTech': '$25M', 'AI/ML': '$12M', 'default': '$15M' };
+    const exitOpportunityValues = { 'SaaS': 'High', 'FinTech': 'Very High', 'AI/ML': 'High', 'default': 'Medium' };
+    
     // Generate market trends (6+ items)
     const marketTrends = [
       {
         title: 'India vs Global CAGR',
-        value: category === 'SaaS' ? '35% vs 25%' : category === 'FinTech' ? '31% vs 22%' : category === 'AI/ML' ? '38% vs 28%' : '33% vs 27%',
+        value: getCategoryValue(cagrValues, category),
         description: 'Indian market outpacing global growth'
       },
       {
         title: 'Total Funding 2024',
-        value: category === 'SaaS' ? '$2.1B' : category === 'FinTech' ? '$3.2B' : category === 'AI/ML' ? '$1.5B' : '$1.8B',
+        value: getCategoryValue(fundingValues, category),
         description: 'VC investment in sector'
       },
       {
         title: 'Market Size',
-        value: category === 'SaaS' ? '$15B' : category === 'FinTech' ? '$85B' : category === 'AI/ML' ? '$8B' : '$12B',
+        value: getCategoryValue(marketSizeValues, category),
         description: 'Total addressable market in India 2025'
       },
       {
         title: 'YoY Growth',
-        value: category === 'SaaS' ? '+32%' : category === 'FinTech' ? '+28%' : category === 'AI/ML' ? '+45%' : '+25%',
+        value: getCategoryValue(yoyGrowthValues, category),
         description: 'Sector revenue growth rate'
       },
       {
         title: 'Active Startups',
-        value: category === 'SaaS' ? '2,500+' : category === 'FinTech' ? '3,000+' : category === 'AI/ML' ? '1,200+' : '1,800+',
+        value: getCategoryValue(startupCountValues, category),
         description: 'Funded startups in this space'
       },
       {
         title: 'Unicorn Count',
-        value: category === 'SaaS' ? '15' : category === 'FinTech' ? '22' : category === 'AI/ML' ? '8' : '12',
+        value: getCategoryValue(unicornCountValues, category),
         description: 'Indian unicorns in category'
       },
       {
         title: 'Avg Deal Size',
-        value: category === 'SaaS' ? '$18M' : category === 'FinTech' ? '$25M' : category === 'AI/ML' ? '$12M' : '$15M',
+        value: getCategoryValue(dealSizeValues, category),
         description: 'Average Series A+ funding'
       },
       {
         title: 'Exit Opportunities',
-        value: category === 'SaaS' ? 'High' : category === 'FinTech' ? 'Very High' : category === 'AI/ML' ? 'High' : 'Medium',
+        value: getCategoryValue(exitOpportunityValues, category),
         description: 'M&A and IPO activity'
       }
     ];
@@ -2436,7 +2455,7 @@ Return ONLY valid JSON:
       const text = await callGeminiWithSearch(prompt);
       
       // Clean up the response
-      let cleanText = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      let cleanText = text.replaceAll(/```json\n?/g, '').replaceAll(/```\n?/g, '').trim();
       console.log(`📄 Raw API response for ${companyName}:`, cleanText.substring(0, 500));
       
       let searchResult;
@@ -2611,24 +2630,6 @@ Your role:
 
 Keep responses concise, actionable, and personalized to ${context.company?.name || 'this business'}.`;
 
-    // Build messages array with conversation history
-    const messages = [
-      { role: 'system', content: systemPrompt }
-    ];
-
-    // Add last few conversation messages for context
-    if (conversationHistory && conversationHistory.length > 0) {
-      conversationHistory.slice(-4).forEach(msg => {
-        messages.push({
-          role: msg.role === 'user' ? 'user' : 'assistant',
-          content: msg.content
-        });
-      });
-    }
-
-    // Add current message
-    messages.push({ role: 'user', content: message });
-
     // Use Gemini API directly (Grok is deprecated)
     try {
       // Build conversation context for Gemini
@@ -2669,7 +2670,10 @@ Keep responses concise, actionable, and personalized to ${context.company?.name 
       fallbackResponse = `Your key competitive advantages include: ${context.company?.uniqueValue || 'your unique value proposition'}. Focus on deepening these strengths while addressing weaknesses in ${context.swot?.weaknesses?.[0] || 'your operations'}.`;
     } else if (lowerMessage.includes('funding') || lowerMessage.includes('raise') || lowerMessage.includes('investment')) {
       const needed = context.company?.fundingNeeded || 'the required amount';
-      fallbackResponse = `You're looking to raise ${needed} for ${context.company?.primaryGoal || 'your goals'}. Based on your ${context.company?.stage || 'current stage'}, consider approaching angel investors or early-stage VCs. Your valuation of ${context.valuation ? `₹${(context.valuation.finalValuationINR / 10000000).toFixed(2)} Cr` : 'TBD'} will help determine equity dilution.`;
+      const goal = context.company?.primaryGoal || 'your goals';
+      const stage = context.company?.stage || 'current stage';
+      const valDisplay = context.valuation ? '₹' + (context.valuation.finalValuationINR / 10000000).toFixed(2) + ' Cr' : 'TBD';
+      fallbackResponse = 'You\'re looking to raise ' + needed + ' for ' + goal + '. Based on your ' + stage + ', consider approaching angel investors or early-stage VCs. Your valuation of ' + valDisplay + ' will help determine equity dilution.';
     } else if (lowerMessage.includes('growth') || lowerMessage.includes('scale')) {
       fallbackResponse = `To scale ${context.company?.name || 'your business'}, focus on: 1) Expanding your team strategically (current size: ${context.company?.teamSize || '1'}), 2) Optimizing ${context.company?.marketingType || 'customer acquisition'}, and 3) Addressing your main challenge: ${context.company?.challenge || 'market fit'}.`;
     } else if (lowerMessage.includes('customer') || lowerMessage.includes('acquisition')) {
@@ -2794,8 +2798,8 @@ app.get('/api/notes', authenticateToken, async (req, res) => {
     const notes = await notesCollection
       .find(query)
       .sort({ createdAt: -1 })
-      .limit(parseInt(limit))
-      .skip(parseInt(skip))
+      .limit(Number.parseInt(limit))
+      .skip(Number.parseInt(skip))
       .toArray();
 
     const total = await notesCollection.countDocuments(query);
@@ -2803,7 +2807,7 @@ app.get('/api/notes', authenticateToken, async (req, res) => {
     res.json({ 
       notes, 
       total,
-      hasMore: total > (parseInt(skip) + notes.length)
+      hasMore: total > (Number.parseInt(skip) + notes.length)
     });
   } catch (error) {
     console.error('Error fetching notes:', error);
@@ -2952,7 +2956,7 @@ Return ONLY valid JSON, no additional text.`;
     let actionsText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
     
     // Clean the response
-    actionsText = actionsText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    actionsText = actionsText.replaceAll(/```json\n?/g, '').replaceAll(/```\n?/g, '').trim();
     
     let parsedActions;
     try {
@@ -3206,7 +3210,7 @@ Return ONLY valid JSON, no markdown or code blocks.`;
       const response = await callGemini(prompt, 'You are an expert grant proposal writer. Return only valid JSON.');
       
       // Clean and parse response
-      let content = response.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      let content = response.replaceAll(/```json\n?/g, '').replaceAll(/```\n?/g, '').trim();
       
       // Try to extract JSON
       const firstBrace = content.indexOf('{');
@@ -3331,7 +3335,7 @@ Return ONLY valid JSON, no markdown.`;
 
     const data = await response.json();
     let newsText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    newsText = newsText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    newsText = newsText.replaceAll(/```json\n?/g, '').replaceAll(/```\n?/g, '').trim();
 
     let parsedNews;
     try {
