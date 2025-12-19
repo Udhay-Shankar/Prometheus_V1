@@ -4604,255 +4604,156 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 									{@const userBurnRate = Number(ddqResponses[16]) || (userRevenue * 0.6)}
 									{@const userRunway = userBurnRate > 0 ? Math.round((userInvestment + (userRevenue * 12)) / (userBurnRate * 12)) : 0}
 									{@const userMarketingSpend = Math.round(userBurnRate * 0.25)}
+									{@const userEfficiency = userBurnRate > 0 ? (userRevenue / userBurnRate) * 100 : 0}
 									
-									{@const globalBenchmark = {
-										revenue: 5000000,
-										investment: 50000000,
-										burnRate: 3000000,
-										runway: 18,
-										marketingSpend: 750000
+									<!-- Profitable Company Benchmark -->
+									{@const profitableBenchmark = {
+										revenue: 8000000,
+										investment: 25000000,
+										burnRate: 5000000,
+										runway: 24,
+										marketingSpend: 1200000,
+										efficiency: 160,
+										grossMargin: 65,
+										netMargin: 15
 									}}
 									
-									{@const localBenchmark = {
-										revenue: 1500000,
-										investment: 10000000,
-										burnRate: 800000,
-										runway: 14,
-										marketingSpend: 200000
-									}}
-									
-									<div class="insight-comparison-grid">
-										<!-- Revenue Comparison -->
-										<div class="insight-metric-card">
-											<div class="metric-header">
-												<span class="material-symbols-outlined">payments</span>
-												<span>Monthly Revenue</span>
+									<div class="benchmark-comparison-section">
+										<div class="benchmark-header-info">
+											<span class="material-symbols-outlined">emoji_events</span>
+											<div>
+												<h4>Profitable Company Benchmark</h4>
+												<p>What successful Series A+ startups look like</p>
 											</div>
-											<div class="metric-comparison">
-												<div class="your-value">
-													<span class="label">You</span>
-													<span class="value">₹{(userRevenue / 100000).toFixed(1)}L</span>
-												</div>
-												<div class="benchmark-values">
-													<div class="benchmark local">
-														<span class="label">Local Avg</span>
-														<span class="value">₹{(localBenchmark.revenue / 100000).toFixed(1)}L</span>
-													</div>
-													<div class="benchmark global">
-														<span class="label">Global Avg</span>
-														<span class="value">₹{(globalBenchmark.revenue / 100000).toFixed(1)}L</span>
-													</div>
-												</div>
-											</div>
-											<div class="progress-bar-container">
-												<div class="progress-bar your" style="width: {Math.min((userRevenue / globalBenchmark.revenue) * 100, 100)}%"></div>
-											</div>
-											<span class="comparison-text {userRevenue >= localBenchmark.revenue ? 'positive' : 'negative'}">
-												{#if userRevenue >= globalBenchmark.revenue}
-													🚀 Outperforming global benchmarks!
-												{:else if userRevenue >= localBenchmark.revenue}
-													✓ Above local average, growing well
-												{:else if userRevenue > 0}
-													↗ Building momentum, focus on growth
-												{:else}
-													⚠ Pre-revenue — prioritize first sales
-												{/if}
-											</span>
 										</div>
-
-										<!-- Investment Comparison -->
-										<div class="insight-metric-card">
-											<div class="metric-header">
-												<span class="material-symbols-outlined">account_balance</span>
-												<span>Total Investment</span>
+										
+										<div class="benchmark-table">
+											<div class="benchmark-row header">
+												<span class="metric-name">Metric</span>
+												<span class="your-val">Your Value</span>
+												<span class="benchmark-val">Profitable Benchmark</span>
+												<span class="status-col">Status</span>
 											</div>
-											<div class="metric-comparison">
-												<div class="your-value">
-													<span class="label">You</span>
-													<span class="value">₹{(userInvestment / 10000000).toFixed(2)}Cr</span>
-												</div>
-												<div class="benchmark-values">
-													<div class="benchmark local">
-														<span class="label">Local Avg</span>
-														<span class="value">₹{(localBenchmark.investment / 10000000).toFixed(1)}Cr</span>
-													</div>
-													<div class="benchmark global">
-														<span class="label">Global Avg</span>
-														<span class="value">₹{(globalBenchmark.investment / 10000000).toFixed(1)}Cr</span>
-													</div>
-												</div>
+											
+											<div class="benchmark-row">
+												<span class="metric-name">
+													<span class="material-symbols-outlined">payments</span>
+													Monthly Revenue
+												</span>
+												<span class="your-val">₹{(userRevenue / 100000).toFixed(1)}L</span>
+												<span class="benchmark-val">₹{(profitableBenchmark.revenue / 100000).toFixed(0)}L</span>
+												<span class="status-col {userRevenue >= profitableBenchmark.revenue ? 'positive' : userRevenue >= profitableBenchmark.revenue * 0.5 ? 'warning' : 'negative'}">
+													{#if userRevenue >= profitableBenchmark.revenue}
+														✓ Exceeds
+													{:else if userRevenue >= profitableBenchmark.revenue * 0.5}
+														↗ Growing
+													{:else}
+														⚠ Below
+													{/if}
+												</span>
 											</div>
-											<div class="progress-bar-container">
-												<div class="progress-bar your" style="width: {Math.min((userInvestment / globalBenchmark.investment) * 100, 100)}%"></div>
+											
+											<div class="benchmark-row">
+												<span class="metric-name">
+													<span class="material-symbols-outlined">local_fire_department</span>
+													Monthly Burn
+												</span>
+												<span class="your-val">₹{(userBurnRate / 100000).toFixed(1)}L</span>
+												<span class="benchmark-val">₹{(profitableBenchmark.burnRate / 100000).toFixed(0)}L</span>
+												<span class="status-col {userBurnRate <= profitableBenchmark.burnRate ? 'positive' : 'warning'}">
+													{#if userBurnRate <= profitableBenchmark.burnRate * 0.5}
+														✓ Lean
+													{:else if userBurnRate <= profitableBenchmark.burnRate}
+														✓ Controlled
+													{:else}
+														⚠ High
+													{/if}
+												</span>
 											</div>
-											<span class="comparison-text {userInvestment >= localBenchmark.investment ? 'positive' : 'neutral'}">
-												{#if userInvestment >= globalBenchmark.investment}
-													💰 Well-funded for aggressive growth
-												{:else if userInvestment >= localBenchmark.investment}
-													✓ Adequately funded for stage
-												{:else if userInvestment > 0}
-													💡 Lean operation — capital efficient
-												{:else}
-													🎯 Bootstrapped — impressive if growing
-												{/if}
-											</span>
+											
+											<div class="benchmark-row">
+												<span class="metric-name">
+													<span class="material-symbols-outlined">speed</span>
+													Revenue Efficiency
+												</span>
+												<span class="your-val">{userEfficiency.toFixed(0)}%</span>
+												<span class="benchmark-val">{profitableBenchmark.efficiency}%</span>
+												<span class="status-col {userEfficiency >= 100 ? 'positive' : userEfficiency >= 50 ? 'warning' : 'negative'}">
+													{#if userEfficiency >= 100}
+														✓ Profitable
+													{:else if userEfficiency >= 50}
+														↗ Near
+													{:else}
+														⚠ Work needed
+													{/if}
+												</span>
+											</div>
+											
+											<div class="benchmark-row">
+												<span class="metric-name">
+													<span class="material-symbols-outlined">timer</span>
+													Runway
+												</span>
+												<span class="your-val">{userRunway} months</span>
+												<span class="benchmark-val">{profitableBenchmark.runway}+ months</span>
+												<span class="status-col {userRunway >= 18 ? 'positive' : userRunway >= 12 ? 'warning' : 'negative'}">
+													{#if userRunway >= 18}
+														✓ Strong
+													{:else if userRunway >= 12}
+														↗ Adequate
+													{:else}
+														⚠ Low
+													{/if}
+												</span>
+											</div>
+											
+											<div class="benchmark-row">
+												<span class="metric-name">
+													<span class="material-symbols-outlined">account_balance</span>
+													Total Raised
+												</span>
+												<span class="your-val">₹{(userInvestment / 10000000).toFixed(2)}Cr</span>
+												<span class="benchmark-val">₹{(profitableBenchmark.investment / 10000000).toFixed(1)}Cr</span>
+												<span class="status-col neutral">
+													{#if userInvestment >= profitableBenchmark.investment}
+														💰 Well-funded
+													{:else if userInvestment > 0}
+														💡 Capital efficient
+													{:else}
+														🎯 Bootstrapped
+													{/if}
+												</span>
+											</div>
 										</div>
-
-										<!-- Burn Rate Comparison -->
-										<div class="insight-metric-card">
-											<div class="metric-header">
-												<span class="material-symbols-outlined">local_fire_department</span>
-												<span>Monthly Burn Rate</span>
+										
+										<!-- Key Insights Box -->
+										<div class="profitability-insights">
+											<div class="insight-title">
+												<span class="material-symbols-outlined">lightbulb</span>
+												Key Profitability Metrics
 											</div>
-											<div class="metric-comparison">
-												<div class="your-value">
-													<span class="label">You</span>
-													<span class="value">₹{(userBurnRate / 100000).toFixed(1)}L</span>
+											<div class="insight-grid">
+												<div class="insight-item">
+													<span class="label">Target Gross Margin</span>
+													<span class="value">{profitableBenchmark.grossMargin}%+</span>
 												</div>
-												<div class="benchmark-values">
-													<div class="benchmark local">
-														<span class="label">Local Avg</span>
-														<span class="value">₹{(localBenchmark.burnRate / 100000).toFixed(1)}L</span>
-													</div>
-													<div class="benchmark global">
-														<span class="label">Global Avg</span>
-														<span class="value">₹{(globalBenchmark.burnRate / 100000).toFixed(1)}L</span>
-													</div>
+												<div class="insight-item">
+													<span class="label">Target Net Margin</span>
+													<span class="value">{profitableBenchmark.netMargin}%+</span>
 												</div>
-											</div>
-											<div class="progress-bar-container">
-												<div class="progress-bar burn" style="width: {Math.min((userBurnRate / globalBenchmark.burnRate) * 100, 100)}%"></div>
-											</div>
-											<span class="comparison-text {userBurnRate <= localBenchmark.burnRate ? 'positive' : 'warning'}">
-												{#if userBurnRate <= localBenchmark.burnRate * 0.5}
-													💚 Very lean operation — efficient spending
-												{:else if userBurnRate <= localBenchmark.burnRate}
-													✓ Burn rate under control
-												{:else if userBurnRate <= globalBenchmark.burnRate}
-													⚠ Higher than local avg — monitor closely
-												{:else}
-													🔥 High burn — ensure runway is sufficient
-												{/if}
-											</span>
-										</div>
-
-										<!-- Runway Comparison -->
-										<div class="insight-metric-card">
-											<div class="metric-header">
-												<span class="material-symbols-outlined">timer</span>
-												<span>Runway (Months)</span>
-											</div>
-											<div class="metric-comparison">
-												<div class="your-value">
-													<span class="label">You</span>
-													<span class="value">{userRunway} mo</span>
+												<div class="insight-item">
+													<span class="label">Revenue/Burn Ratio</span>
+													<span class="value">&gt;1.6x</span>
 												</div>
-												<div class="benchmark-values">
-													<div class="benchmark local">
-														<span class="label">Local Avg</span>
-														<span class="value">{localBenchmark.runway} mo</span>
-													</div>
-													<div class="benchmark global">
-														<span class="label">Global Avg</span>
-														<span class="value">{globalBenchmark.runway} mo</span>
-													</div>
+												<div class="insight-item">
+													<span class="label">Path to Profit</span>
+													<span class="value">12-18 mo</span>
 												</div>
 											</div>
-											<div class="progress-bar-container">
-												<div class="progress-bar runway {userRunway >= 12 ? 'good' : userRunway >= 6 ? 'warning' : 'danger'}" style="width: {Math.min((userRunway / globalBenchmark.runway) * 100, 100)}%"></div>
-											</div>
-											<span class="comparison-text {userRunway >= 12 ? 'positive' : userRunway >= 6 ? 'warning' : 'negative'}">
-												{#if userRunway >= 18}
-													🛡️ Strong runway — flexibility to pivot
-												{:else if userRunway >= 12}
-													✓ Healthy runway — plan next raise
-												{:else if userRunway >= 6}
-													⚠ Start fundraising conversations
-												{:else}
-													🚨 Critical — immediate funding needed
-												{/if}
-											</span>
-										</div>
-
-										<!-- Marketing Spend Comparison -->
-										<div class="insight-metric-card">
-											<div class="metric-header">
-												<span class="material-symbols-outlined">campaign</span>
-												<span>Marketing Spend</span>
-											</div>
-											<div class="metric-comparison">
-												<div class="your-value">
-													<span class="label">You (Est.)</span>
-													<span class="value">₹{(userMarketingSpend / 100000).toFixed(1)}L</span>
-												</div>
-												<div class="benchmark-values">
-													<div class="benchmark local">
-														<span class="label">Local Avg</span>
-														<span class="value">₹{(localBenchmark.marketingSpend / 100000).toFixed(1)}L</span>
-													</div>
-													<div class="benchmark global">
-														<span class="label">Global Avg</span>
-														<span class="value">₹{(globalBenchmark.marketingSpend / 100000).toFixed(1)}L</span>
-													</div>
-												</div>
-											</div>
-											<div class="progress-bar-container">
-												<div class="progress-bar marketing" style="width: {Math.min((userMarketingSpend / globalBenchmark.marketingSpend) * 100, 100)}%"></div>
-											</div>
-											<span class="comparison-text neutral">
-												{#if userMarketingSpend >= globalBenchmark.marketingSpend}
-													📢 Aggressive marketing — track ROI
-												{:else if userMarketingSpend >= localBenchmark.marketingSpend}
-													✓ Competitive marketing spend
-												{:else if userMarketingSpend > 0}
-													💡 Consider increasing for growth
-												{:else}
-													🌱 Organic growth — efficient but limited
-												{/if}
-											</span>
-										</div>
-
-										<!-- Revenue Efficiency -->
-										<div class="insight-metric-card">
-											<div class="metric-header">
-												<span class="material-symbols-outlined">speed</span>
-												<span>Revenue Efficiency</span>
-											</div>
-											{#if true}
-											{@const efficiency = userBurnRate > 0 ? (userRevenue / userBurnRate) * 100 : 0}
-											{@const localEfficiency = (localBenchmark.revenue / localBenchmark.burnRate) * 100}
-											{@const globalEfficiency = (globalBenchmark.revenue / globalBenchmark.burnRate) * 100}
-											<div class="metric-comparison">
-												<div class="your-value">
-													<span class="label">You</span>
-													<span class="value">{efficiency.toFixed(0)}%</span>
-												</div>
-												<div class="benchmark-values">
-													<div class="benchmark local">
-														<span class="label">Local Avg</span>
-														<span class="value">{localEfficiency.toFixed(0)}%</span>
-													</div>
-													<div class="benchmark global">
-														<span class="label">Global Avg</span>
-														<span class="value">{globalEfficiency.toFixed(0)}%</span>
-													</div>
-												</div>
-											</div>
-											<div class="progress-bar-container">
-												<div class="progress-bar efficiency" style="width: {Math.min(efficiency, 100)}%"></div>
-											</div>
-											<span class="comparison-text {efficiency >= 100 ? 'positive' : efficiency >= 50 ? 'neutral' : 'warning'}">
-												{#if efficiency >= 100}
-													🎯 Profitable — revenue exceeds burn
-												{:else if efficiency >= 75}
-													📈 Near profitability — keep pushing
-												{:else if efficiency >= 50}
-													⚡ Growing — improve unit economics
-												{:else}
-													🔧 Focus on revenue growth or cut costs
-												{/if}
-											</span>
-											{/if}
+											<p class="insight-note">
+												💡 <strong>Profitable startups</strong> typically achieve revenue that exceeds burn by 60%+, 
+												maintain 18+ months runway, and reach profitability within 3-4 years of founding.
+											</p>
 										</div>
 									</div>
 									{/if}
@@ -13085,8 +12986,49 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 		height: 6px;
 		background: var(--bg-tertiary);
 		border-radius: 3px;
-		overflow: hidden;
+		overflow: visible;
 		margin-bottom: 0.75rem;
+		position: relative;
+	}
+
+	.benchmark-marker {
+		position: absolute;
+		top: -4px;
+		width: 2px;
+		height: 14px;
+		border-radius: 1px;
+		transform: translateX(-50%);
+		z-index: 2;
+	}
+
+	.benchmark-marker.local {
+		background: #5ac8fa;
+	}
+
+	.benchmark-marker.global {
+		background: #ff9500;
+	}
+
+	.benchmark-marker::after {
+		content: attr(data-label);
+		position: absolute;
+		top: -18px;
+		left: 50%;
+		transform: translateX(-50%);
+		font-size: 0.6rem;
+		white-space: nowrap;
+		color: var(--text-secondary);
+		font-weight: 500;
+	}
+
+	.benchmark-marker.local::after {
+		content: 'L';
+		color: #5ac8fa;
+	}
+
+	.benchmark-marker.global::after {
+		content: 'G';
+		color: #ff9500;
 	}
 
 	.progress-bar {
@@ -13147,6 +13089,197 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 
 	.comparison-text.neutral {
 		color: var(--text-secondary);
+	}
+
+	/* Benchmark Comparison Table Styles */
+	.benchmark-comparison-section {
+		background: var(--card-bg);
+		border: 1px solid var(--border-color);
+		border-radius: 16px;
+		padding: 1.5rem;
+	}
+
+	.benchmark-header-info {
+		display: flex;
+		align-items: center;
+		gap: 1rem;
+		margin-bottom: 1.5rem;
+		padding-bottom: 1rem;
+		border-bottom: 1px solid var(--border-color);
+	}
+
+	.benchmark-header-info .material-symbols-outlined {
+		font-size: 2rem;
+		color: #ffd700;
+	}
+
+	.benchmark-header-info h4 {
+		margin: 0;
+		font-size: 1.1rem;
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.benchmark-header-info p {
+		margin: 0.25rem 0 0;
+		font-size: 0.85rem;
+		color: var(--text-secondary);
+	}
+
+	.benchmark-table {
+		margin-bottom: 1.5rem;
+	}
+
+	.benchmark-row {
+		display: grid;
+		grid-template-columns: 2fr 1fr 1.2fr 1fr;
+		gap: 1rem;
+		padding: 0.875rem 1rem;
+		align-items: center;
+		border-radius: 8px;
+		transition: background 0.2s ease;
+	}
+
+	.benchmark-row:not(.header):hover {
+		background: var(--bg-tertiary);
+	}
+
+	.benchmark-row.header {
+		background: var(--bg-secondary);
+		font-size: 0.75rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		color: var(--text-secondary);
+		margin-bottom: 0.5rem;
+	}
+
+	.benchmark-row:not(.header) {
+		border-bottom: 1px solid var(--border-color);
+	}
+
+	.benchmark-row:not(.header):last-of-type {
+		border-bottom: none;
+	}
+
+	.benchmark-row .metric-name {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-weight: 500;
+		color: var(--text-primary);
+	}
+
+	.benchmark-row .metric-name .material-symbols-outlined {
+		font-size: 1.1rem;
+		color: var(--accent-primary);
+	}
+
+	.benchmark-row .your-val {
+		font-weight: 600;
+		color: var(--accent-primary);
+	}
+
+	.benchmark-row .benchmark-val {
+		font-weight: 500;
+		color: #ffd700;
+	}
+
+	.benchmark-row .status-col {
+		font-size: 0.85rem;
+		font-weight: 500;
+	}
+
+	.benchmark-row .status-col.positive {
+		color: #4cd964;
+	}
+
+	.benchmark-row .status-col.warning {
+		color: #ff9500;
+	}
+
+	.benchmark-row .status-col.negative {
+		color: #ff3b30;
+	}
+
+	.benchmark-row .status-col.neutral {
+		color: var(--text-secondary);
+	}
+
+	.profitability-insights {
+		background: linear-gradient(135deg, rgba(255, 215, 0, 0.1) 0%, rgba(255, 215, 0, 0.03) 100%);
+		border: 1px solid rgba(255, 215, 0, 0.3);
+		border-radius: 12px;
+		padding: 1.25rem;
+	}
+
+	.profitability-insights .insight-title {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-weight: 600;
+		color: #ffd700;
+		margin-bottom: 1rem;
+	}
+
+	.profitability-insights .insight-title .material-symbols-outlined {
+		font-size: 1.25rem;
+	}
+
+	.profitability-insights .insight-grid {
+		display: grid;
+		grid-template-columns: repeat(4, 1fr);
+		gap: 1rem;
+		margin-bottom: 1rem;
+	}
+
+	.profitability-insights .insight-item {
+		text-align: center;
+		padding: 0.75rem;
+		background: var(--bg-secondary);
+		border-radius: 8px;
+	}
+
+	.profitability-insights .insight-item .label {
+		display: block;
+		font-size: 0.7rem;
+		color: var(--text-secondary);
+		text-transform: uppercase;
+		letter-spacing: 0.3px;
+		margin-bottom: 0.25rem;
+	}
+
+	.profitability-insights .insight-item .value {
+		font-size: 1.1rem;
+		font-weight: 700;
+		color: #ffd700;
+	}
+
+	.profitability-insights .insight-note {
+		font-size: 0.85rem;
+		color: var(--text-secondary);
+		line-height: 1.5;
+		margin: 0;
+	}
+
+	.profitability-insights .insight-note strong {
+		color: #ffd700;
+	}
+
+	@media (max-width: 768px) {
+		.benchmark-row {
+			grid-template-columns: 1fr 1fr;
+			gap: 0.5rem;
+		}
+		
+		.benchmark-row.header .benchmark-val,
+		.benchmark-row.header .status-col {
+			display: none;
+		}
+		
+		.profitability-insights .insight-grid {
+			grid-template-columns: repeat(2, 1fr);
+		}
 	}
 
 	/* SWOT Grid Styles */
