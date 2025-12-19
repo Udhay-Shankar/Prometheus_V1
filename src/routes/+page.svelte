@@ -84,21 +84,6 @@
 					Get Started <span class="material-symbols-outlined">chevron_right</span>
 				</button>
 			</div>
-
-			<div class="trust-stats">
-				<div class="stat">
-					<div class="stat-value">500+</div>
-					<div class="stat-label">Startups Valued</div>
-				</div>
-				<div class="stat">
-					<div class="stat-value">₹1000Cr+</div>
-					<div class="stat-label">Total Valuations</div>
-				</div>
-				<div class="stat">
-					<div class="stat-value">&lt;2 min</div>
-					<div class="stat-label">To Complete</div>
-				</div>
-			</div>
 		</div>
 	</section>
 

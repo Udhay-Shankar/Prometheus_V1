@@ -2571,24 +2571,28 @@ app.get('/api/actions/today', authenticateToken, async (req, res) => {
       return res.json({ actions: [], backlog: [] });
     }
 
-    // Get backlog items (items from previous days not marked green)
+    // Get backlog items (accepted items from previous days not marked green)
     const backlogDocs = await actionsCollection.find({
       userId,
-      date: { $lt: today },
-      'actions.progress': { $ne: 'green' }
-    }).toArray();
+      date: { $lt: today }
+    }).sort({ date: -1 }).limit(30).toArray();
 
     const backlog = [];
     backlogDocs.forEach(doc => {
       doc.actions.forEach(action => {
+        // Include accepted actions that are not completed (green)
         if (action.status === 'accepted' && action.progress !== 'green') {
           backlog.push({
             ...action,
+            originalDate: doc.date,
             movedToBacklogAt: doc.date
           });
         }
       });
     });
+
+    // Sort backlog by date (oldest first)
+    backlog.sort((a, b) => new Date(a.originalDate).getTime() - new Date(b.originalDate).getTime());
 
     res.json({ actions: actionsDoc.actions, backlog });
   } catch (error) {
@@ -2623,19 +2627,22 @@ app.put('/api/actions/:actionId/status', authenticateToken, async (req, res) => 
   }
 });
 
-// Update action progress (red/amber/green)
+// Update action progress (red/amber/green) - works for today's actions and backlog
 app.put('/api/actions/:actionId/progress', authenticateToken, async (req, res) => {
   try {
     const { actionId } = req.params;
     const { progress } = req.body;
     const userId = req.user.userId;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
 
-    await actionsCollection.updateOne(
-      { userId, date: today, 'actions.id': actionId },
+    // Try to update in any document (today or previous days for backlog)
+    const result = await actionsCollection.updateOne(
+      { userId, 'actions.id': actionId },
       { $set: { 'actions.$.progress': progress } }
     );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ error: 'Action not found' });
+    }
 
     res.json({ success: true });
   } catch (error) {
@@ -2668,6 +2675,142 @@ app.post('/api/actions/feedback', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error storing feedback:', error);
     res.status(500).json({ error: 'Failed to store feedback' });
+  }
+});
+
+// =====================================================
+// PROPOSAL GENERATION ENDPOINT
+// =====================================================
+
+// Generate funding proposal using AI
+app.post('/api/proposal/generate', authenticateToken, async (req, res) => {
+  try {
+    const { scheme, company, valuation } = req.body;
+    const userId = req.user.userId;
+
+    // Check rate limit
+    const rateLimitCheck = geminiRateLimiter.checkLimit(userId);
+    if (!rateLimitCheck.allowed) {
+      return res.status(429).json({ 
+        error: `Rate limit exceeded. Please try again in ${rateLimitCheck.resetIn} minutes.`
+      });
+    }
+
+    console.log('📝 Generating proposal for:', scheme.name, 'by', company.name);
+
+    const prompt = `You are an expert grant proposal writer with deep knowledge of Indian government startup funding schemes. Generate a professional funding proposal for the following:
+
+SCHEME DETAILS:
+- Name: ${scheme.name}
+- Amount Available: ${scheme.amount || 'As per guidelines'}
+- Type: ${scheme.type || 'Grant'}
+- Eligibility: ${scheme.eligibility}
+- Benefits: ${scheme.benefits}
+
+COMPANY DETAILS:
+- Company Name: ${company.name}
+- Description: ${company.description || 'Technology startup'}
+- Category: ${company.category || 'Technology'}
+- Stage: ${company.stage || 'Growth'}
+- Location: ${company.state || 'India'}
+- Unique Value Proposition: ${company.uniqueValue || 'Innovative solution'}
+- Target Customer: ${company.targetCustomer || 'B2B/B2C customers'}
+- Team Size: ${company.teamSize || 'Small team'}
+- Founder Background: ${company.founderBackground || 'Experienced entrepreneur'}
+- Monthly Revenue: ₹${company.monthlyRevenue || 0}
+- Total Investment: ₹${company.totalInvestment || 0}
+- Customers: ${company.customers || 0}
+- Primary Goal: ${company.primaryGoal || 'Growth and scaling'}
+- Funding Needed For: ${company.fundingNeeded || 'Business expansion'}
+${valuation ? `- Current Valuation: ₹${(valuation.finalValuationINR / 10000000).toFixed(2)} Crores` : ''}
+
+PROVEN SUCCESS FACTORS FOR ${scheme.name}:
+1. Clear problem-solution fit demonstration
+2. Scalable business model with defined metrics
+3. Strong team with relevant experience
+4. Realistic financial projections
+5. Clear use of funds aligned with scheme objectives
+6. Innovation quotient and market differentiation
+7. Social/economic impact potential
+8. Exit strategy or sustainability plan
+
+Generate a comprehensive proposal with these sections in JSON format:
+{
+  "executiveSummary": "2-3 paragraph compelling summary highlighting key strengths and alignment with scheme objectives",
+  "companyOverview": "Detailed description of the company, its mission, and achievements",
+  "problem": "Clear articulation of the market problem being solved",
+  "solution": "How the company's product/service solves this problem uniquely",
+  "marketOpportunity": "Market size, growth potential, and target segment analysis",
+  "traction": ["List of 4-5 key traction metrics and achievements"],
+  "useOfFunds": ["5-6 specific ways the funding will be utilized with percentages"],
+  "whyThisScheme": "Why this company is an ideal candidate for this specific scheme",
+  "teamDescription": "Description of team strengths and relevant experience",
+  "conclusion": "Strong closing statement reinforcing the value proposition"
+}
+
+Make the proposal:
+1. Professional and formal in tone
+2. Specific to the ${scheme.name} scheme requirements
+3. Highlight innovation and impact potential
+4. Include realistic and achievable milestones
+5. Align with government's startup ecosystem goals
+
+Return ONLY valid JSON, no markdown or code blocks.`;
+
+    try {
+      const response = await callGemini(prompt, 'You are an expert grant proposal writer. Return only valid JSON.');
+      
+      // Clean and parse response
+      let content = response.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      
+      // Try to extract JSON
+      const firstBrace = content.indexOf('{');
+      const lastBrace = content.lastIndexOf('}');
+      if (firstBrace !== -1 && lastBrace !== -1) {
+        content = content.substring(firstBrace, lastBrace + 1);
+      }
+      
+      const proposal = JSON.parse(content);
+      
+      console.log('✅ Proposal generated successfully for:', company.name);
+      res.json({ success: true, proposal });
+      
+    } catch (aiError) {
+      console.warn('AI proposal generation failed:', aiError.message);
+      
+      // Return a template-based fallback
+      res.json({
+        success: true,
+        proposal: {
+          executiveSummary: `${company.name} is a ${company.stage || 'growing'} ${company.category || 'technology'} company seeking funding under ${scheme.name}. Our innovative solution addresses critical market needs and demonstrates strong potential for growth and impact. With a clear vision and experienced team, we are well-positioned to utilize this funding effectively to achieve our milestones and contribute to India's startup ecosystem.`,
+          companyOverview: company.description || `${company.name} is an innovative company in the ${company.category} space.`,
+          problem: `The market faces significant challenges that ${company.name} is uniquely positioned to solve through its innovative approach.`,
+          solution: company.uniqueValue || `Our solution provides a unique value proposition that differentiates us from competitors.`,
+          marketOpportunity: `Our target market of ${company.targetCustomer || 'customers'} represents a significant opportunity with strong growth potential.`,
+          traction: [
+            company.customers ? `${company.customers}+ customers acquired` : 'Building strong customer pipeline',
+            company.monthlyRevenue ? `₹${Number(company.monthlyRevenue).toLocaleString('en-IN')} monthly revenue` : 'Pre-revenue with strong interest',
+            'Positive customer feedback and retention',
+            'Strategic partnerships in development',
+            'Technology platform validated and scalable'
+          ],
+          useOfFunds: [
+            '40% - Product Development & Enhancement',
+            '25% - Market Expansion & Customer Acquisition',
+            '20% - Team Building & Operations',
+            '10% - Technology Infrastructure',
+            '5% - Legal & Compliance'
+          ],
+          whyThisScheme: `${company.name} aligns perfectly with ${scheme.name} objectives due to our innovative approach, scalable model, and commitment to creating impact in the ${company.category} sector.`,
+          teamDescription: `Led by ${company.founderBackground || 'experienced founders'}, our team of ${company.teamSize || 'dedicated professionals'} brings together diverse expertise to execute our vision.`,
+          conclusion: `We believe ${scheme.name} funding will be instrumental in accelerating our growth trajectory and achieving our mission. We are committed to maximizing the impact of this investment and contributing to India's innovation ecosystem.`
+        }
+      });
+    }
+    
+  } catch (error) {
+    console.error('Proposal generation error:', error);
+    res.status(500).json({ error: 'Failed to generate proposal' });
   }
 });
 

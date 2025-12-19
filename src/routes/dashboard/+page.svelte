@@ -1952,6 +1952,20 @@
 		const userMessage = chatInput.trim();
 		chatInput = '';
 		
+		// Check if this is a response to a rejection question
+		if (rejectingActionId && rejectingActionText) {
+			// User is responding to rejection prompt - submit feedback
+			await submitRejectionFeedback(userMessage);
+			
+			// Add user message to chat
+			chatMessages = [...chatMessages, {
+				role: 'user',
+				content: userMessage,
+				timestamp: new Date()
+			}];
+			return;
+		}
+		
 		// Add user message
 		chatMessages = [...chatMessages, {
 			role: 'user',
@@ -2332,10 +2346,32 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 	// Reject an action (opens chatbot for feedback)
 	let rejectingActionId: string | null = null;
 	let rejectingActionText: string = '';
+	let rejectionReminderTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
+	let rejectionAskedTwice: Set<string> = new Set(); // Track actions already reminded
 
 	async function rejectAction(actionId: string, actionText: string) {
 		rejectingActionId = actionId;
 		rejectingActionText = actionText;
+		
+		// Immediately remove the task from the UI
+		dailyActions = dailyActions.filter(a => a.id !== actionId);
+		
+		// Also update in backend
+		try {
+			const token = localStorage.getItem('accessToken');
+			await fetch(`${API_URL}/api/actions/${actionId}/status`, {
+				method: 'PUT',
+				headers: {
+					'Content-Type': 'application/json',
+					'Authorization': `Bearer ${token}`
+				},
+				body: JSON.stringify({ status: 'rejected' })
+			});
+		} catch (error) {
+			console.error('Error rejecting action:', error);
+		}
+		
+		// Open chatbot with question
 		showChatbot = true;
 		
 		// Add initial message asking for reason
@@ -2343,20 +2379,61 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 			...chatMessages,
 			{
 				role: 'assistant',
-				content: `I noticed you rejected the action: "${actionText}". Could you tell me why you think this action isn't relevant or needed? This will help me suggest better actions in the future.`,
-				timestamp: new Date()
+				content: `I noticed you rejected the action: "${actionText}". Could you tell me why this action isn't relevant? This helps me suggest better actions.`,
+				timestamp: new Date(),
+				id: `rejection-${actionId}`
 			}
 		];
+		
+		// Set a 6-hour reminder if user doesn't respond (only if not already asked twice)
+		if (!rejectionAskedTwice.has(actionId)) {
+			const timerId = setTimeout(() => {
+				// Check if chatbot is not active and user hasn't responded
+				if (!showChatbot && rejectingActionId === actionId) {
+					// Re-ask the question
+					showChatbot = true;
+					chatMessages = [
+						...chatMessages,
+						{
+							role: 'assistant',
+							content: `Just a quick follow-up: You rejected "${actionText}" earlier. Any feedback on why it wasn't useful? (No response needed if you'd rather skip)`,
+							timestamp: new Date(),
+							id: `rejection-reminder-${actionId}`
+						}
+					];
+					// Mark as asked twice so we don't ask again
+					rejectionAskedTwice.add(actionId);
+				}
+				// Clean up timer reference
+				rejectionReminderTimers.delete(actionId);
+			}, 6 * 60 * 60 * 1000); // 6 hours in milliseconds
+			
+			rejectionReminderTimers.set(actionId, timerId);
+		}
+	}
+
+	// Cancel rejection reminder when user responds
+	function cancelRejectionReminder(actionId: string) {
+		const timerId = rejectionReminderTimers.get(actionId);
+		if (timerId) {
+			clearTimeout(timerId);
+			rejectionReminderTimers.delete(actionId);
+		}
+		rejectingActionId = null;
+		rejectingActionText = '';
 	}
 
 	// Handle rejection feedback from chatbot
 	async function submitRejectionFeedback(reason: string) {
 		if (!rejectingActionId) return;
 
+		// Cancel the 6-hour reminder since user responded
+		cancelRejectionReminder(rejectingActionId);
+
 		try {
 			const token = localStorage.getItem('accessToken');
 			
-			// Update action status
+			// Update action status with reason
 			await fetch(`${API_URL}/api/actions/${rejectingActionId}/status`, {
 				method: 'PUT',
 				headers: {
@@ -2366,7 +2443,7 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 				body: JSON.stringify({ status: 'rejected', rejectionReason: reason })
 			});
 
-			// Store feedback
+			// Store feedback for future learning
 			await fetch(`${API_URL}/api/actions/feedback`, {
 				method: 'POST',
 				headers: {
@@ -2379,14 +2456,6 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 				})
 			});
 
-			// Update local state
-			dailyActions = dailyActions.map(a => 
-				a.id === rejectingActionId ? { ...a, status: 'rejected', rejectionReason: reason } : a
-			);
-
-			rejectingActionId = null;
-			rejectingActionText = '';
-
 			// Thank the user
 			chatMessages = [
 				...chatMessages,
@@ -2396,6 +2465,10 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 					timestamp: new Date()
 				}
 			];
+			
+			// Clear rejection state
+			rejectingActionId = null;
+			rejectingActionText = '';
 		} catch (error) {
 			console.error('Error submitting rejection feedback:', error);
 		}
@@ -2414,11 +2487,17 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 				body: JSON.stringify({ progress })
 			});
 
+			// Update daily actions
 			dailyActions = dailyActions.map(a => 
 				a.id === actionId ? { ...a, progress } : a
 			);
 
-			// If marked green, remove from backlog
+			// Update backlog items
+			backlogItems = backlogItems.map(b => 
+				b.id === actionId ? { ...b, progress } : b
+			);
+
+			// If marked green, remove from backlog (completed)
 			if (progress === 'green') {
 				backlogItems = backlogItems.filter(b => b.id !== actionId);
 			}
@@ -2488,6 +2567,11 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 		if (newsRotationInterval) {
 			clearInterval(newsRotationInterval);
 		}
+		// Clear all rejection reminder timers
+		rejectionReminderTimers.forEach((timerId) => {
+			clearTimeout(timerId);
+		});
+		rejectionReminderTimers.clear();
 	});
 
 	// Open Government Scheme Website
@@ -2553,6 +2637,262 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 
 		// Open in new tab
 		window.open(url, '_blank', 'noopener,noreferrer');
+	}
+
+	// Proposal Generation State
+	let proposalLoading = false;
+	let proposalScheme: any = null;
+
+	// Generate and download proposal as .doc file
+	async function createProposal(scheme: any) {
+		proposalLoading = true;
+		proposalScheme = scheme;
+
+		try {
+			const token = localStorage.getItem('accessToken');
+			if (!token) {
+				alert('Please log in to create a proposal');
+				return;
+			}
+
+			// Generate proposal content using AI
+			const response = await fetch(`${API_URL}/api/proposal/generate`, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					'Authorization': `Bearer ${token}`
+				},
+				body: JSON.stringify({
+					scheme: {
+						name: scheme.name,
+						amount: scheme.amount,
+						eligibility: scheme.eligibility,
+						benefits: scheme.benefits,
+						type: scheme.type
+					},
+					company: {
+						name: ddqResponses[1] || user?.companyName || 'Company',
+						description: ddqResponses[2] || '',
+						category: ddqResponses[3] || '',
+						stage: ddqResponses[5] || '',
+						state: ddqResponses[4] || '',
+						uniqueValue: ddqResponses[7] || '',
+						targetCustomer: ddqResponses[8] || '',
+						teamSize: ddqResponses[17] || '',
+						founderBackground: ddqResponses[18] || '',
+						monthlyRevenue: ddqResponses[13] || 0,
+						totalInvestment: ddqResponses[11] || 0,
+						customers: ddqResponses[15] || 0,
+						primaryGoal: ddqResponses[21] || '',
+						fundingNeeded: ddqResponses[22] || ''
+					},
+					valuation: valuation ? {
+						finalValuationINR: valuation.finalValuationINR,
+						method: valuation.valuationMethod
+					} : null
+				})
+			});
+
+			if (!response.ok) {
+				throw new Error('Failed to generate proposal');
+			}
+
+			const data = await response.json();
+			
+			// Create .doc file content (RTF format for Word compatibility)
+			const docContent = generateDocContent(data.proposal, scheme);
+			
+			// Download the file
+			downloadDoc(docContent, `${scheme.name.replace(/[^a-zA-Z0-9]/g, '_')}_Proposal.doc`);
+
+		} catch (error) {
+			console.error('Error creating proposal:', error);
+			alert('Failed to generate proposal. Please try again.');
+		} finally {
+			proposalLoading = false;
+			proposalScheme = null;
+		}
+	}
+
+	// Generate RTF/DOC content
+	function generateDocContent(proposal: any, scheme: any): string {
+		const companyName = ddqResponses[1] || user?.companyName || 'Company';
+		const founderName = user?.name || 'Founder';
+		const today = new Date().toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' });
+
+		// RTF header for Word compatibility
+		const rtfHeader = `{\\rtf1\\ansi\\deff0
+{\\fonttbl{\\f0\\fswiss\\fcharset0 Arial;}{\\f1\\froman\\fcharset0 Times New Roman;}}
+{\\colortbl;\\red0\\green0\\blue0;\\red0\\green102\\blue204;\\red212\\green175\\blue55;\\red34\\green139\\blue34;}
+\\viewkind4\\uc1\\pard\\f1\\fs24
+`;
+
+		// Build RTF content
+		let rtfContent = rtfHeader;
+
+		// Title
+		rtfContent += `\\pard\\qc\\b\\fs36\\cf3 FUNDING PROPOSAL\\b0\\fs24\\cf1\\par
+\\pard\\qc\\fs28 ${scheme.name}\\par
+\\pard\\qc\\fs20 Submitted by: ${companyName}\\par
+\\pard\\qc\\fs18 Date: ${today}\\par
+\\par\\par
+
+`;
+
+		// Executive Summary
+		rtfContent += `\\pard\\b\\fs28\\cf2 EXECUTIVE SUMMARY\\b0\\fs24\\cf1\\par
+\\par
+${proposal.executiveSummary || 'This proposal outlines our request for funding under the ' + scheme.name + ' to accelerate our growth and achieve key milestones.'}\\par
+\\par\\par
+
+`;
+
+		// Company Overview
+		rtfContent += `\\b\\fs28\\cf2 COMPANY OVERVIEW\\b0\\fs24\\cf1\\par
+\\par
+\\b Company Name:\\b0  ${companyName}\\par
+\\b Industry/Category:\\b0  ${ddqResponses[3] || 'Technology'}\\par
+\\b Stage:\\b0  ${ddqResponses[5] || 'Growth'}\\par
+\\b Location:\\b0  ${ddqResponses[4] || 'India'}\\par
+\\b Team Size:\\b0  ${ddqResponses[17] || 'N/A'}\\par
+\\par
+${proposal.companyOverview || ddqResponses[2] || ''}\\par
+\\par\\par
+
+`;
+
+		// Problem & Solution
+		rtfContent += `\\b\\fs28\\cf2 PROBLEM & SOLUTION\\b0\\fs24\\cf1\\par
+\\par
+\\b The Problem:\\b0\\par
+${proposal.problem || 'Market gap that our solution addresses.'}\\par
+\\par
+\\b Our Solution:\\b0\\par
+${proposal.solution || ddqResponses[7] || 'Our unique value proposition.'}\\par
+\\par\\par
+
+`;
+
+		// Market Opportunity
+		rtfContent += `\\b\\fs28\\cf2 MARKET OPPORTUNITY\\b0\\fs24\\cf1\\par
+\\par
+${proposal.marketOpportunity || 'Our target market consists of ' + (ddqResponses[8] || 'customers') + ' with significant growth potential.'}\\par
+\\par\\par
+
+`;
+
+		// Traction & Milestones
+		rtfContent += `\\b\\fs28\\cf2 TRACTION & MILESTONES\\b0\\fs24\\cf1\\par
+\\par
+\\b Current Traction:\\b0\\par
+`;
+		if (proposal.traction && proposal.traction.length > 0) {
+			proposal.traction.forEach((item: string) => {
+				rtfContent += `\\bullet  ${item}\\par
+`;
+			});
+		} else {
+			rtfContent += `\\bullet  ${ddqResponses[15] ? ddqResponses[15] + ' customers acquired' : 'Building initial customer base'}\\par
+\\bullet  ${ddqResponses[13] ? 'Monthly revenue of ₹' + ddqResponses[13] : 'Pre-revenue stage with strong pipeline'}\\par
+`;
+		}
+		rtfContent += `\\par\\par
+
+`;
+
+		// Funding Request
+		rtfContent += `\\b\\fs28\\cf2 FUNDING REQUEST\\b0\\fs24\\cf1\\par
+\\par
+\\b Scheme Applied:\\b0  ${scheme.name}\\par
+\\b Funding Amount Requested:\\b0  ${scheme.amount || 'As per scheme guidelines'}\\par
+\\b Funding Type:\\b0  ${scheme.type || 'Grant/Equity'}\\par
+\\par
+\\b Use of Funds:\\b0\\par
+`;
+		if (proposal.useOfFunds && proposal.useOfFunds.length > 0) {
+			proposal.useOfFunds.forEach((item: string) => {
+				rtfContent += `\\bullet  ${item}\\par
+`;
+			});
+		} else {
+			rtfContent += `\\bullet  Product Development & Enhancement\\par
+\\bullet  Market Expansion & Customer Acquisition\\par
+\\bullet  Team Building & Operations\\par
+\\bullet  Technology Infrastructure\\par
+`;
+		}
+		rtfContent += `\\par\\par
+
+`;
+
+		// Why This Scheme
+		rtfContent += `\\b\\fs28\\cf2 WHY ${scheme.name.toUpperCase()}\\b0\\fs24\\cf1\\par
+\\par
+${proposal.whyThisScheme || 'Our company aligns perfectly with the objectives of ' + scheme.name + ' because of our innovative approach, strong team, and scalable business model.'}\\par
+\\par\\par
+
+`;
+
+		// Team
+		rtfContent += `\\b\\fs28\\cf2 TEAM\\b0\\fs24\\cf1\\par
+\\par
+\\b Founder:\\b0  ${founderName}\\par
+\\b Background:\\b0  ${ddqResponses[18] || 'Experienced entrepreneur with domain expertise'}\\par
+\\b Team Size:\\b0  ${ddqResponses[17] || 'Growing team'}\\par
+\\par
+${proposal.teamDescription || ''}\\par
+\\par\\par
+
+`;
+
+		// Financial Projections
+		if (valuation) {
+			rtfContent += `\\b\\fs28\\cf2 FINANCIAL OVERVIEW\\b0\\fs24\\cf1\\par
+\\par
+\\b Current Valuation:\\b0  ₹${(valuation.finalValuationINR / 10000000).toFixed(2)} Crores\\par
+\\b Valuation Method:\\b0  ${valuation.valuationMethod || 'Berkus + Scorecard Method'}\\par
+`;
+			if (ddqResponses[13]) {
+				rtfContent += `\\b Monthly Revenue:\\b0  ₹${Number(ddqResponses[13]).toLocaleString('en-IN')}\\par
+`;
+			}
+			rtfContent += `\\par\\par
+
+`;
+		}
+
+		// Conclusion
+		rtfContent += `\\b\\fs28\\cf2 CONCLUSION\\b0\\fs24\\cf1\\par
+\\par
+${proposal.conclusion || 'We believe that with the support of ' + scheme.name + ', we can achieve our growth objectives and create significant value. We look forward to the opportunity to discuss our proposal further.'}\\par
+\\par\\par
+
+`;
+
+		// Contact Information
+		rtfContent += `\\b\\fs28\\cf2 CONTACT INFORMATION\\b0\\fs24\\cf1\\par
+\\par
+\\b Company:\\b0  ${companyName}\\par
+\\b Contact Person:\\b0  ${founderName}\\par
+\\b Email:\\b0  ${user?.email || ''}\\par
+\\par\\par
+\\pard\\qc\\i Thank you for considering our proposal.\\i0\\par
+}`;
+
+		return rtfContent;
+	}
+
+	// Download .doc file
+	function downloadDoc(content: string, filename: string) {
+		const blob = new Blob([content], { type: 'application/msword' });
+		const url = URL.createObjectURL(blob);
+		const link = document.createElement('a');
+		link.href = url;
+		link.download = filename;
+		document.body.appendChild(link);
+		link.click();
+		document.body.removeChild(link);
+		URL.revokeObjectURL(url);
 	}
 
 	function logout() {
@@ -5408,9 +5748,9 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 														<span class="material-symbols-outlined">open_in_new</span>
 														Check GIS
 													</button>
-													<button class="scheme-action-btn create-proposal" on:click={() => alert('Create Proposal feature coming soon!')}>
-														<span class="material-symbols-outlined">description</span>
-														Create Proposal
+													<button class="scheme-action-btn create-proposal" on:click={() => createProposal(scheme)} disabled={proposalLoading && proposalScheme?.name === scheme.name}>
+														<span class="material-symbols-outlined">{proposalLoading && proposalScheme?.name === scheme.name ? 'progress_activity' : 'description'}</span>
+														{proposalLoading && proposalScheme?.name === scheme.name ? 'Generating...' : 'Create Proposal'}
 													</button>
 												</div>
 											</div>
@@ -5485,9 +5825,9 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 															<span class="material-symbols-outlined">open_in_new</span>
 															Check GIS
 														</button>
-														<button class="scheme-action-btn create-proposal" on:click={() => alert('Create Proposal feature coming soon!')}>
-															<span class="material-symbols-outlined">description</span>
-															Create Proposal
+														<button class="scheme-action-btn create-proposal" on:click={() => createProposal(scheme)} disabled={proposalLoading && proposalScheme?.name === scheme.name}>
+															<span class="material-symbols-outlined">{proposalLoading && proposalScheme?.name === scheme.name ? 'progress_activity' : 'description'}</span>
+															{proposalLoading && proposalScheme?.name === scheme.name ? 'Generating...' : 'Create Proposal'}
 														</button>
 													</div>
 												</div>
