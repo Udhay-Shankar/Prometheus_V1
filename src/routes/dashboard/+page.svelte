@@ -7445,6 +7445,21 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 		cursor: pointer;
 		transition: all 0.2s ease;
 	}
+	
+	.valuation-summary-card .home-card-header-row {
+		justify-content: center;
+		gap: 0.5rem;
+	}
+	
+	.valuation-summary-card .home-card-header-row .card-header-actions {
+		position: absolute;
+		top: 0.5rem;
+		right: 0.5rem;
+	}
+	
+	.valuation-summary-card {
+		position: relative;
+	}
 
 	.valuation-summary-card:hover {
 		border-color: var(--accent-color);
@@ -8299,13 +8314,14 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 	.card-header-actions {
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
+		gap: 0.35rem;
 		margin-left: auto;
+		flex-shrink: 0;
 	}
 	
 	.card-header-actions.inline {
 		display: inline-flex;
-		margin-left: 0.75rem;
+		margin-left: 0.5rem;
 		vertical-align: middle;
 	}
 	
@@ -8313,15 +8329,17 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		width: 28px;
-		height: 28px;
+		width: 18px;
+		height: 18px;
 		border-radius: 50%;
-		border: 2px solid var(--border-color);
+		border: 1.5px solid var(--border-color);
 		background: var(--bg-secondary);
 		cursor: pointer;
 		transition: all 0.2s ease;
 		font-weight: 700;
-		font-size: 0.85rem;
+		font-size: 0.65rem;
+		padding: 0;
+		line-height: 1;
 	}
 	
 	.info-btn {
@@ -8332,7 +8350,7 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 	.info-btn:hover {
 		background: var(--accent-primary);
 		color: var(--bg-primary);
-		transform: scale(1.1);
+		transform: scale(1.15);
 	}
 	
 	.daddy-btn {
@@ -8343,13 +8361,14 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 	.daddy-btn:hover {
 		background: #9c27b0;
 		color: white;
-		transform: scale(1.1);
+		transform: scale(1.15);
 	}
 	
 	.info-icon, .daddy-icon {
 		font-family: 'Inter', system-ui, sans-serif;
 		font-style: italic;
 		font-weight: 700;
+		font-size: 0.6rem;
 	}
 	
 	.daddy-icon {
