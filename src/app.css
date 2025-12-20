@@ -1,26 +1,34 @@
 @import 'tailwindcss';
 
 :root {
-  /* Light Mode - White & Gold */
-  --bg-primary: #FFFFFF;
-  --bg-secondary: #F8F9FA;
-  --bg-tertiary: #F0F0F0;
+  /* Light Mode - Nebulaa Gravity Style (Cream & Yellow/Gold) */
+  --bg-primary: #FDF8EC;
+  --bg-secondary: #FEF9F0;
+  --bg-tertiary: #F5EFE0;
+  --bg-hover: rgba(0, 0, 0, 0.06);
   --text-primary: #1A1A1A;
-  --text-secondary: #666666;
-  --text-tertiary: #999999;
-  --accent-primary: #D4AF37;
-  --accent-secondary: #F4E5C2;
-  --accent-hover: #C19B2B;
-  --border-color: #E0E0E0;
-  --shadow-color: rgba(0, 0, 0, 0.1);
-  --accent-shadow: rgba(212, 175, 55, 0.2);
+  --text-secondary: #555555;
+  --text-tertiary: #888888;
+  --accent-primary: #FFCC00;
+  --accent-secondary: #FFE066;
+  --accent-hover: #E6B800;
+  --border-color: #E8DFC8;
+  --shadow-color: rgba(0, 0, 0, 0.08);
+  --accent-shadow: rgba(255, 204, 0, 0.25);
   --card-bg: #FFFFFF;
-  --sidebar-bg: #FAFAFA;
+  --sidebar-bg: #FFCC00;
+  --sidebar-text: #1A1A1A;
+  --sidebar-hover: rgba(0, 0, 0, 0.08);
   
   /* Gauge Colors */
-  --gauge-bg: #F0F0F0;
-  --gauge-fill: linear-gradient(135deg, #D4AF37 0%, #F4E5C2 100%);
-  --gauge-needle: #C19B2B;
+  --gauge-bg: #F5EFE0;
+  --gauge-fill: linear-gradient(135deg, #FFCC00 0%, #FFE066 100%);
+  --gauge-needle: #E6B800;
+  
+  /* Button Colors */
+  --btn-primary-bg: #FFCC00;
+  --btn-primary-text: #1A1A1A;
+  --btn-primary-hover: #E6B800;
 }
 
 [data-theme='dark'] {
@@ -28,6 +36,7 @@
   --bg-primary: #1A1A1A;
   --bg-secondary: #252525;
   --bg-tertiary: #2F2F2F;
+  --bg-hover: rgba(255, 255, 255, 0.08);
   --text-primary: #E8E8E8;
   --text-secondary: #B8B8B8;
   --text-tertiary: #808080;
@@ -39,6 +48,8 @@
   --accent-shadow: rgba(255, 215, 0, 0.25);
   --card-bg: #252525;
   --sidebar-bg: #1F1F1F;
+  --sidebar-text: #E8E8E8;
+  --sidebar-hover: rgba(255, 255, 255, 0.08);
   
   /* Gauge Colors */
   --gauge-bg: #2F2F2F;

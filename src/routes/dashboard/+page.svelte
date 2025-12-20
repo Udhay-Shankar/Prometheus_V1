@@ -6624,7 +6624,7 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 
 	/* Sidebar */
 	.sidebar {
-		background: var(--bg-secondary);
+		background: var(--sidebar-bg);
 		border-right: 1px solid var(--border-color);
 		display: flex;
 		flex-direction: column;
@@ -6643,7 +6643,7 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 		justify-content: space-between;
 		gap: 0.75rem;
 		padding: 0 1.25rem 1.5rem;
-		border-bottom: 1px solid var(--border-color);
+		border-bottom: 1px solid rgba(0, 0, 0, 0.1);
 		margin-bottom: 1.5rem;
 	}
 
@@ -6695,7 +6695,7 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 	.brand-nebulaa {
 		font-family: 'Badhorse', cursive;
 		font-size: 0.9rem;
-		color: var(--accent-primary);
+		color: var(--sidebar-text, var(--accent-primary));
 		letter-spacing: 0.3px;
 		line-height: 1;
 	}
@@ -6703,7 +6703,7 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 	.brand-name {
 		font-size: 0.9rem;
 		font-weight: 600;
-		color: var(--text-primary);
+		color: var(--sidebar-text, var(--text-primary));
 		letter-spacing: 0.3px;
 		line-height: 1;
 	}
@@ -6711,7 +6711,7 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 	.sidebar-toggle {
 		background: none;
 		border: none;
-		color: var(--text-secondary);
+		color: var(--sidebar-text, var(--text-secondary));
 		cursor: pointer;
 		padding: 0.5rem;
 		border-radius: 6px;
@@ -6722,8 +6722,8 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 	}
 
 	.sidebar-toggle:hover {
-		background: var(--bg-hover);
-		color: var(--accent-primary);
+		background: var(--sidebar-hover, var(--bg-hover));
+		color: var(--sidebar-text, var(--accent-primary));
 	}
 
 	.sidebar-toggle .material-symbols-outlined {
@@ -6747,7 +6747,7 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 		background: none;
 		border: none;
 		border-radius: 8px;
-		color: var(--text-secondary);
+		color: var(--sidebar-text, var(--text-secondary));
 		cursor: pointer;
 		transition: all 0.2s ease;
 		text-align: left;
@@ -6772,22 +6772,22 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 	}
 
 	.nav-item:hover {
-		background: var(--bg-hover);
-		color: var(--text-primary);
+		background: var(--sidebar-hover, var(--bg-hover));
+		color: var(--sidebar-text, var(--text-primary));
 	}
 
 	.nav-item:hover .nav-icon {
-		color: var(--accent-primary);
+		color: var(--sidebar-text, var(--accent-primary));
 	}
 
 	.nav-item.active {
-		background: var(--accent-shadow);
-		color: var(--accent-primary);
+		background: rgba(0, 0, 0, 0.12);
+		color: var(--sidebar-text, var(--accent-primary));
 		font-weight: 600;
 	}
 
 	.nav-item.active .nav-icon {
-		color: var(--accent-primary);
+		color: var(--sidebar-text, var(--accent-primary));
 	}
 
 	/* Overview */
