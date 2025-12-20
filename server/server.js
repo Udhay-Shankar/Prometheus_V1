@@ -937,53 +937,138 @@ app.post('/api/analysis/swot', authenticateToken, async (req, res) => {
       });
     }
 
-    // Use Google Search grounded prompt for real-time market news
-    const prompt = `As a Senior Venture Capital Analyst with access to CURRENT market data and news, provide a comprehensive SWOT analysis for a ${industry} startup in INDIA.
+    // Parse and clean the industry - detect actual industry from context
+    let actualIndustry = industry || 'Technology';
+    const competitorStr = (Array.isArray(competitors) ? competitors.join(' ') : competitors || '').toLowerCase();
+    const productDesc = (companyData?.productDescription || '').toLowerCase();
+    
+    // Detect real industry from competitors and product description
+    if (competitorStr.includes('casa') || competitorStr.includes('hiranandani') || competitorStr.includes('dlf') || 
+        competitorStr.includes('godrej') || competitorStr.includes('prestige') || productDesc.includes('real estate') ||
+        productDesc.includes('property') || productDesc.includes('construction') || productDesc.includes('housing')) {
+      actualIndustry = 'Real Estate & Construction';
+    } else if (competitorStr.includes('zomato') || competitorStr.includes('swiggy') || productDesc.includes('food') || productDesc.includes('restaurant')) {
+      actualIndustry = 'Food & Hospitality';
+    } else if (competitorStr.includes('zerodha') || competitorStr.includes('razorpay') || productDesc.includes('fintech') || productDesc.includes('payment')) {
+      actualIndustry = 'FinTech';
+    } else if (productDesc.includes('saas') || productDesc.includes('software')) {
+      actualIndustry = 'SaaS';
+    } else if (actualIndustry.toLowerCase().includes('hardware') || actualIndustry.toLowerCase().includes('other')) {
+      // If it still says "Hardware, Other", try to infer from product description
+      if (productDesc.includes('house') || productDesc.includes('apartment') || productDesc.includes('plot')) {
+        actualIndustry = 'Real Estate & Construction';
+      } else {
+        actualIndustry = 'Technology';
+      }
+    }
 
-COMPANY PROFILE:
-- Stage: ${companyData.stage}
-- Team Score: ${companyData.teamScore}/5
-- Product Score: ${companyData.productScore}/5
-- Market Opportunity: ${companyData.marketScore}/5
-- Current Revenue: ${companyData.revenue}
-- Key Competitors: ${Array.isArray(competitors) ? competitors.join(', ') : (competitors || 'None specified')}
-- Target Customer: ${companyData.targetCustomer || 'Not specified'}
-- Has Revenue: ${companyData.hasRevenue ? 'Yes' : 'No'}
+    // Get company name and product details
+    const companyName = companyData?.companyName || 'Your startup';
+    const productName = companyData?.productName || companyData?.flagshipProduct || 'your product';
+    const targetCustomer = companyData?.targetCustomer || 'customers';
+    const uniqueValue = companyData?.uniqueValue || 'unique value proposition';
+    const competitorList = Array.isArray(competitors) ? competitors.filter(c => c && c.trim()).join(', ') : (competitors || 'market players');
 
-CRITICAL REQUIREMENTS:
+    // Use Google Search grounded prompt for real-time market data - HIGHLY SPECIFIC
+    const prompt = `You are a Senior Business Strategy Consultant. Provide a HIGHLY SPECIFIC and TAILORED SWOT analysis.
 
-1. STRENGTHS & WEAKNESSES: Based on the company profile above - specific to their ${companyData.stage} stage and ${industry} industry.
+## COMPANY DETAILS (USE THESE SPECIFICALLY):
+- Company Name: ${companyName}
+- Product/Service: ${productName}
+- Industry: ${actualIndustry}
+- Stage: ${companyData?.stage || 'Early Stage'}
+- Target Customer: ${targetCustomer}
+- Unique Value: ${uniqueValue}
+- Product Description: ${companyData?.productDescription || 'Not provided'}
+- Key Competitors: ${competitorList}
+- Has Revenue: ${companyData?.hasRevenue ? 'Yes' : 'No'}
+- Team Size: ${companyData?.teamSize || 'Small team'}
 
-2. OPPORTUNITIES - MUST be based on REAL, CURRENT market scenarios and recent news:
-   - Search for recent ${industry} industry news in India (2024-2025)
-   - Include specific government policies, funding trends, market growth data
-   - Reference actual regulatory changes, investment announcements, or market expansions
-   - Example: "Government's Digital India push allocating ₹X crore for ${industry}" or "Recent funding surge in Indian ${industry} sector"
+## CRITICAL INSTRUCTIONS:
+1. DO NOT use generic phrases like "Growing industry" or "market potential"
+2. DO NOT mention the category name directly (e.g., don't say "Hardware, Other")
+3. EVERY point must be SPECIFIC to this company's actual product and market
+4. Reference the ACTUAL competitors by name (${competitorList})
+5. Use the ACTUAL product description to craft insights
 
-3. THREATS - MUST be based on REAL, CURRENT market risks and news:
-   - Search for recent challenges, regulatory concerns, or market disruptions in ${industry}
-   - Include specific competitor moves, funding winter impacts, or policy changes
-   - Reference actual news about market saturation, new entrants, or economic factors
-   - Example: "RBI's new ${industry} regulations impacting startups" or "Increased competition from ${competitors} expanding in India"
+## SEARCH FOR CURRENT DATA:
+- Search: "${actualIndustry} India market trends 2024 2025"
+- Search: "${competitorList} company news funding"
+- Search: "India ${actualIndustry} government schemes policies 2024"
 
-Return ONLY valid JSON (no markdown):
+## REQUIRED OUTPUT FORMAT - BE SPECIFIC:
+
+STRENGTHS (specific to ${companyName}):
+- What specific advantages does ${productName} have?
+- What makes their approach to ${targetCustomer} unique?
+- What operational strengths at ${companyData?.stage || 'current'} stage?
+
+WEAKNESSES (specific to ${companyName}):
+- What specific challenges for a ${companyData?.stage || 'early'} stage ${actualIndustry} company?
+- What resources are lacking?
+- What competitive disadvantages vs ${competitorList}?
+
+OPPORTUNITIES (based on REAL market data):
+- Specific government schemes for ${actualIndustry} in India
+- Specific market trends with numbers (e.g., "₹X crore market growing at Y%")
+- Specific news about ${actualIndustry} sector expansion
+
+THREATS (based on REAL market data):
+- Specific competitive pressure from ${competitorList}
+- Specific regulatory challenges in ${actualIndustry}
+- Specific economic factors affecting ${actualIndustry}
+
+Return ONLY valid JSON:
 {
-  "strengths": ["specific strength 1", "specific strength 2", "specific strength 3", "specific strength 4"],
-  "weaknesses": ["specific weakness 1", "specific weakness 2", "specific weakness 3", "specific weakness 4"],
-  "opportunities": ["NEWS-BASED opportunity with specific data/policy reference", "market trend opportunity with numbers", "government initiative opportunity", "growth opportunity based on current events"],
-  "threats": ["NEWS-BASED threat with specific reference", "regulatory/policy threat", "competitive threat from market news", "economic/market threat based on current data"]
+  "strengths": [
+    "Specific strength about ${productName} and ${targetCustomer}",
+    "Specific operational advantage",
+    "Specific team/technology strength",
+    "Specific market positioning strength"
+  ],
+  "weaknesses": [
+    "Specific challenge at ${companyData?.stage || 'current'} stage",
+    "Specific resource constraint",
+    "Specific competitive gap vs ${competitorList}",
+    "Specific market/brand weakness"
+  ],
+  "opportunities": [
+    "Specific government scheme/policy with name and amount (search for real data)",
+    "Specific market growth trend with numbers",
+    "Specific partnership/expansion opportunity",
+    "Specific technology/consumer trend opportunity"
+  ],
+  "threats": [
+    "Specific threat from ${competitorList} with recent news",
+    "Specific regulatory/policy threat in ${actualIndustry}",
+    "Specific market/economic threat",
+    "Specific operational/scaling threat"
+  ]
 }`;
 
     // Use Google Search grounded Gemini for real-time market data
     try {
-      const systemContext = 'You are a Senior Venture Capital Analyst with real-time access to Indian market news, government policies, and industry reports. Your opportunities and threats MUST reference CURRENT (2024-2025) market conditions, news events, and data. Return ONLY valid JSON.';
+      const systemContext = `You are a Senior Business Strategy Consultant specializing in ${actualIndustry}. 
+Your analysis must be HIGHLY SPECIFIC to ${companyName} and their product ${productName}. 
+DO NOT use generic industry phrases. Every point must reference specific details from the company profile.
+Search for real, current market data about ${actualIndustry} in India and the competitors: ${competitorList}.
+Return ONLY valid JSON.`;
+      
       const geminiResponse = await callGeminiWithSearch(prompt, systemContext);
       
       // Clean and parse
       let content = geminiResponse.replaceAll(/```json\n?/g, '').replaceAll(/```\n?/g, '').trim();
+      
+      // Extract JSON if there's extra text
+      const firstBrace = content.indexOf('{');
+      const lastBrace = content.lastIndexOf('}');
+      if (firstBrace !== -1 && lastBrace !== -1) {
+        content = content.substring(firstBrace, lastBrace + 1);
+      }
+      
       const analysis = JSON.parse(content);
       
-      console.log('✅ SWOT analysis with market news from Gemini for', industry);
+      console.log('✅ SWOT analysis with market news from Gemini for', actualIndustry);
       return res.json(analysis);
       
     } catch (geminiError) {
@@ -992,6 +1077,11 @@ Return ONLY valid JSON (no markdown):
       // Fallback to regular Gemini without search
       const fallbackResponse = await callGemini(prompt, 'Return ONLY valid JSON, no markdown.');
       let content = fallbackResponse.replaceAll(/```json\n?/g, '').replaceAll(/```\n?/g, '').trim();
+      const firstBrace = content.indexOf('{');
+      const lastBrace = content.lastIndexOf('}');
+      if (firstBrace !== -1 && lastBrace !== -1) {
+        content = content.substring(firstBrace, lastBrace + 1);
+      }
       const analysis = JSON.parse(content);
       return res.json(analysis);
     }
@@ -1000,30 +1090,43 @@ Return ONLY valid JSON (no markdown):
     console.error('AI backend failed for SWOT:', error.message);
     // Return personalized fallback data based on inputs
     const { companyData, industry, competitors } = req.body;
+    const competitorList = Array.isArray(competitors) ? competitors.filter(c => c).join(', ') : (competitors || 'established players');
+    const productName = companyData?.productName || companyData?.flagshipProduct || 'your product';
+    const targetCustomer = companyData?.targetCustomer || 'target customers';
+    
+    // Detect actual industry for fallback too
+    let actualIndustry = 'your industry';
+    const competitorStr = competitorList.toLowerCase();
+    if (competitorStr.includes('casa') || competitorStr.includes('hiranandani') || competitorStr.includes('dlf')) {
+      actualIndustry = 'Real Estate';
+    } else if (competitorStr.includes('zomato') || competitorStr.includes('swiggy')) {
+      actualIndustry = 'Food Tech';
+    }
+    
     res.json({
       strengths: [
-        `${companyData?.stage || 'Early'} stage ${industry} company with operational foundation`,
-        `Team expertise in ${industry} domain`,
-        companyData?.hasRevenue ? 'Proven revenue generation capability' : 'Early product development focus',
-        `Product addressing ${companyData?.targetCustomer || 'target market'} needs`
+        `${productName} addresses key pain points for ${targetCustomer}`,
+        `${companyData?.stage || 'Early'} stage with lean operational structure`,
+        companyData?.hasRevenue ? 'Demonstrated product-market fit with paying customers' : 'Focused product development approach',
+        `Clear value proposition differentiating from ${competitorList}`
       ],
       weaknesses: [
-        companyData?.hasRevenue ? 'Revenue scale still developing' : 'Pre-revenue stage with market validation needed',
-        `Competing against established players like ${Array.isArray(competitors) ? competitors[0] : competitors}`,
-        'Brand recognition to be built',
-        'Resource optimization required for growth'
+        companyData?.hasRevenue ? 'Revenue scale requires acceleration for market leadership' : 'Pre-revenue stage requiring customer validation',
+        `Brand awareness gap compared to established players like ${competitorList}`,
+        'Resource constraints typical of current funding stage',
+        'Geographic or market segment coverage limitations'
       ],
       opportunities: [
-        `Growing ${industry} market with expansion potential`,
-        'Strategic partnerships in ecosystem',
-        'Government funding schemes and grants available',
-        'Technology adoption acceleration post-pandemic'
+        `India ${actualIndustry} market projected to grow significantly by 2030`,
+        'Government startup schemes like Startup India, state-specific grants available',
+        `Strategic partnerships with complementary ${actualIndustry} players`,
+        'Digital adoption trends creating new customer acquisition channels'
       ],
       threats: [
-        `Direct competition from ${Array.isArray(competitors) ? competitors.join(', ') : competitors}`,
-        `Regulatory changes in ${industry} sector`,
-        'Market saturation and customer acquisition costs',
-        'Economic volatility affecting investment climate'
+        `Direct competition from well-funded players: ${competitorList}`,
+        `Regulatory changes in ${actualIndustry} sector requiring compliance adaptation`,
+        'Market saturation increasing customer acquisition costs',
+        'Economic conditions affecting customer spending and investment climate'
       ]
     });
   }
