@@ -1990,14 +1990,37 @@
 			// Analyze user's mentioned competitors to identify industry
 			let intelligentCompetitors = [];
 			
+			// FIRST: Parse user-mentioned competitors and add them as user-picks
+			const userMentionedList = userCompetitors.split(',').map(c => c.trim()).filter(c => c.length > 0);
+			const userPickedCompetitorEntries = userMentionedList.map((compName, idx) => ({
+				name: compName.charAt(0).toUpperCase() + compName.slice(1), // Capitalize
+				stage: 'Unknown',
+				currentValuation: 0,
+				earlyValuation: 0,
+				growthRate: 0,
+				revenue: 0,
+				customers: 0,
+				fundingRaised: 0,
+				investments: [],
+				flagshipProduct: `${compName} Product`,
+				products: [`${compName} Product`],
+				visible: true,
+				isUserMentioned: true,
+				region: 'user-pick',
+				valuationTimeline: [
+					{ year: 2020, valuation: 0, event: 'Founded' },
+					{ year: 2024, valuation: 0, event: 'Current' }
+				]
+			}));
+			
 			// Food Delivery / Marketplace detection
 			if (userCompetitors.includes('zomato') || userCompetitors.includes('swiggy') || 
 			    userCompetitors.includes('uber eats') || userCompetitors.includes('dunzo') ||
 			    category === 'Marketplace' || category === 'Food & Beverage') {
 				intelligentCompetitors = [
-					{ name: 'Dunzo', stage: 'Series F', currentValuation: 23000000000, earlyValuation: 800000000, growthRate: 420, revenue: 35000000, customers: 3000000, fundingRaised: 800000000, investments: ['Google - $12M', 'Reliance - $200M'], flagshipProduct: 'Hyperlocal Delivery', products: ['Hyperlocal Delivery', 'Quick Commerce', 'B2B Services'], visible: true, valuationTimeline: [{ year: 2015, valuation: 50000000, event: 'Founded' }, { year: 2017, valuation: 800000000, event: 'Series B' }, { year: 2020, valuation: 5000000000, event: 'Series D' }, { year: 2022, valuation: 23000000000, event: 'Series F' }] },
-					{ name: 'Zomato', stage: 'Public', currentValuation: 650000000000, earlyValuation: 20000000000, growthRate: 480, revenue: 4800000000, customers: 80000000, fundingRaised: 20000000000, investments: ['Info Edge - $1M', 'Ant Financial - $200M'], flagshipProduct: 'Food Delivery App', products: ['Food Delivery', 'Dining Out', 'Hyperpure'], visible: true, valuationTimeline: [{ year: 2008, valuation: 10000000, event: 'Founded' }, { year: 2013, valuation: 2000000000, event: 'Series C' }, { year: 2018, valuation: 20000000000, event: 'Series G' }, { year: 2021, valuation: 650000000000, event: 'IPO' }] },
-					{ name: 'Swiggy', stage: 'Series J', currentValuation: 1050000000000, earlyValuation: 25000000000, growthRate: 520, revenue: 6500000000, customers: 120000000, fundingRaised: 25000000000, investments: ['Accel - $2M', 'Prosus - $1B'], flagshipProduct: 'Food Delivery Platform', products: ['Food Delivery', 'Instamart', 'Genie'], visible: true, valuationTimeline: [{ year: 2014, valuation: 50000000, event: 'Founded' }, { year: 2017, valuation: 2000000000, event: 'Series C' }, { year: 2020, valuation: 35000000000, event: 'Series H' }, { year: 2024, valuation: 1050000000000, event: 'Series J' }] }
+					{ name: 'Dunzo', stage: 'Series F', currentValuation: 23000000000, earlyValuation: 800000000, growthRate: 420, revenue: 35000000, customers: 3000000, fundingRaised: 800000000, investments: ['Google - $12M', 'Reliance - $200M'], flagshipProduct: 'Hyperlocal Delivery', products: ['Hyperlocal Delivery', 'Quick Commerce', 'B2B Services'], visible: true, region: 'local', valuationTimeline: [{ year: 2015, valuation: 50000000, event: 'Founded' }, { year: 2017, valuation: 800000000, event: 'Series B' }, { year: 2020, valuation: 5000000000, event: 'Series D' }, { year: 2022, valuation: 23000000000, event: 'Series F' }] },
+					{ name: 'Zomato', stage: 'Public', currentValuation: 650000000000, earlyValuation: 20000000000, growthRate: 480, revenue: 4800000000, customers: 80000000, fundingRaised: 20000000000, investments: ['Info Edge - $1M', 'Ant Financial - $200M'], flagshipProduct: 'Food Delivery App', products: ['Food Delivery', 'Dining Out', 'Hyperpure'], visible: true, region: 'local', valuationTimeline: [{ year: 2008, valuation: 10000000, event: 'Founded' }, { year: 2013, valuation: 2000000000, event: 'Series C' }, { year: 2018, valuation: 20000000000, event: 'Series G' }, { year: 2021, valuation: 650000000000, event: 'IPO' }] },
+					{ name: 'Swiggy', stage: 'Series J', currentValuation: 1050000000000, earlyValuation: 25000000000, growthRate: 520, revenue: 6500000000, customers: 120000000, fundingRaised: 25000000000, investments: ['Accel - $2M', 'Prosus - $1B'], flagshipProduct: 'Food Delivery Platform', products: ['Food Delivery', 'Instamart', 'Genie'], visible: true, region: 'local', valuationTimeline: [{ year: 2014, valuation: 50000000, event: 'Founded' }, { year: 2017, valuation: 2000000000, event: 'Series C' }, { year: 2020, valuation: 35000000000, event: 'Series H' }, { year: 2024, valuation: 1050000000000, event: 'Series J' }] }
 				];
 			}
 			// E-commerce detection
@@ -2106,26 +2129,29 @@
 				];
 			}
 			
-			// Mark fallback competitors and categorize
+			// Mark fallback competitors and categorize (keep their region if already set)
 			intelligentCompetitors = intelligentCompetitors.map((c, index) => ({
 				...c,
 				isVerified: c.revenue > 0 || c.customers > 0,
 				dataConfidence: (c.revenue > 0 || c.customers > 0) ? 'high' : 'low',
 				flagshipProduct: c.flagshipProduct || (c.products && c.products.length > 0 ? c.products[0] : 'Core Product'),
-				region: index === 0 ? 'global' : index === 1 ? 'global' : index === 2 ? 'local' : index === 3 ? 'local' : 'rival',
-				isUserMentioned: false
+				region: c.region || (index === 0 ? 'global' : index === 1 ? 'global' : index === 2 ? 'local' : index === 3 ? 'local' : 'rival'),
+				isUserMentioned: c.isUserMentioned || false
 			}));
 			
-			competitors = intelligentCompetitors;
-			allCompetitors = intelligentCompetitors;
-			verifiedCompetitors = intelligentCompetitors.filter(c => c.isVerified);
-			potentialCompetitors = intelligentCompetitors.filter(c => !c.isVerified);
-			userPickCompetitors = intelligentCompetitors.filter(c => c.isUserMentioned);
-			globalCompetitors = intelligentCompetitors.filter(c => c.region === 'global');
-			localCompetitors = intelligentCompetitors.filter(c => c.region === 'local');
-			rivalCompetitors = intelligentCompetitors.filter(c => c.region === 'rival');
+			// COMBINE: User-picked competitors FIRST, then industry competitors
+			const allFallbackCompetitors = [...userPickedCompetitorEntries, ...intelligentCompetitors];
+			
+			competitors = allFallbackCompetitors;
+			allCompetitors = allFallbackCompetitors;
+			verifiedCompetitors = allFallbackCompetitors.filter(c => c.isVerified);
+			potentialCompetitors = allFallbackCompetitors.filter(c => !c.isVerified);
+			userPickCompetitors = allFallbackCompetitors.filter(c => c.isUserMentioned || c.region === 'user-pick');
+			globalCompetitors = allFallbackCompetitors.filter(c => c.region === 'global');
+			localCompetitors = allFallbackCompetitors.filter(c => c.region === 'local');
+			rivalCompetitors = allFallbackCompetitors.filter(c => c.region === 'rival');
 			competitorDataSummary = {
-				totalCompetitors: intelligentCompetitors.length,
+				totalCompetitors: allFallbackCompetitors.length,
 				verifiedCount: verifiedCompetitors.length,
 				potentialCount: potentialCompetitors.length,
 				userPickCount: userPickCompetitors.length,
@@ -2135,6 +2161,7 @@
 			};
 			
 			console.log(`📝 Using intelligent fallback competitors based on user's ${category} business and mentioned competitors: ${userCompetitors}`);
+			console.log(`📊 User picks: ${userPickCompetitors.length}, Global: ${globalCompetitors.length}, Local: ${localCompetitors.length}`);
 		}
 	}
 
