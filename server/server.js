@@ -1625,314 +1625,81 @@ app.post('/api/analysis/competitors', authenticateToken, async (req, res) => {
       return res.json(cachedResult.data);
     }
 
-    console.log('📊 Fetching competitor valuation data for:', industry, 'User mentioned:', mentionedComps);
-
-    // REAL ESTATE SPECIFIC: Return verified real estate data directly
-    if (industry === 'Real Estate & Construction') {
-      console.log('🏠 Using verified Real Estate competitor data');
-      
-      // Values are in INR - frontend divides by 10000000 (1 Cr) to display in Crores
-      const realEstateCompetitors = [
-        // User-mentioned competitors
-        {
-          name: 'Casa Grande',
-          category: 'Real Estate & Construction',
-          stage: 'Private',
-          region: 'user-pick',
-          headquarters: 'Chennai, India',
-          foundedYear: 2004,
-          currentValuation: 50000000000, // ₹5000 Cr
-          flagshipProduct: 'Residential Townships',
-          products: ['Apartments', 'Villas', 'Plotted Development'],
-          valuationTimeline: [
-            { year: 2004, valuation: 10000000, event: 'Founded' },
-            { year: 2015, valuation: 10000000000, event: 'Expansion' },
-            { year: 2024, valuation: 50000000000, event: 'Current' }
-          ],
-          revenue: 35000000000, // ₹3500 Cr
-          growthRate: 22,
-          customers: 25000,
-          fundingRaised: 5000000000,
-          visible: true,
-          isUserMentioned: true,
-          isDataPublic: true
-        },
-        {
-          name: 'Hiranandani Group',
-          category: 'Real Estate & Construction',
-          stage: 'Private',
-          region: 'user-pick',
-          headquarters: 'Mumbai, India',
-          foundedYear: 1978,
-          currentValuation: 80000000000, // ₹8000 Cr
-          flagshipProduct: 'Integrated Townships',
-          products: ['Residential', 'Commercial', 'Data Centers'],
-          valuationTimeline: [
-            { year: 1978, valuation: 5000000, event: 'Founded' },
-            { year: 2000, valuation: 20000000000, event: 'Powai Township' },
-            { year: 2024, valuation: 80000000000, event: 'Current' }
-          ],
-          revenue: 45000000000, // ₹4500 Cr
-          growthRate: 18,
-          customers: 40000,
-          fundingRaised: 10000000000,
-          visible: true,
-          isUserMentioned: true,
-          isDataPublic: true
-        },
-        // Global competitors
-        {
-          name: 'CBRE Group',
-          category: 'Real Estate & Construction',
-          stage: 'Public',
-          region: 'global',
-          headquarters: 'Dallas, USA',
-          foundedYear: 1906,
-          currentValuation: 2500000000000, // ~$30B = ₹2.5 Lakh Cr
-          flagshipProduct: 'Commercial Real Estate Services',
-          products: ['Property Management', 'Leasing', 'Valuation'],
-          valuationTimeline: [
-            { year: 1906, valuation: 1000000, event: 'Founded' },
-            { year: 2000, valuation: 500000000000, event: 'IPO' },
-            { year: 2024, valuation: 2500000000000, event: 'Current' }
-          ],
-          revenue: 2800000000000, // ~$33B = ₹2.8 Lakh Cr
-          growthRate: 12,
-          customers: 100000,
-          fundingRaised: 0,
-          visible: true,
-          isUserMentioned: false,
-          isDataPublic: true
-        },
-        {
-          name: 'JLL (Jones Lang LaSalle)',
-          category: 'Real Estate & Construction',
-          stage: 'Public',
-          region: 'global',
-          headquarters: 'Chicago, USA',
-          foundedYear: 1783,
-          currentValuation: 1000000000000, // ~$12B = ₹1 Lakh Cr
-          flagshipProduct: 'Real Estate Investment Management',
-          products: ['Capital Markets', 'Property Services', 'Advisory'],
-          valuationTimeline: [
-            { year: 1783, valuation: 100000, event: 'Founded' },
-            { year: 1999, valuation: 200000000000, event: 'Merger' },
-            { year: 2024, valuation: 1000000000000, event: 'Current' }
-          ],
-          revenue: 1800000000000, // ~$21B = ₹1.8 Lakh Cr
-          growthRate: 10,
-          customers: 80000,
-          fundingRaised: 0,
-          visible: true,
-          isUserMentioned: false,
-          isDataPublic: true
-        },
-        // Indian market leaders
-        {
-          name: 'DLF Limited',
-          category: 'Real Estate & Construction',
-          stage: 'Public',
-          region: 'local',
-          headquarters: 'New Delhi, India',
-          foundedYear: 1946,
-          currentValuation: 1800000000000, // ₹1.8 Lakh Cr (Market Cap)
-          flagshipProduct: 'DLF Cyber City',
-          products: ['Commercial', 'Residential', 'Retail'],
-          valuationTimeline: [
-            { year: 1946, valuation: 1000000, event: 'Founded' },
-            { year: 2007, valuation: 500000000000, event: 'IPO' },
-            { year: 2024, valuation: 1800000000000, event: 'Current' }
-          ],
-          revenue: 65000000000, // ₹6500 Cr
-          growthRate: 28,
-          customers: 100000,
-          fundingRaised: 0,
-          visible: true,
-          isUserMentioned: false,
-          isDataPublic: true
-        },
-        {
-          name: 'Godrej Properties',
-          category: 'Real Estate & Construction',
-          stage: 'Public',
-          region: 'local',
-          headquarters: 'Mumbai, India',
-          foundedYear: 1990,
-          currentValuation: 750000000000, // ₹75,000 Cr
-          flagshipProduct: 'Premium Residential',
-          products: ['Residential', 'Commercial', 'Township'],
-          valuationTimeline: [
-            { year: 1990, valuation: 10000000, event: 'Founded' },
-            { year: 2010, valuation: 100000000000, event: 'IPO' },
-            { year: 2024, valuation: 750000000000, event: 'Current' }
-          ],
-          revenue: 55000000000, // ₹5500 Cr
-          growthRate: 35,
-          customers: 50000,
-          fundingRaised: 0,
-          visible: true,
-          isUserMentioned: false,
-          isDataPublic: true
-        },
-        // Emerging rival
-        {
-          name: 'Prestige Estates',
-          category: 'Real Estate & Construction',
-          stage: 'Public',
-          region: 'rival',
-          headquarters: 'Bangalore, India',
-          foundedYear: 1986,
-          currentValuation: 650000000000, // ₹65,000 Cr
-          flagshipProduct: 'Prestige Tech Park',
-          products: ['Commercial', 'Residential', 'Hospitality', 'Retail'],
-          valuationTimeline: [
-            { year: 1986, valuation: 5000000, event: 'Founded' },
-            { year: 2010, valuation: 50000000000, event: 'IPO' },
-            { year: 2024, valuation: 650000000000, event: 'Current' }
-          ],
-          revenue: 120000000000, // ₹12,000 Cr
-          growthRate: 42,
-          customers: 60000,
-          fundingRaised: 0,
-          visible: true,
-          isUserMentioned: false,
-          isDataPublic: true
-        },
-        // Add Navin's as another local competitor for search
-        {
-          name: "Navin's",
-          category: 'Real Estate & Construction',
-          stage: 'Private',
-          region: 'local',
-          headquarters: 'Chennai, India',
-          foundedYear: 2002,
-          currentValuation: 15000000000, // ₹1500 Cr
-          flagshipProduct: 'Affordable Housing',
-          products: ['Apartments', 'Villas', 'Commercial'],
-          valuationTimeline: [
-            { year: 2002, valuation: 5000000, event: 'Founded' },
-            { year: 2015, valuation: 5000000000, event: 'Growth' },
-            { year: 2024, valuation: 15000000000, event: 'Current' }
-          ],
-          revenue: 8000000000, // ₹800 Cr
-          growthRate: 25,
-          customers: 8000,
-          fundingRaised: 0,
-          visible: true,
-          isUserMentioned: false,
-          isDataPublic: false
-        }
-      ];
-
-      // Categorize competitors
-      const userPickCompetitors = realEstateCompetitors.filter(c => c.isUserMentioned);
-      const globalCompetitors = realEstateCompetitors.filter(c => c.region === 'global');
-      const localCompetitors = realEstateCompetitors.filter(c => c.region === 'local');
-      const rivalCompetitors = realEstateCompetitors.filter(c => c.region === 'rival');
-
-      const result = {
-        competitors: realEstateCompetitors,
-        verifiedCompetitors: realEstateCompetitors,
-        potentialCompetitors: [],
-        userPickCompetitors,
-        globalCompetitors,
-        localCompetitors,
-        rivalCompetitors,
-        marketTrends: [
-          { title: 'India Real Estate Market', value: '$265 Billion', description: 'Expected to reach $1 Trillion by 2030' },
-          { title: 'Annual Growth Rate', value: '19.5%', description: 'CAGR for residential segment' },
-          { title: 'Housing Demand', value: '10M+ Units', description: 'Annual urban housing demand' }
-        ],
-        summary: {
-          totalCompetitors: realEstateCompetitors.length,
-          userPickCount: userPickCompetitors.length,
-          globalCount: globalCompetitors.length,
-          localCount: localCompetitors.length,
-          rivalCount: rivalCompetitors.length,
-          verifiedCount: realEstateCompetitors.length,
-          potentialCount: 0,
-          userMentionedCount: userPickCompetitors.length
-        }
-      };
-
-      console.log('✅ Returning verified Real Estate competitor data');
-      return res.json(result);
-    }
+    console.log('📊 Fetching DYNAMIC competitor data for:', industry, 'User mentioned:', mentionedComps);
 
     // Build the search query based on user context
     const userCompCount = mentionedComps.length;
     
     // Create specific search query for Google
-    let searchQuery = `${industry} companies India valuation revenue`;
+    let searchQuery = `${industry} companies India valuation revenue 2024`;
     if (mentionedComps.length > 0) {
-      searchQuery = `${mentionedComps.join(' ')} ${industry} company valuation revenue funding India competitors`;
+      searchQuery = `${mentionedComps.join(' ')} company valuation revenue funding market cap 2024`;
     }
     
-    const searchPrompt = `Search Google for: "${searchQuery}"
+    const searchPrompt = `You are a financial research analyst with access to Google Search. Search for REAL, CURRENT data about companies.
 
-You are a financial research analyst. Based on Google Search results, provide data for REAL COMPANIES ONLY.
+SEARCH QUERIES TO EXECUTE:
+1. "${searchQuery}"
+${mentionedComps.map(c => `2. "${c} company valuation revenue 2024"`).join('\n')}
 
-## ABSOLUTE RULES - READ CAREFULLY:
-1. NEVER use placeholder names like "Startup A", "Company B", "Industry Leader", "Other Company", "Hardware Startup"
-2. ONLY return REAL company names that appear in Google Search results
-3. If you cannot find a real company, DO NOT invent one - just return fewer competitors
+## CRITICAL RULES:
+1. Return ONLY real company names from search results - NO placeholders like "Startup A", "Company B", "Industry Leader"
+2. All monetary values must be in INR (Indian Rupees)
+3. Search for actual market cap, revenue, funding data from news articles, company websites, Crunchbase, etc.
+4. If exact data not found, provide reasonable estimates based on company stage and industry benchmarks
 
-## USER'S COMPETITORS:
-${mentionedComps.length > 0 ? `The user mentioned: ${mentionedComps.join(', ')}
-SEARCH for these exact companies and get their real data.` : 'No specific competitors mentioned.'}
+## COMPANIES TO RESEARCH:
+${mentionedComps.length > 0 ? `### USER'S COMPETITORS (MUST INCLUDE - mark as "region": "user-pick", "isUserMentioned": true):
+${mentionedComps.map((c, i) => `${i + 1}. ${c} - Search: "${c} company India valuation revenue funding"`).join('\n')}` : ''}
 
-## INDUSTRY DETECTED: ${industry}
+### ADDITIONAL COMPETITORS TO FIND:
+- 2 GLOBAL market leaders in ${industry} (mark as "region": "global")
+- 2 INDIAN market leaders in ${industry} (mark as "region": "local")  
+- 1 Emerging Indian competitor/rival (mark as "region": "rival")
 
-## REQUIRED COMPANIES (only real ones):
-${userCompCount > 0 ? `1. USER PICKS: ${mentionedComps.join(', ')} - Search and return REAL data for these (set "region": "user-pick", "isUserMentioned": true)` : ''}
-${userCompCount > 0 ? '2' : '1'}. 2 GLOBAL leaders in ${industry}
-${userCompCount > 0 ? '3' : '2'}. 2 Indian market leaders in ${industry}  
-${userCompCount > 0 ? '4' : '3'}. 1 Rising Indian competitor
+## DATA REQUIREMENTS (search for each company):
+- currentValuation: Market cap or last valuation in INR (e.g., ₹5000 Cr = 50000000000)
+- revenue: Annual revenue in INR
+- growthRate: Year-over-year growth percentage
+- customers: Number of customers/units sold/projects
+- foundedYear: When company was established
+- stage: Private/Public/Series A/B/C etc.
+- flagshipProduct: Main product or service
 
-## REAL COMPANY REFERENCE (use these or similar REAL companies):
-${industry === 'Real Estate & Construction' || competitorStr.includes('casa') || competitorStr.includes('hira') ? 
-`INDIAN REAL ESTATE: DLF Limited, Godrej Properties, Prestige Estates, Sobha Limited, Brigade Enterprises, Oberoi Realty, Puravankara, Mahindra Lifespaces, Casa Grande (Chennai), Hiranandani Group
-GLOBAL: CBRE Group, JLL (Jones Lang LaSalle), Brookfield Asset Management, Cushman & Wakefield` : 
-industry === 'SaaS' ? 
-`INDIAN SAAS: Freshworks, Zoho, Chargebee, CleverTap, Postman, BrowserStack, Druva, Icertis
-GLOBAL: Salesforce, Microsoft, HubSpot, ServiceNow, Workday` :
-industry === 'FinTech' ?
-`INDIAN FINTECH: Razorpay, PhonePe, Paytm, CRED, Zerodha, Groww, PolicyBazaar, Pine Labs
-GLOBAL: Stripe, Square, PayPal, Adyen` :
-`Search for real companies in the ${industry} sector`}
-
-## OUTPUT FORMAT (JSON only, no markdown):
+## OUTPUT FORMAT (JSON only, no markdown, no explanation):
 {
   "competitors": [
     {
-      "name": "Actual Company Name",
+      "name": "Real Company Name",
       "category": "${industry}",
-      "stage": "Public/Series X/Private",
-      "region": "user-pick|global|local|rival",
-      "headquarters": "City, Country",
-      "foundedYear": 1990,
-      "currentValuation": 500000000000,
-      "flagshipProduct": "Main Product",
-      "products": ["Product 1"],
+      "stage": "Public",
+      "region": "user-pick",
+      "headquarters": "City, India",
+      "foundedYear": 2000,
+      "currentValuation": 50000000000,
+      "flagshipProduct": "Main Product/Service",
+      "products": ["Product 1", "Product 2"],
       "valuationTimeline": [
-        {"year": 1990, "valuation": 10000000, "event": "Founded"},
-        {"year": 2024, "valuation": 500000000000, "event": "Current"}
+        {"year": 2000, "valuation": 10000000, "event": "Founded"},
+        {"year": 2015, "valuation": 10000000000, "event": "Growth"},
+        {"year": 2024, "valuation": 50000000000, "event": "Current"}
       ],
-      "revenue": 100000000000,
-      "growthRate": 15,
-      "customers": 50000,
-      "fundingRaised": 30000000000,
+      "revenue": 35000000000,
+      "growthRate": 22,
+      "customers": 25000,
+      "fundingRaised": 5000000000,
       "visible": true,
       "isUserMentioned": true,
       "isDataPublic": true
     }
   ],
   "marketTrends": [
-    {"title": "Market Size", "value": "$100B", "description": "${industry} market"}
+    {"title": "${industry} Market Size", "value": "$X Billion", "description": "Market description"},
+    {"title": "Growth Rate", "value": "X%", "description": "Industry CAGR"}
   ]
 }
 
-FINAL CHECK: Before returning, verify EVERY company name is a REAL company. Delete any generic/placeholder names.`;
+IMPORTANT: Every company in the response MUST be a real, verifiable company. Search Google for each one.`;
 
     try {
       // Use Google Search grounded Gemini for real data
