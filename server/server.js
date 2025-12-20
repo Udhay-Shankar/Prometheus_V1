@@ -1579,7 +1579,7 @@ Provide specific reasoning for each scheme based on the company's actual profile
 
 // In-memory cache for competitor data - reduced to 5 mins for fresher data
 const competitorCache = new Map();
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes - fetch fresh data more often
+const CACHE_DURATION = 0; // Disabled - always fetch fresh data
 
 // Market Trends & Competitor Analysis endpoint
 app.post('/api/analysis/competitors', authenticateToken, async (req, res) => {
@@ -1761,24 +1761,42 @@ FINAL CHECK: Before returning, verify EVERY company name is a REAL company. Dele
       const genericPatterns = [
         /^(startup|company|business|competitor|industry|leader|rival|player)\s*[a-z0-9]*$/i,
         /^(other|generic|unknown|sample|example|test)\s/i,
-        /^hardware\s+(startup|company)/i,
+        /hardware.*startup/i,
+        /other.*startup/i,
+        /startup\s*[a-z]$/i,
+        /company\s*[a-z]$/i,
         /^[a-z]\s+(company|startup|business)$/i,
-        /^(new|emerging|local|global)\s+(startup|company|player)/i
+        /^(new|emerging|local|global)\s+(startup|company|player)/i,
+        /^industry\s+leader$/i,
+        /,\s*other/i
       ];
       
       analysis.competitors = analysis.competitors.filter(comp => {
         if (!comp.name || typeof comp.name !== 'string') return false;
-        const name = comp.name.trim();
+        const name = comp.name.trim().toLowerCase();
+        
+        // Check if name contains comma with generic terms (e.g., "Hardware,Other Startup A")
+        if (comp.name.includes(',') && (name.includes('startup') || name.includes('other') || name.includes('company'))) {
+          console.warn('⚠️ Filtering out combined generic name:', comp.name);
+          return false;
+        }
+        
+        // Check if name ends with single letter like "Startup A", "Company B"
+        if (/\s[a-e]$/i.test(comp.name.trim())) {
+          console.warn('⚠️ Filtering out letter-suffixed name:', comp.name);
+          return false;
+        }
+        
         // Check for generic patterns
         for (const pattern of genericPatterns) {
-          if (pattern.test(name)) {
-            console.warn('⚠️ Filtering out generic competitor name:', name);
+          if (pattern.test(comp.name.trim())) {
+            console.warn('⚠️ Filtering out generic competitor name:', comp.name);
             return false;
           }
         }
         // Name should be at least 2 characters and not just letters like "A", "B"
-        if (name.length < 3 || /^[a-zA-Z]$/.test(name)) {
-          console.warn('⚠️ Filtering out invalid competitor name:', name);
+        if (comp.name.trim().length < 3 || /^[a-zA-Z]$/.test(comp.name.trim())) {
+          console.warn('⚠️ Filtering out invalid competitor name:', comp.name);
           return false;
         }
         return true;
