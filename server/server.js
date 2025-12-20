@@ -92,23 +92,24 @@ app.use(mongoSanitize({
 app.use(hpp());
 
 // General rate limiter for all requests - INCREASED FOR DEMO/PRESENTATION
+// Rate limit for 10 TPS = 600 req/min, set to 1200 for buffer
 const generalLimiter = rateLimit({
   windowMs: 1 * 60 * 1000, // 1 minute window
-  max: 1000, // 1000 requests per minute - very high for presentations
+  max: 1200, // 1200 requests per minute (supports 20 TPS with buffer)
   message: { error: 'Too many requests, please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
 });
 app.use('/api/', generalLimiter);
 
-// Strict rate limiter for auth endpoints (brute force protection)
+// Auth rate limiter - increased for testing (10 TPS = 600/min auth)
 const authLimiter = rateLimit({
-  windowMs: 5 * 60 * 1000, // 5 minutes
-  max: 50, // 50 attempts per window - increased for demo
-  message: { error: 'Too many login attempts. Please try again after 5 minutes.' },
+  windowMs: 1 * 60 * 1000, // 1 minute window
+  max: 300, // 300 auth requests per minute (supports batch testing)
+  message: { error: 'Too many login attempts. Please try again after 1 minute.' },
   standardHeaders: true,
   legacyHeaders: false,
-  skipSuccessfulRequests: true, // Don't count successful logins
+  skipSuccessfulRequests: false, // Count all requests for testing
 });
 
 // ============================================
@@ -261,7 +262,7 @@ async function connectDB() {
 // Simple in-memory rate limiter for Gemini API calls
 const geminiRateLimiter = {
   requests: new Map(), // userId -> { count, resetTime }
-  maxRequests: 20, // Max requests per user per window
+  maxRequests: 500, // Max requests per user per window (high for testing 25 products)
   windowMs: 60 * 60 * 1000, // 1 hour window
 
   checkLimit(userId) {
