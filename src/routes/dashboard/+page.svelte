@@ -3588,7 +3588,17 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 
 						<!-- Right Column: Backlog -->
 						<div class="home-card backlog-card">
-							<h3 class="home-card-title">Backlog</h3>
+							<div class="home-card-header-row">
+								<h3 class="home-card-title">Backlog</h3>
+								<div class="card-header-actions">
+									<button class="info-btn" on:click={() => showInfo('daily-actions')} title="What is this?">
+										<span class="info-icon">i</span>
+									</button>
+									<button class="daddy-btn" on:click={() => askDaddy('daily-actions')} title="Ask Daddy">
+										<span class="daddy-icon">D</span>
+									</button>
+								</div>
+							</div>
 							{#if backlogItems.length === 0}
 								<p class="no-backlog-text">No pending tasks</p>
 							{:else}

@@ -91,10 +91,10 @@ app.use(mongoSanitize({
 // HTTP Parameter Pollution protection
 app.use(hpp());
 
-// General rate limiter for all requests
+// General rate limiter for all requests - INCREASED FOR DEMO/PRESENTATION
 const generalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 300, // 300 requests per window (supports 15 TPM production volume)
+  windowMs: 1 * 60 * 1000, // 1 minute window
+  max: 1000, // 1000 requests per minute - very high for presentations
   message: { error: 'Too many requests, please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
@@ -103,9 +103,9 @@ app.use('/api/', generalLimiter);
 
 // Strict rate limiter for auth endpoints (brute force protection)
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 15, // 15 attempts per window (supports 15 TPM production volume)
-  message: { error: 'Too many login attempts. Please try again after 15 minutes.' },
+  windowMs: 5 * 60 * 1000, // 5 minutes
+  max: 50, // 50 attempts per window - increased for demo
+  message: { error: 'Too many login attempts. Please try again after 5 minutes.' },
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true, // Don't count successful logins
