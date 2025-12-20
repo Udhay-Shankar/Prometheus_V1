@@ -1583,8 +1583,9 @@ const CACHE_DURATION = 30 * 60 * 1000; // 30 minutes
 // Market Trends & Competitor Analysis endpoint
 app.post('/api/analysis/competitors', authenticateToken, async (req, res) => {
   try {
-    const { category, userMentionedCompetitors } = req.body;
+    const { category, userMentionedCompetitors, stage, revenue } = req.body;
     const userId = req.user.userId;
+    const productStage = stage || 'Idea'; // Default stage if not provided
 
     // Check rate limit
     const rateLimitCheck = geminiRateLimiter.checkLimit(userId);
@@ -1617,7 +1618,7 @@ app.post('/api/analysis/competitors', authenticateToken, async (req, res) => {
 
 USER CONTEXT:
 - Industry: ${category}
-- Stage: ${stage}
+- Stage: ${productStage}
 - User mentioned competitors: ${mentionedComps.length > 0 ? mentionedComps.join(', ') : 'None specified'}
 
 CRITICAL TASK - You MUST return competitors in this EXACT structure:
