@@ -2350,7 +2350,60 @@
 					berkusValuation: valuation.berkusValuation,
 					scorecardValuation: valuation.scorecardValuation
 				} : null,
-				swot: swotAnalysis
+				swot: swotAnalysis,
+				competitorAnalysis: {
+					userMentionedCompetitors: ddqResponses[6] || '', // Raw user input
+					verifiedCompetitors: (verifiedCompetitors || []).map(c => ({
+						name: c.name,
+						stage: c.stage,
+						currentValuation: c.currentValuation,
+						revenue: c.revenue,
+						customers: c.customers,
+						fundingRaised: c.fundingRaised,
+						flagshipProduct: c.flagshipProduct,
+						region: c.region
+					})),
+					potentialCompetitors: (potentialCompetitors || []).map(c => ({
+						name: c.name,
+						stage: c.stage,
+						currentValuation: c.currentValuation,
+						revenue: c.revenue,
+						customers: c.customers,
+						fundingRaised: c.fundingRaised,
+						flagshipProduct: c.flagshipProduct,
+						region: c.region
+					})),
+					globalCompetitors: (globalCompetitors || []).map(c => ({
+						name: c.name,
+						stage: c.stage,
+						currentValuation: c.currentValuation,
+						revenue: c.revenue,
+						flagshipProduct: c.flagshipProduct
+					})),
+					localCompetitors: (localCompetitors || []).map(c => ({
+						name: c.name,
+						stage: c.stage,
+						currentValuation: c.currentValuation,
+						revenue: c.revenue,
+						flagshipProduct: c.flagshipProduct
+					})),
+					rivalCompetitors: (rivalCompetitors || []).map(c => ({
+						name: c.name,
+						stage: c.stage,
+						currentValuation: c.currentValuation,
+						revenue: c.revenue,
+						flagshipProduct: c.flagshipProduct
+					})),
+					allCompetitors: (competitors || []).map(c => ({
+						name: c.name,
+						stage: c.stage,
+						currentValuation: c.currentValuation,
+						revenue: c.revenue,
+						customers: c.customers,
+						growthRate: c.growthRate
+					})),
+					summary: competitorDataSummary
+				}
 			};
 
 			const response = await fetch(`${API_URL}/api/chat/grok`, {

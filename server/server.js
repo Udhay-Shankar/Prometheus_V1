@@ -76,9 +76,9 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-// Request body size limit (prevent DoS)
-app.use(express.json({ limit: '10kb' }));
-app.use(express.urlencoded({ extended: true, limit: '10kb' }));
+// Request body size limit (increased for chat context)
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
 // NoSQL injection sanitization
 app.use(mongoSanitize({
@@ -2632,12 +2632,30 @@ Weaknesses: ${context.swot.weaknesses?.join(', ') || 'None identified'}
 Opportunities: ${context.swot.opportunities?.join(', ') || 'None identified'}
 Threats: ${context.swot.threats?.join(', ') || 'None identified'}` : ''}
 
+${context.competitorAnalysis ? `
+Competitor Analysis:
+${context.competitorAnalysis.userMentionedCompetitors ? `User-Mentioned Competitors: ${context.competitorAnalysis.userMentionedCompetitors}` : ''}
+${context.competitorAnalysis.verifiedCompetitors?.length > 0 ? `Verified Competitors:
+${context.competitorAnalysis.verifiedCompetitors.map(c => `- ${c.name}: Stage=${c.stage || 'N/A'}, Valuation=₹${c.currentValuation ? (c.currentValuation/10000000).toFixed(1) + ' Cr' : 'N/A'}, Revenue=₹${c.revenue ? (c.revenue/10000000).toFixed(1) + ' Cr' : 'N/A'}, Customers=${c.customers || 'N/A'}, Funding=₹${c.fundingRaised ? (c.fundingRaised/10000000).toFixed(1) + ' Cr' : 'N/A'}, Product=${c.flagshipProduct || 'N/A'}, Region=${c.region || 'N/A'}`).join('\n')}` : ''}
+${context.competitorAnalysis.globalCompetitors?.length > 0 ? `Global Competitors:
+${context.competitorAnalysis.globalCompetitors.map(c => `- ${c.name}: Stage=${c.stage || 'N/A'}, Valuation=₹${c.currentValuation ? (c.currentValuation/10000000).toFixed(1) + ' Cr' : 'N/A'}, Product=${c.flagshipProduct || 'N/A'}`).join('\n')}` : ''}
+${context.competitorAnalysis.localCompetitors?.length > 0 ? `Local/Indian Competitors:
+${context.competitorAnalysis.localCompetitors.map(c => `- ${c.name}: Stage=${c.stage || 'N/A'}, Valuation=₹${c.currentValuation ? (c.currentValuation/10000000).toFixed(1) + ' Cr' : 'N/A'}, Product=${c.flagshipProduct || 'N/A'}`).join('\n')}` : ''}
+${context.competitorAnalysis.rivalCompetitors?.length > 0 ? `Direct Rivals:
+${context.competitorAnalysis.rivalCompetitors.map(c => `- ${c.name}: Stage=${c.stage || 'N/A'}, Valuation=₹${c.currentValuation ? (c.currentValuation/10000000).toFixed(1) + ' Cr' : 'N/A'}, Product=${c.flagshipProduct || 'N/A'}`).join('\n')}` : ''}
+${context.competitorAnalysis.potentialCompetitors?.length > 0 ? `Potential Competitors:
+${context.competitorAnalysis.potentialCompetitors.map(c => `- ${c.name}: Stage=${c.stage || 'N/A'}, Valuation=₹${c.currentValuation ? (c.currentValuation/10000000).toFixed(1) + ' Cr' : 'N/A'}, Product=${c.flagshipProduct || 'N/A'}`).join('\n')}` : ''}
+${context.competitorAnalysis.allCompetitors?.length > 0 && !context.competitorAnalysis.verifiedCompetitors?.length && !context.competitorAnalysis.globalCompetitors?.length ? `All Competitors:
+${context.competitorAnalysis.allCompetitors.slice(0, 5).map(c => `- ${c.name}: Stage=${c.stage || 'N/A'}, Valuation=₹${c.currentValuation ? (c.currentValuation/10000000).toFixed(1) + ' Cr' : 'N/A'}, Growth=${c.growthRate || 'N/A'}%`).join('\n')}` : ''}
+${context.competitorAnalysis.summary ? `Summary: ${context.competitorAnalysis.summary}` : ''}` : ''}
+
 Your role:
 1. Provide strategic, data-driven insights based on the company's actual data
 2. Answer questions about valuation methodologies, scores, and metrics
 3. Help with "what-if" scenarios (e.g., impact of revenue growth, team expansion)
 4. Offer actionable advice for growth, funding, and competitive positioning
 5. Explain SWOT analysis, market trends, and funding schemes
+6. When asked about competitors, use the Competitor Analysis data above to provide detailed insights about market positioning, competitive threats, and differentiation strategies
 
 Keep responses concise, actionable, and personalized to ${context.company?.name || 'this business'}.`;
 
