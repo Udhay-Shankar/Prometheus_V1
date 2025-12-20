@@ -1584,7 +1584,7 @@ const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes - fetch fresh data more often
 // Market Trends & Competitor Analysis endpoint
 app.post('/api/analysis/competitors', authenticateToken, async (req, res) => {
   try {
-    const { category, userMentionedCompetitors, stage, revenue } = req.body;
+    const { category, userMentionedCompetitors, stage, revenue, productDescription } = req.body;
     const userId = req.user.userId;
     const productStage = stage || 'Idea'; // Default stage if not provided
 
@@ -1601,109 +1601,111 @@ app.post('/api/analysis/competitors', authenticateToken, async (req, res) => {
       ? userMentionedCompetitors.split(',').map(c => c.trim()).filter(c => c.length > 0)
       : [];
     
-    // Create cache key based on category and user-mentioned competitors
-    const cacheKey = `${category}_${mentionedComps.sort().join('_')}`;
+    // Determine the actual industry from user-mentioned competitors or category
+    let industry = category;
+    // Detect industry from user-mentioned competitors
+    const competitorStr = mentionedComps.join(' ').toLowerCase();
+    if (competitorStr.includes('casa') || competitorStr.includes('hiranandani') || competitorStr.includes('godrej') || 
+        competitorStr.includes('dlf') || competitorStr.includes('prestige') || competitorStr.includes('sobha') ||
+        competitorStr.includes('lodha') || competitorStr.includes('mahindra life') || competitorStr.includes('brigade')) {
+      industry = 'Real Estate & Construction';
+    } else if (competitorStr.includes('zomato') || competitorStr.includes('swiggy') || competitorStr.includes('rebel')) {
+      industry = 'FoodTech';
+    } else if (competitorStr.includes('zerodha') || competitorStr.includes('groww') || competitorStr.includes('razorpay')) {
+      industry = 'FinTech';
+    }
+    
+    // Create cache key based on industry and user-mentioned competitors
+    const cacheKey = `${industry}_${mentionedComps.sort().join('_')}`;
     
     // Check if we have a recent cached result
     const cachedResult = competitorCache.get(cacheKey);
     if (cachedResult && (Date.now() - cachedResult.timestamp) < CACHE_DURATION) {
-      console.log('📦 Returning cached competitor data for:', category);
+      console.log('📦 Returning cached competitor data for:', industry);
       return res.json(cachedResult.data);
     }
 
-    console.log('📊 Fetching competitor valuation data for:', category, 'User mentioned:', mentionedComps);
+    console.log('📊 Fetching competitor valuation data for:', industry, 'User mentioned:', mentionedComps);
 
-    // Use Google Search grounding for real, validated competitor data
+    // Build the search query based on user context
     const userCompCount = mentionedComps.length;
-    const searchPrompt = `Research and provide ACCURATE, DOUBLE-VERIFIED valuation data for ${category} companies.
+    
+    // Create specific search query for Google
+    let searchQuery = `${industry} companies India valuation revenue`;
+    if (mentionedComps.length > 0) {
+      searchQuery = `${mentionedComps.join(' ')} ${industry} company valuation revenue funding India competitors`;
+    }
+    
+    const searchPrompt = `Search Google for: "${searchQuery}"
 
-USER CONTEXT:
-- Industry: ${category}
-- Stage: ${productStage}
-- User mentioned competitors: ${mentionedComps.length > 0 ? mentionedComps.join(', ') : 'None specified'}
+You are a financial research analyst. Based on Google Search results, provide data for REAL COMPANIES ONLY.
 
-CRITICAL TASK - You MUST return competitors in this EXACT structure:
-${userCompCount > 0 ? `1. USER-MENTIONED COMPETITORS (${userCompCount} total) - MUST INCLUDE ALL: ${mentionedComps.join(', ')} (mark as "region": "user-pick", "isUserMentioned": true)` : ''}
-${userCompCount > 0 ? `2.` : `1.`} 2 GLOBAL (International) ${category} companies - global leaders that compete or could enter India (mark as "region": "global")
-${userCompCount > 0 ? `3.` : `2.`} 2 LOCAL (Indian) ${category} companies - well-established major players in India (mark as "region": "local")
-${userCompCount > 0 ? `4.` : `3.`} 1 RIVAL - an emerging/growing company that could be a direct future threat (mark as "region": "rival")
+## ABSOLUTE RULES - READ CAREFULLY:
+1. NEVER use placeholder names like "Startup A", "Company B", "Industry Leader", "Other Company", "Hardware Startup"
+2. ONLY return REAL company names that appear in Google Search results
+3. If you cannot find a real company, DO NOT invent one - just return fewer competitors
 
-TOTAL COMPETITORS TO RETURN: ${userCompCount + 5} (${userCompCount} user picks + 2 global + 2 local + 1 rival)
+## USER'S COMPETITORS:
+${mentionedComps.length > 0 ? `The user mentioned: ${mentionedComps.join(', ')}
+SEARCH for these exact companies and get their real data.` : 'No specific competitors mentioned.'}
 
-IMPORTANT: 
-- DO NOT skip any user-mentioned competitors (${mentionedComps.join(', ') || 'None'})
-- User-mentioned competitors should be marked with "isUserMentioned": true
-- Always return EXACTLY 2 global + 2 local + 1 rival IN ADDITION to user picks
+## INDUSTRY DETECTED: ${industry}
 
-DATA VERIFICATION REQUIREMENTS:
-- CROSS-VERIFY all data from at least 2 sources before including
-- For valuation: Use funding round announcements, IPO filings, or market cap
-- For revenue: Use annual reports, news articles, or estimates from credible sources
-- For customers: Use official company data or credible reports
-- Sources must be: Crunchbase, PitchBook, company filings, Reuters, Bloomberg, Economic Times, YourStory, Inc42, TechCrunch
+## REQUIRED COMPANIES (only real ones):
+${userCompCount > 0 ? `1. USER PICKS: ${mentionedComps.join(', ')} - Search and return REAL data for these (set "region": "user-pick", "isUserMentioned": true)` : ''}
+${userCompCount > 0 ? '2' : '1'}. 2 GLOBAL leaders in ${industry}
+${userCompCount > 0 ? '3' : '2'}. 2 Indian market leaders in ${industry}  
+${userCompCount > 0 ? '4' : '3'}. 1 Rising Indian competitor
 
-VALUATION TIMELINE REQUIREMENTS:
-- Include at least 4 data points spanning founding year to 2024/2025
-- Each point must have: year, valuation (in INR), event (funding round/IPO/milestone)
-- For international companies: Convert to INR (use 83 INR = 1 USD)
+## REAL COMPANY REFERENCE (use these or similar REAL companies):
+${industry === 'Real Estate & Construction' || competitorStr.includes('casa') || competitorStr.includes('hira') ? 
+`INDIAN REAL ESTATE: DLF Limited, Godrej Properties, Prestige Estates, Sobha Limited, Brigade Enterprises, Oberoi Realty, Puravankara, Mahindra Lifespaces, Casa Grande (Chennai), Hiranandani Group
+GLOBAL: CBRE Group, JLL (Jones Lang LaSalle), Brookfield Asset Management, Cushman & Wakefield` : 
+industry === 'SaaS' ? 
+`INDIAN SAAS: Freshworks, Zoho, Chargebee, CleverTap, Postman, BrowserStack, Druva, Icertis
+GLOBAL: Salesforce, Microsoft, HubSpot, ServiceNow, Workday` :
+industry === 'FinTech' ?
+`INDIAN FINTECH: Razorpay, PhonePe, Paytm, CRED, Zerodha, Groww, PolicyBazaar, Pine Labs
+GLOBAL: Stripe, Square, PayPal, Adyen` :
+`Search for real companies in the ${industry} sector`}
 
-Mark each company with:
-- "region": "global" for international companies (exactly 2)
-- "region": "local" for Indian companies (exactly 2)
-- "region": "rival" for the emerging threat competitor (exactly 1)
-- "dataVerified": true if data is from verified sources
-- "verificationSources": ["Source1", "Source2"] - list at least 2 sources
-
-Return ONLY valid JSON (no markdown, no code blocks):
+## OUTPUT FORMAT (JSON only, no markdown):
 {
   "competitors": [
     {
-      "name": "Company Name",
-      "category": "${category}",
-      "stage": "Current Stage (Seed/Series A/B/C/Public etc)",
-      "region": "global|local|rival|user-pick",
+      "name": "Actual Company Name",
+      "category": "${industry}",
+      "stage": "Public/Series X/Private",
+      "region": "user-pick|global|local|rival",
       "headquarters": "City, Country",
-      "foundedYear": 2015,
+      "foundedYear": 1990,
       "currentValuation": 500000000000,
-      "flagshipProduct": "Main product/service the company is known for",
-      "products": ["Flagship Product", "Product 2", "Product 3"],
+      "flagshipProduct": "Main Product",
+      "products": ["Product 1"],
       "valuationTimeline": [
-        { "year": 2015, "valuation": 10000000, "event": "Founded/Seed" },
-        { "year": 2017, "valuation": 500000000, "event": "Series A" },
-        { "year": 2019, "valuation": 5000000000, "event": "Series B" },
-        { "year": 2021, "valuation": 50000000000, "event": "Series C" },
-        { "year": 2023, "valuation": 200000000000, "event": "Series D" },
-        { "year": 2024, "valuation": 500000000000, "event": "Latest" }
+        {"year": 1990, "valuation": 10000000, "event": "Founded"},
+        {"year": 2024, "valuation": 500000000000, "event": "Current"}
       ],
-      "revenue": 100000000,
-      "growthRate": 45,
+      "revenue": 100000000000,
+      "growthRate": 15,
       "customers": 50000,
       "fundingRaised": 30000000000,
       "visible": true,
-      "isUserMentioned": true or false,
+      "isUserMentioned": true,
       "isDataPublic": true
     }
   ],
   "marketTrends": [
-    { "title": "India vs Global CAGR", "value": "33% vs 25%", "description": "Indian market growing faster" },
-    { "title": "2024 Funding", "value": "$X Billion", "description": "Total VC investment in sector" },
-    { "title": "Market Size", "value": "$X Billion", "description": "Total addressable market in India" },
-    { "title": "YoY Growth", "value": "X%", "description": "Year-over-year growth rate" },
-    { "title": "Active Startups", "value": "X+", "description": "Number of startups in this space" },
-    { "title": "Unicorn Count", "value": "X", "description": "Unicorns in this category" },
-    { "title": "Avg Deal Size", "value": "$X Million", "description": "Average funding round size" }
-  ],
-  "dataValidation": {
-    "sources": ["Source 1", "Source 2"],
-    "lastUpdated": "December 2024",
-    "confidence": "high/medium/low"
-  }
-}`;
+    {"title": "Market Size", "value": "$100B", "description": "${industry} market"}
+  ]
+}
+
+FINAL CHECK: Before returning, verify EVERY company name is a REAL company. Delete any generic/placeholder names.`;
 
     try {
       // Use Google Search grounded Gemini for real data
       const searchResponse = await callGeminiWithSearch(searchPrompt, 
-        'You are a financial data analyst. Provide ONLY verified, factual valuation data from real sources. Return pure JSON only. ALWAYS include ALL user-mentioned competitors.');
+        `You are a financial data analyst specializing in ${industry}. Return ONLY real company names with verified data. Never use placeholder names like "Startup A" or "Industry Leader". All companies must be real and verifiable.`);
       
       // Clean and parse response - more robust cleaning
       let content = searchResponse;
@@ -1755,7 +1757,34 @@ Return ONLY valid JSON (no markdown, no code blocks):
         throw new Error('No competitors returned from API');
       }
       
-      console.log(`📊 Parsed ${analysis.competitors.length} competitors from API response`);
+      // Filter out any generic/placeholder names
+      const genericPatterns = [
+        /^(startup|company|business|competitor|industry|leader|rival|player)\s*[a-z0-9]*$/i,
+        /^(other|generic|unknown|sample|example|test)\s/i,
+        /^hardware\s+(startup|company)/i,
+        /^[a-z]\s+(company|startup|business)$/i,
+        /^(new|emerging|local|global)\s+(startup|company|player)/i
+      ];
+      
+      analysis.competitors = analysis.competitors.filter(comp => {
+        if (!comp.name || typeof comp.name !== 'string') return false;
+        const name = comp.name.trim();
+        // Check for generic patterns
+        for (const pattern of genericPatterns) {
+          if (pattern.test(name)) {
+            console.warn('⚠️ Filtering out generic competitor name:', name);
+            return false;
+          }
+        }
+        // Name should be at least 2 characters and not just letters like "A", "B"
+        if (name.length < 3 || /^[a-zA-Z]$/.test(name)) {
+          console.warn('⚠️ Filtering out invalid competitor name:', name);
+          return false;
+        }
+        return true;
+      });
+      
+      console.log(`📊 Parsed ${analysis.competitors.length} valid competitors from API response`);
       
       // Post-process competitors to ensure all required fields exist with valid data
       // and categorize into verified vs potential competitors
