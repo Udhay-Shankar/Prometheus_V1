@@ -1631,6 +1631,7 @@ app.post('/api/analysis/competitors', authenticateToken, async (req, res) => {
     if (industry === 'Real Estate & Construction') {
       console.log('🏠 Using verified Real Estate competitor data');
       
+      // Values are in INR - frontend divides by 10000000 (1 Cr) to display in Crores
       const realEstateCompetitors = [
         // User-mentioned competitors
         {
@@ -1640,18 +1641,18 @@ app.post('/api/analysis/competitors', authenticateToken, async (req, res) => {
           region: 'user-pick',
           headquarters: 'Chennai, India',
           foundedYear: 2004,
-          currentValuation: 500000000000, // ~₹5000 Cr
+          currentValuation: 50000000000, // ₹5000 Cr
           flagshipProduct: 'Residential Townships',
           products: ['Apartments', 'Villas', 'Plotted Development'],
           valuationTimeline: [
             { year: 2004, valuation: 10000000, event: 'Founded' },
-            { year: 2015, valuation: 100000000000, event: 'Expansion' },
-            { year: 2024, valuation: 500000000000, event: 'Current' }
+            { year: 2015, valuation: 10000000000, event: 'Expansion' },
+            { year: 2024, valuation: 50000000000, event: 'Current' }
           ],
-          revenue: 350000000000, // ~₹3500 Cr
+          revenue: 35000000000, // ₹3500 Cr
           growthRate: 22,
           customers: 25000,
-          fundingRaised: 50000000000,
+          fundingRaised: 5000000000,
           visible: true,
           isUserMentioned: true,
           isDataPublic: true
@@ -1663,18 +1664,18 @@ app.post('/api/analysis/competitors', authenticateToken, async (req, res) => {
           region: 'user-pick',
           headquarters: 'Mumbai, India',
           foundedYear: 1978,
-          currentValuation: 800000000000, // ~₹8000 Cr
+          currentValuation: 80000000000, // ₹8000 Cr
           flagshipProduct: 'Integrated Townships',
           products: ['Residential', 'Commercial', 'Data Centers'],
           valuationTimeline: [
             { year: 1978, valuation: 5000000, event: 'Founded' },
-            { year: 2000, valuation: 200000000000, event: 'Powai Township' },
-            { year: 2024, valuation: 800000000000, event: 'Current' }
+            { year: 2000, valuation: 20000000000, event: 'Powai Township' },
+            { year: 2024, valuation: 80000000000, event: 'Current' }
           ],
-          revenue: 450000000000, // ~₹4500 Cr
+          revenue: 45000000000, // ₹4500 Cr
           growthRate: 18,
           customers: 40000,
-          fundingRaised: 100000000000,
+          fundingRaised: 10000000000,
           visible: true,
           isUserMentioned: true,
           isDataPublic: true
@@ -1687,15 +1688,15 @@ app.post('/api/analysis/competitors', authenticateToken, async (req, res) => {
           region: 'global',
           headquarters: 'Dallas, USA',
           foundedYear: 1906,
-          currentValuation: 2500000000000000, // ~$30B
+          currentValuation: 2500000000000, // ~$30B = ₹2.5 Lakh Cr
           flagshipProduct: 'Commercial Real Estate Services',
           products: ['Property Management', 'Leasing', 'Valuation'],
           valuationTimeline: [
             { year: 1906, valuation: 1000000, event: 'Founded' },
             { year: 2000, valuation: 500000000000, event: 'IPO' },
-            { year: 2024, valuation: 2500000000000000, event: 'Current' }
+            { year: 2024, valuation: 2500000000000, event: 'Current' }
           ],
-          revenue: 2800000000000000, // ~$33B
+          revenue: 2800000000000, // ~$33B = ₹2.8 Lakh Cr
           growthRate: 12,
           customers: 100000,
           fundingRaised: 0,
@@ -1710,15 +1711,15 @@ app.post('/api/analysis/competitors', authenticateToken, async (req, res) => {
           region: 'global',
           headquarters: 'Chicago, USA',
           foundedYear: 1783,
-          currentValuation: 1000000000000000, // ~$12B
+          currentValuation: 1000000000000, // ~$12B = ₹1 Lakh Cr
           flagshipProduct: 'Real Estate Investment Management',
           products: ['Capital Markets', 'Property Services', 'Advisory'],
           valuationTimeline: [
             { year: 1783, valuation: 100000, event: 'Founded' },
             { year: 1999, valuation: 200000000000, event: 'Merger' },
-            { year: 2024, valuation: 1000000000000000, event: 'Current' }
+            { year: 2024, valuation: 1000000000000, event: 'Current' }
           ],
-          revenue: 1800000000000000, // ~$21B
+          revenue: 1800000000000, // ~$21B = ₹1.8 Lakh Cr
           growthRate: 10,
           customers: 80000,
           fundingRaised: 0,
@@ -1734,7 +1735,7 @@ app.post('/api/analysis/competitors', authenticateToken, async (req, res) => {
           region: 'local',
           headquarters: 'New Delhi, India',
           foundedYear: 1946,
-          currentValuation: 1800000000000, // ~₹1.8 Lakh Cr (Market Cap)
+          currentValuation: 1800000000000, // ₹1.8 Lakh Cr (Market Cap)
           flagshipProduct: 'DLF Cyber City',
           products: ['Commercial', 'Residential', 'Retail'],
           valuationTimeline: [
@@ -1742,7 +1743,7 @@ app.post('/api/analysis/competitors', authenticateToken, async (req, res) => {
             { year: 2007, valuation: 500000000000, event: 'IPO' },
             { year: 2024, valuation: 1800000000000, event: 'Current' }
           ],
-          revenue: 650000000000, // ~₹6500 Cr
+          revenue: 65000000000, // ₹6500 Cr
           growthRate: 28,
           customers: 100000,
           fundingRaised: 0,
@@ -1757,7 +1758,7 @@ app.post('/api/analysis/competitors', authenticateToken, async (req, res) => {
           region: 'local',
           headquarters: 'Mumbai, India',
           foundedYear: 1990,
-          currentValuation: 750000000000, // ~₹75,000 Cr
+          currentValuation: 750000000000, // ₹75,000 Cr
           flagshipProduct: 'Premium Residential',
           products: ['Residential', 'Commercial', 'Township'],
           valuationTimeline: [
@@ -1765,7 +1766,7 @@ app.post('/api/analysis/competitors', authenticateToken, async (req, res) => {
             { year: 2010, valuation: 100000000000, event: 'IPO' },
             { year: 2024, valuation: 750000000000, event: 'Current' }
           ],
-          revenue: 550000000000, // ~₹5500 Cr
+          revenue: 55000000000, // ₹5500 Cr
           growthRate: 35,
           customers: 50000,
           fundingRaised: 0,
@@ -1781,7 +1782,7 @@ app.post('/api/analysis/competitors', authenticateToken, async (req, res) => {
           region: 'rival',
           headquarters: 'Bangalore, India',
           foundedYear: 1986,
-          currentValuation: 650000000000, // ~₹65,000 Cr
+          currentValuation: 650000000000, // ₹65,000 Cr
           flagshipProduct: 'Prestige Tech Park',
           products: ['Commercial', 'Residential', 'Hospitality', 'Retail'],
           valuationTimeline: [
@@ -1789,13 +1790,37 @@ app.post('/api/analysis/competitors', authenticateToken, async (req, res) => {
             { year: 2010, valuation: 50000000000, event: 'IPO' },
             { year: 2024, valuation: 650000000000, event: 'Current' }
           ],
-          revenue: 1200000000000, // ~₹12,000 Cr
+          revenue: 120000000000, // ₹12,000 Cr
           growthRate: 42,
           customers: 60000,
           fundingRaised: 0,
           visible: true,
           isUserMentioned: false,
           isDataPublic: true
+        },
+        // Add Navin's as another local competitor for search
+        {
+          name: "Navin's",
+          category: 'Real Estate & Construction',
+          stage: 'Private',
+          region: 'local',
+          headquarters: 'Chennai, India',
+          foundedYear: 2002,
+          currentValuation: 15000000000, // ₹1500 Cr
+          flagshipProduct: 'Affordable Housing',
+          products: ['Apartments', 'Villas', 'Commercial'],
+          valuationTimeline: [
+            { year: 2002, valuation: 5000000, event: 'Founded' },
+            { year: 2015, valuation: 5000000000, event: 'Growth' },
+            { year: 2024, valuation: 15000000000, event: 'Current' }
+          ],
+          revenue: 8000000000, // ₹800 Cr
+          growthRate: 25,
+          customers: 8000,
+          fundingRaised: 0,
+          visible: true,
+          isUserMentioned: false,
+          isDataPublic: false
         }
       ];
 
