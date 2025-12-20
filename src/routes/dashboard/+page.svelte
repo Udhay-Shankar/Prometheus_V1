@@ -2013,19 +2013,30 @@
 				]
 			}));
 			
-			// Food Delivery / Marketplace detection
+			// Helper function to check if category matches (handles arrays and strings)
+			const categoryMatches = (checkCategory) => {
+				if (Array.isArray(category)) {
+					return category.some(c => c.toLowerCase().includes(checkCategory.toLowerCase()));
+				}
+				return String(category).toLowerCase().includes(checkCategory.toLowerCase());
+			};
+			
+			// Food Delivery / Marketplace / E-commerce detection (ONDC, Swiggy indicate this)
 			if (userCompetitors.includes('zomato') || userCompetitors.includes('swiggy') || 
-			    userCompetitors.includes('uber eats') || userCompetitors.includes('dunzo') ||
-			    category === 'Marketplace' || category === 'Food & Beverage') {
+			    userCompetitors.includes('ondc') || userCompetitors.includes('uber eats') || 
+			    userCompetitors.includes('dunzo') || userCompetitors.includes('bigbasket') ||
+			    categoryMatches('Marketplace') || categoryMatches('Food') || categoryMatches('E-commerce') ||
+			    categoryMatches('Mobile App') || categoryMatches('Delivery')) {
 				intelligentCompetitors = [
+					{ name: 'ONDC', stage: 'Government Backed', currentValuation: 50000000000, earlyValuation: 10000000000, growthRate: 600, revenue: 0, customers: 50000000, fundingRaised: 10000000000, investments: ['Government of India', 'Quality Council of India'], flagshipProduct: 'Open Network for Digital Commerce', products: ['Open Commerce Network', 'Seller Network', 'Buyer Apps'], visible: true, region: 'local', valuationTimeline: [{ year: 2021, valuation: 10000000000, event: 'Founded' }, { year: 2022, valuation: 20000000000, event: 'Pilot Launch' }, { year: 2023, valuation: 35000000000, event: 'National Rollout' }, { year: 2024, valuation: 50000000000, event: 'Current' }] },
+					{ name: 'Swiggy', stage: 'Series J', currentValuation: 1050000000000, earlyValuation: 25000000000, growthRate: 520, revenue: 6500000000, customers: 120000000, fundingRaised: 25000000000, investments: ['Accel - $2M', 'Prosus - $1B'], flagshipProduct: 'Food Delivery Platform', products: ['Food Delivery', 'Instamart', 'Genie'], visible: true, region: 'local', valuationTimeline: [{ year: 2014, valuation: 50000000, event: 'Founded' }, { year: 2017, valuation: 2000000000, event: 'Series C' }, { year: 2020, valuation: 35000000000, event: 'Series H' }, { year: 2024, valuation: 1050000000000, event: 'Series J' }] },
 					{ name: 'Dunzo', stage: 'Series F', currentValuation: 23000000000, earlyValuation: 800000000, growthRate: 420, revenue: 35000000, customers: 3000000, fundingRaised: 800000000, investments: ['Google - $12M', 'Reliance - $200M'], flagshipProduct: 'Hyperlocal Delivery', products: ['Hyperlocal Delivery', 'Quick Commerce', 'B2B Services'], visible: true, region: 'local', valuationTimeline: [{ year: 2015, valuation: 50000000, event: 'Founded' }, { year: 2017, valuation: 800000000, event: 'Series B' }, { year: 2020, valuation: 5000000000, event: 'Series D' }, { year: 2022, valuation: 23000000000, event: 'Series F' }] },
-					{ name: 'Zomato', stage: 'Public', currentValuation: 650000000000, earlyValuation: 20000000000, growthRate: 480, revenue: 4800000000, customers: 80000000, fundingRaised: 20000000000, investments: ['Info Edge - $1M', 'Ant Financial - $200M'], flagshipProduct: 'Food Delivery App', products: ['Food Delivery', 'Dining Out', 'Hyperpure'], visible: true, region: 'local', valuationTimeline: [{ year: 2008, valuation: 10000000, event: 'Founded' }, { year: 2013, valuation: 2000000000, event: 'Series C' }, { year: 2018, valuation: 20000000000, event: 'Series G' }, { year: 2021, valuation: 650000000000, event: 'IPO' }] },
-					{ name: 'Swiggy', stage: 'Series J', currentValuation: 1050000000000, earlyValuation: 25000000000, growthRate: 520, revenue: 6500000000, customers: 120000000, fundingRaised: 25000000000, investments: ['Accel - $2M', 'Prosus - $1B'], flagshipProduct: 'Food Delivery Platform', products: ['Food Delivery', 'Instamart', 'Genie'], visible: true, region: 'local', valuationTimeline: [{ year: 2014, valuation: 50000000, event: 'Founded' }, { year: 2017, valuation: 2000000000, event: 'Series C' }, { year: 2020, valuation: 35000000000, event: 'Series H' }, { year: 2024, valuation: 1050000000000, event: 'Series J' }] }
+					{ name: 'Zomato', stage: 'Public', currentValuation: 650000000000, earlyValuation: 20000000000, growthRate: 480, revenue: 4800000000, customers: 80000000, fundingRaised: 20000000000, investments: ['Info Edge - $1M', 'Ant Financial - $200M'], flagshipProduct: 'Food Delivery App', products: ['Food Delivery', 'Dining Out', 'Hyperpure'], visible: true, region: 'global', valuationTimeline: [{ year: 2008, valuation: 10000000, event: 'Founded' }, { year: 2013, valuation: 2000000000, event: 'Series C' }, { year: 2018, valuation: 20000000000, event: 'Series G' }, { year: 2021, valuation: 650000000000, event: 'IPO' }] }
 				];
 			}
-			// E-commerce detection
+			// Pure E-commerce detection (no food delivery)
 			else if (userCompetitors.includes('amazon') || userCompetitors.includes('flipkart') || 
-			         userCompetitors.includes('meesho') || category === 'E-commerce') {
+			         userCompetitors.includes('meesho') || (categoryMatches('E-commerce') && !categoryMatches('Food'))) {
 				intelligentCompetitors = [
 					{ name: 'Meesho', stage: 'Series F', currentValuation: 49000000000, earlyValuation: 2000000000, growthRate: 500, revenue: 35000000, customers: 13000000, fundingRaised: 2000000000, investments: ['SoftBank - $300M', 'Meta - $50M'], flagshipProduct: 'Social Commerce Platform', products: ['Social Commerce', 'Supplier Network', 'Meesho Mall'], visible: true, valuationTimeline: [{ year: 2015, valuation: 50000000, event: 'Founded' }, { year: 2019, valuation: 5000000000, event: 'Series C' }, { year: 2021, valuation: 49000000000, event: 'Series F' }] },
 					{ name: 'Flipkart', stage: 'Acquired', currentValuation: 2000000000000, earlyValuation: 50000000000, growthRate: 450, revenue: 850000000000, customers: 450000000, fundingRaised: 50000000000, investments: ['Walmart - $16B'], flagshipProduct: 'E-commerce Marketplace', products: ['E-commerce', 'Flipkart Plus', 'Grocery'], visible: true, valuationTimeline: [{ year: 2007, valuation: 10000000, event: 'Founded' }, { year: 2012, valuation: 10000000000, event: 'Series D' }, { year: 2018, valuation: 200000000000, event: 'Walmart Acquisition' }, { year: 2024, valuation: 2000000000000, event: 'Current' }] },
@@ -2034,7 +2045,7 @@
 			}
 			// FinTech detection
 			else if (userCompetitors.includes('paytm') || userCompetitors.includes('phonepe') || 
-			         userCompetitors.includes('razorpay') || category === 'FinTech') {
+			         userCompetitors.includes('razorpay') || categoryMatches('FinTech') || categoryMatches('Payment')) {
 				intelligentCompetitors = [
 					{ name: 'Razorpay', stage: 'Series F', currentValuation: 75000000000, earlyValuation: 5000000000, growthRate: 480, revenue: 95000000, customers: 8000000, fundingRaised: 5000000000, investments: ['Sequoia - $10M', 'Tiger Global - $150M'], flagshipProduct: 'Payment Gateway', products: ['Payment Gateway', 'Banking', 'Payroll'], visible: true, valuationTimeline: [{ year: 2014, valuation: 50000000, event: 'Founded' }, { year: 2018, valuation: 5000000000, event: 'Series C' }, { year: 2021, valuation: 75000000000, event: 'Series F' }] },
 					{ name: 'Paytm', stage: 'Public', currentValuation: 450000000000, earlyValuation: 20000000000, growthRate: 420, revenue: 250000000, customers: 350000000, fundingRaised: 20000000000, investments: ['Alibaba - $680M', 'SoftBank - $1.4B'], flagshipProduct: 'Paytm Wallet & UPI', products: ['Payments', 'Banking', 'Wealth'], visible: true, valuationTimeline: [{ year: 2010, valuation: 50000000, event: 'Founded' }, { year: 2015, valuation: 40000000000, event: 'Series D' }, { year: 2019, valuation: 160000000000, event: 'Series G' }, { year: 2021, valuation: 450000000000, event: 'IPO' }] },
@@ -2043,7 +2054,7 @@
 			}
 			// EdTech detection
 			else if (userCompetitors.includes('byju') || userCompetitors.includes('unacademy') || 
-			         userCompetitors.includes('upgrad') || category === 'EdTech' || category === 'Education') {
+			         userCompetitors.includes('upgrad') || categoryMatches('EdTech') || categoryMatches('Education')) {
 				intelligentCompetitors = [
 					{ name: 'Unacademy', stage: 'Series H', currentValuation: 37000000000, earlyValuation: 3000000000, growthRate: 390, revenue: 28000000, customers: 50000000, fundingRaised: 3000000000, investments: ['SoftBank - $150M', 'General Atlantic - $440M'], flagshipProduct: 'Live Classes Platform', products: ['Live Classes', 'Test Prep', 'Upskilling'], visible: true, valuationTimeline: [{ year: 2015, valuation: 20000000, event: 'Founded' }, { year: 2018, valuation: 1000000000, event: 'Series C' }, { year: 2020, valuation: 20000000000, event: 'Series F' }, { year: 2022, valuation: 37000000000, event: 'Series H' }] },
 					{ name: 'UpGrad', stage: 'Series E', currentValuation: 28000000000, earlyValuation: 2500000000, growthRate: 360, revenue: 35000000, customers: 4000000, fundingRaised: 2500000000, investments: ['Temasek - $120M'], flagshipProduct: 'Online Degrees', products: ['Online Degrees', 'Bootcamps', 'Corporate Training'], visible: true, valuationTimeline: [{ year: 2015, valuation: 50000000, event: 'Founded' }, { year: 2019, valuation: 2000000000, event: 'Series C' }, { year: 2021, valuation: 12000000000, event: 'Series D' }, { year: 2023, valuation: 28000000000, event: 'Series E' }] },
@@ -2052,7 +2063,7 @@
 			}
 			// SaaS / B2B detection
 			else if (userCompetitors.includes('freshworks') || userCompetitors.includes('zoho') || 
-			         userCompetitors.includes('salesforce') || category === 'SaaS' || category === 'B2B') {
+			         userCompetitors.includes('salesforce') || categoryMatches('SaaS') || categoryMatches('B2B')) {
 				intelligentCompetitors = [
 					{ name: 'Freshworks', stage: 'Public', currentValuation: 350000000000, earlyValuation: 10000000000, growthRate: 450, revenue: 500000000, customers: 50000, fundingRaised: 10000000000, investments: ['Accel - $5M', 'Tiger Global - $100M'], flagshipProduct: 'Freshdesk (Customer Support)', products: ['Freshdesk', 'Freshsales', 'Freshservice'], visible: true, valuationTimeline: [{ year: 2010, valuation: 50000000, event: 'Founded' }, { year: 2015, valuation: 5000000000, event: 'Series D' }, { year: 2019, valuation: 35000000000, event: 'Series H' }, { year: 2021, valuation: 350000000000, event: 'IPO' }] },
 					{ name: 'Zoho', stage: 'Private', currentValuation: 250000000000, earlyValuation: 2000000000, growthRate: 400, revenue: 350000000, customers: 80000, fundingRaised: 2000000000, investments: ['Bootstrapped'], flagshipProduct: 'Zoho CRM', products: ['Zoho CRM', 'Zoho Mail', 'Zoho Suite'], visible: true, valuationTimeline: [{ year: 1996, valuation: 10000000, event: 'Founded' }, { year: 2008, valuation: 5000000000, event: 'SaaS Expansion' }, { year: 2018, valuation: 100000000000, event: 'Unicorn' }, { year: 2024, valuation: 250000000000, event: 'Current' }] },
