@@ -196,13 +196,111 @@ app.get('/api/health', (req, res) => {
       auth: ['/api/auth/signup', '/api/auth/login', '/api/auth/refresh'],
       assessment: ['/api/ddq/submit', '/api/ddq/latest'],
       analysis: ['/api/analysis/swot', '/api/analysis/funding', '/api/analysis/competitors'],
-      chat: ['/api/chat/grok']
+      chat: ['/api/chat/grok'],
+      infinity: ['/api/infinity/stats']
     }
   });
 });
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// ============================================
+// INFINITY STATS API
+// ============================================
+
+// Fetch InFinity stats for a user
+app.get('/api/infinity/stats/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const INFINITY_API_URL = process.env.INFINITY_API_URL || 'https://strat-mu-finagent.onrender.com';
+    const INFINITY_API_KEY = process.env.INFINITY_API_KEY;
+
+    if (!INFINITY_API_KEY) {
+      return res.status(500).json({ error: 'InFinity API key not configured' });
+    }
+
+    console.log(`📊 Fetching InFinity stats for user: ${userId}`);
+
+    const response = await fetch(
+      `${INFINITY_API_URL}/api/stats/summary/public/${userId}`,
+      {
+        headers: {
+          'x-api-key': INFINITY_API_KEY
+        }
+      }
+    );
+
+    if (!response.ok) {
+      console.error(`❌ InFinity API error: ${response.status}`);
+      return res.status(response.status).json({ 
+        error: 'Failed to fetch InFinity stats',
+        status: response.status 
+      });
+    }
+
+    const result = await response.json();
+    console.log('✅ InFinity stats fetched successfully');
+    res.json(result);
+
+  } catch (error) {
+    console.error('❌ InFinity API error:', error);
+    res.status(500).json({ error: 'Failed to fetch InFinity stats' });
+  }
+});
+
+// Get InFinity stats for authenticated user (uses their stored InFinity userId)
+app.get('/api/infinity/stats', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const INFINITY_API_URL = process.env.INFINITY_API_URL || 'https://strat-mu-finagent.onrender.com';
+    const INFINITY_API_KEY = process.env.INFINITY_API_KEY;
+
+    if (!INFINITY_API_KEY) {
+      return res.status(500).json({ error: 'InFinity API key not configured' });
+    }
+
+    // Fetch user's InFinity ID from database
+    const user = await usersCollection.findOne({ _id: new ObjectId(userId) });
+    const infinityUserId = user?.infinityUserId || userId;
+
+    console.log(`📊 Fetching InFinity stats for authenticated user: ${infinityUserId}`);
+
+    const response = await fetch(
+      `${INFINITY_API_URL}/api/stats/summary/public/${infinityUserId}`,
+      {
+        headers: {
+          'x-api-key': INFINITY_API_KEY
+        }
+      }
+    );
+
+    if (!response.ok) {
+      // Return mock data if InFinity API fails or user doesn't exist there
+      console.log('⚠️ InFinity API unavailable, returning default data');
+      return res.json({
+        success: true,
+        data: {
+          totalRevenue: 0,
+          totalInvestment: 0,
+          monthlyRevenue: 0,
+          monthlyBurn: 0,
+          runway: 0,
+          status: 'Not Connected',
+          revenueGrowth: 0
+        }
+      });
+    }
+
+    const result = await response.json();
+    console.log('✅ InFinity stats fetched successfully');
+    res.json(result);
+
+  } catch (error) {
+    console.error('❌ InFinity API error:', error);
+    res.status(500).json({ error: 'Failed to fetch InFinity stats' });
+  }
 });
 
 // MongoDB Connection
@@ -1220,7 +1318,12 @@ app.post('/api/analysis/funding-schemes', authenticateToken, async (req, res) =>
       ],
       'Andhra Pradesh': [
         { name: 'AP Innovation Society Grant', amount: '₹10-30 Lakhs', eligibility: 'AP-registered startups, innovative solutions', benefits: 'Seed funding, incubation', type: 'Grant' },
-        { name: 'Fintech Valley Fund', amount: '₹25-75 Lakhs', eligibility: 'FinTech startups in Andhra Pradesh', benefits: 'Specialized fintech funding', type: 'Equity' }
+        { name: 'Fintech Valley Fund', amount: '₹25-75 Lakhs', eligibility: 'FinTech startups in Andhra Pradesh', benefits: 'Specialized fintech funding', type: 'Equity' },
+        { name: 'AP State Startup Support', amount: 'Varies by state', eligibility: 'Startups registered in Andhra Pradesh', benefits: 'Seed funding, mentorship, incubation support - check state startup portal', type: 'Grant' },
+        { name: 'APSFC Startup Loan Scheme', amount: 'Up to ₹50 Lakhs', eligibility: 'Andhra Pradesh registered MSMEs and startups', benefits: 'Low-interest loans, working capital support', type: 'Loan' },
+        { name: 'AP IT & Electronics Policy Support', amount: 'Up to ₹25 Lakhs', eligibility: 'IT/Electronics startups in Andhra Pradesh', benefits: 'Infrastructure subsidies, power tariff concession, stamp duty exemption', type: 'Grant' },
+        { name: 'TIDE Andhra Pradesh', amount: 'Up to ₹15 Lakhs', eligibility: 'Tech startups in tier-2 cities of AP', benefits: 'Technology incubation, mentorship, market access', type: 'Grant' },
+        { name: 'AP Skill Development Startup Grant', amount: 'Up to ₹10 Lakhs', eligibility: 'Startups in skill development and education sector in AP', benefits: 'Seed grant, partnership with skill development centers', type: 'Grant' }
       ],
       'Odisha': [
         { name: 'Startup Odisha Fund', amount: '₹10-25 Lakhs', eligibility: 'Odisha-registered startups', benefits: 'Seed funding, ecosystem support', type: 'Grant' }
@@ -1312,6 +1415,19 @@ TAMIL NADU SPECIFIC SCHEMES (include all applicable):
 - MSME-TN Startup Support Scheme (Up to ₹10 Lakhs)
 - Rural Innovation Fund - Tamil Nadu (₹2-10 Lakhs) - agri-tech/rural
 ` : ''}
+${userState === 'Andhra Pradesh' ? `
+ANDHRA PRADESH SPECIFIC SCHEMES (include all applicable):
+- AP Innovation Society Grant (₹10-30 Lakhs) - AP-registered startups, innovative solutions
+- Fintech Valley Fund (₹25-75 Lakhs) - FinTech startups in Andhra Pradesh
+- APSFC Startup Loan Scheme (Up to ₹50 Lakhs) - AP registered MSMEs and startups
+- AP IT & Electronics Policy Support (Up to ₹25 Lakhs) - IT/Electronics startups
+- TIDE Andhra Pradesh (Up to ₹15 Lakhs) - Tech startups in tier-2 cities
+- AP Skill Development Startup Grant (Up to ₹10 Lakhs) - EdTech/skill development
+- AP State Startup Support - Seed funding, mentorship, incubation support
+- APIIC Industrial Subsidy - Capital subsidy for manufacturing startups
+- JNTU Kakinada Innovation Hub Grant - Deep tech startups
+- Andhra University Incubation Support - Early stage startups
+` : ''}
 
 Mark eligibilityStatus as:
 - "eligible" (green) if ALL criteria met
@@ -1388,6 +1504,15 @@ Provide specific reasoning for each scheme based on the company's actual profile
       ],
       'Uttar Pradesh': [
         { name: 'UP Startup Fund', amount: '₹25-50 Lakhs', eligibility: 'UP-based startups, DPIIT recognized', benefits: 'Seed funding, infrastructure support', type: 'Grant', eligible: true, eligibilityStatus: 'eligible', reasoning: 'UP-based startups qualify' }
+      ],
+      'Andhra Pradesh': [
+        { name: 'AP Innovation Society Grant', amount: '₹10-30 Lakhs', eligibility: 'AP-registered startups, innovative solutions', benefits: 'Seed funding, incubation support', type: 'Grant', eligible: true, eligibilityStatus: 'eligible', reasoning: 'Andhra Pradesh-based startups with innovative solutions qualify' },
+        { name: 'Fintech Valley Fund', amount: '₹25-75 Lakhs', eligibility: 'FinTech startups in Andhra Pradesh', benefits: 'Specialized fintech funding, ecosystem connect', type: 'Equity', eligible: category === 'FinTech', eligibilityStatus: category === 'FinTech' ? 'eligible' : 'partial', reasoning: 'FinTech startups in AP qualify for specialized funding' },
+        { name: 'AP State Startup Support', amount: 'Varies by state', eligibility: 'Startups registered in Andhra Pradesh', benefits: 'Seed funding, mentorship, incubation support - check state startup portal', type: 'Grant', eligible: true, eligibilityStatus: 'eligible', reasoning: 'Andhra Pradesh-based startups may qualify for state programs - verify with state startup cell' },
+        { name: 'APSFC Startup Loan Scheme', amount: 'Up to ₹50 Lakhs', eligibility: 'Andhra Pradesh registered MSMEs and startups', benefits: 'Low-interest loans, working capital support', type: 'Loan', eligible: true, eligibilityStatus: 'eligible', reasoning: 'AP-registered startups qualify for state financial corporation loans' },
+        { name: 'AP IT & Electronics Policy Support', amount: 'Up to ₹25 Lakhs', eligibility: 'IT/Electronics startups in Andhra Pradesh', benefits: 'Infrastructure subsidies, power tariff concession, stamp duty exemption', type: 'Grant', eligible: category === 'SaaS' || category === 'AI/ML' || category === 'Hardware', eligibilityStatus: (category === 'SaaS' || category === 'AI/ML' || category === 'Hardware') ? 'eligible' : 'partial', reasoning: 'IT and tech startups in AP qualify for policy benefits' },
+        { name: 'TIDE Andhra Pradesh', amount: 'Up to ₹15 Lakhs', eligibility: 'Tech startups in tier-2 cities of AP', benefits: 'Technology incubation, mentorship, market access', type: 'Grant', eligible: true, eligibilityStatus: 'partial', reasoning: 'Tech startups in tier-2 cities of AP qualify' },
+        { name: 'AP Skill Development Startup Grant', amount: 'Up to ₹10 Lakhs', eligibility: 'Startups in skill development and education sector in AP', benefits: 'Seed grant, partnership with skill development centers', type: 'Grant', eligible: category === 'EdTech' || category === 'Education', eligibilityStatus: (category === 'EdTech' || category === 'Education') ? 'eligible' : 'partial', reasoning: 'EdTech and skill development startups in AP qualify' }
       ]
     };
     
@@ -1746,28 +1871,43 @@ SEARCH QUERIES TO EXECUTE:
 ${mentionedComps.map(c => `2. "${c} company valuation revenue 2024"`).join('\n')}
 
 ## CRITICAL RULES:
-1. Return ONLY real company names from search results - NO placeholders like "Startup A", "Company B", "Industry Leader"
-2. All monetary values must be in INR (Indian Rupees)
-3. Search for actual market cap, revenue, funding data from news articles, company websites, Crunchbase, etc.
-4. If exact data not found, provide reasonable estimates based on company stage and industry benchmarks
+1. Return ONLY real company names from search results - NO placeholders like "Startup A", "Company B", "Industry Leader", "Other Startup", "Hardware,Other Startup A"
+2. NEVER use generic names - each company MUST be a verifiable real company that exists
+3. DO NOT include the category/industry in the company name (e.g., use "Casagrand" not "Real Estate,Casagrand")
+4. All monetary values must be in INR (Indian Rupees)
+5. Search for actual market cap, revenue, funding data from news articles, company websites, Crunchbase, etc.
+6. If you cannot find a real company, DO NOT make up a placeholder name - simply omit that entry
+7. If exact data not found, provide reasonable estimates based on company stage and industry benchmarks
+
+## FORBIDDEN COMPANY NAMES (never use these patterns):
+- "Startup A", "Startup B", "Company A", "Company B"
+- "Industry Leader", "Market Leader", "Global Leader"
+- "Other Startup", "Hardware,Other Startup A"
+- Any name with comma followed by generic term
+- Any name ending with single letter (A, B, C, etc.)
 
 ## COMPANIES TO RESEARCH:
 ${mentionedComps.length > 0 ? `### USER'S COMPETITORS (MUST INCLUDE - mark as "region": "user-pick", "isUserMentioned": true):
 ${mentionedComps.map((c, i) => `${i + 1}. ${c} - Search: "${c} company India valuation revenue funding"`).join('\n')}` : ''}
 
 ### ADDITIONAL COMPETITORS TO FIND:
-- 2 GLOBAL market leaders in ${industry} (mark as "region": "global")
-- 2 INDIAN market leaders in ${industry} (mark as "region": "local")  
-- 1 Emerging Indian competitor/rival (mark as "region": "rival")
+- 2 GLOBAL market leaders in ${industry} (mark as "region": "global") - USE REAL COMPANY NAMES ONLY
+- 2 INDIAN market leaders in ${industry} (mark as "region": "local") - USE REAL COMPANY NAMES ONLY
+- 1 Emerging Indian competitor/rival (mark as "region": "rival") - USE REAL COMPANY NAME ONLY
 
-## DATA REQUIREMENTS (search for each company):
+## DATA REQUIREMENTS (search for each company - ALL FIELDS REQUIRED):
 - currentValuation: Market cap or last valuation in INR (e.g., ₹5000 Cr = 50000000000)
-- revenue: Annual revenue in INR
-- growthRate: Year-over-year growth percentage
-- customers: Number of customers/units sold/projects
+- revenue: Annual revenue in INR (REQUIRED - search for actual revenue figures)
+- growthRate: Year-over-year revenue/valuation growth percentage (REQUIRED - calculate from available data, e.g., if revenue grew from 100Cr to 150Cr, growth = 50%)
+- customers: Number of customers/users/subscribers (REQUIRED - search for user base numbers)
 - foundedYear: When company was established
 - stage: Private/Public/Series A/B/C etc.
 - flagshipProduct: Main product or service
+
+IMPORTANT: For growthRate, if exact data is not available, estimate based on:
+- Funding round progression (e.g., Series A to Series B typically 2-3x growth)
+- Industry average growth rates (FoodTech: 25-40%, FinTech: 30-50%, SaaS: 20-35%)
+- Company stage (early stage: 50-100%, growth stage: 20-50%, mature: 10-20%)
 
 ## OUTPUT FORMAT (JSON only, no markdown, no explanation):
 {
@@ -1870,7 +2010,13 @@ IMPORTANT: Every company in the response MUST be a real, verifiable company. Sea
         /^[a-z]\s+(company|startup|business)$/i,
         /^(new|emerging|local|global)\s+(startup|company|player)/i,
         /^industry\s+leader$/i,
-        /,\s*other/i
+        /,\s*other/i,
+        /hardware\s*,/i,  // Catches "Hardware," prefix
+        /,\s*hardware/i,  // Catches ", Hardware" suffix
+        /other\s+startup\s*[a-z]?$/i, // Catches "Other Startup A/B/C"
+        /startup\s+[a-e]$/i,  // Catches "Startup A", "Startup B" etc.
+        /^[a-z]+,\s*(other|startup|company)/i, // Catches "Category, Other" patterns
+        /^(real estate|software|hardware|fintech|edtech|healthtech)\s*,/i // Catches category prefixes
       ];
       
       analysis.competitors = analysis.competitors.filter(comp => {
@@ -1883,9 +2029,21 @@ IMPORTANT: Every company in the response MUST be a real, verifiable company. Sea
           return false;
         }
         
+        // Check if name starts with a category followed by comma (e.g., "Hardware,Other Startup")
+        if (/^[a-zA-Z\s]+,/.test(comp.name.trim()) && (name.includes('startup') || name.includes('other') || name.includes('leader'))) {
+          console.warn('⚠️ Filtering out category-prefixed generic name:', comp.name);
+          return false;
+        }
+        
         // Check if name ends with single letter like "Startup A", "Company B"
         if (/\s[a-e]$/i.test(comp.name.trim())) {
           console.warn('⚠️ Filtering out letter-suffixed name:', comp.name);
+          return false;
+        }
+        
+        // Check if name contains "Other Startup" pattern anywhere
+        if (/other\s+startup/i.test(comp.name.trim())) {
+          console.warn('⚠️ Filtering out "Other Startup" pattern:', comp.name);
           return false;
         }
         
@@ -1937,6 +2095,62 @@ IMPORTANT: Every company in the response MUST be a real, verifiable company. Sea
               const prevVal = timeline[timeline.length - 2]?.valuation || 1;
               growthRate = Math.round(((latestVal - prevVal) / prevVal) * 100);
             }
+          }
+          
+          // If still no growth rate, estimate based on company stage and category
+          if (!growthRate || growthRate === 0) {
+            const stageGrowthEstimates = {
+              'Seed': 80,
+              'Series A': 60,
+              'Series B': 45,
+              'Series C': 35,
+              'Series D': 28,
+              'Series E': 22,
+              'Series F': 18,
+              'Series G': 15,
+              'Series H': 12,
+              'Series I': 10,
+              'Series J': 8,
+              'Public': 15,
+              'Private': 25,
+              'Acquired': 10,
+              'Growth': 35,
+              'Late Stage': 20,
+              'Pre-IPO': 25
+            };
+            
+            // Category-based growth multipliers
+            const categoryMultipliers = {
+              'FoodTech': 1.3,
+              'Food Delivery': 1.3,
+              'FinTech': 1.4,
+              'SaaS': 1.2,
+              'E-commerce': 1.25,
+              'EdTech': 1.15,
+              'HealthTech': 1.2,
+              'AI/ML': 1.5,
+              'Marketplace': 1.3,
+              'Real Estate': 0.8,
+              'Hardware': 0.9
+            };
+            
+            const stage = comp.stage || 'Private';
+            const baseGrowth = stageGrowthEstimates[stage] || 20;
+            const categoryMultiplier = categoryMultipliers[category] || 1.0;
+            
+            // Add some variation based on company characteristics
+            let estimatedGrowth = Math.round(baseGrowth * categoryMultiplier);
+            
+            // If company has high revenue/customers, they're likely growing
+            if (comp.revenue > 100000000000) { // > 1000 Cr revenue
+              estimatedGrowth = Math.max(estimatedGrowth, 15);
+            }
+            if (comp.customers > 1000000) { // > 1M customers
+              estimatedGrowth = Math.max(estimatedGrowth, 20);
+            }
+            
+            growthRate = estimatedGrowth;
+            console.log(`📈 Estimated growth rate for ${comp.name}: ${growthRate}% (stage: ${stage}, category: ${category})`);
           }
           
           // Ensure flagshipProduct is set (first product in list if not specified)
@@ -2716,18 +2930,30 @@ Return ONLY valid JSON, no additional text.`;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     
+    const newAIActions = parsedActions.actions.map((action, index) => ({
+      id: `${Date.now()}-${index}`,
+      text: action.text,
+      priority: action.priority || 'medium',
+      status: 'pending',
+      progress: null,
+      isCustom: false,
+      createdAt: new Date()
+    }));
+
+    // Check for existing document to preserve custom actions
+    const existingDoc = await actionsCollection.findOne({ userId, date: today });
+    let customActions = [];
+    if (existingDoc && existingDoc.actions) {
+      customActions = existingDoc.actions.filter(a => a.isCustom === true);
+    }
+
+    const allActions = [...newAIActions, ...customActions];
+    
     const actionsDoc = {
       userId,
       date: today,
       sixMonthGoal,
-      actions: parsedActions.actions.map((action, index) => ({
-        id: `${Date.now()}-${index}`,
-        text: action.text,
-        priority: action.priority || 'medium',
-        status: 'pending',
-        progress: null,
-        createdAt: new Date()
-      })),
+      actions: allActions,
       createdAt: new Date()
     };
 
@@ -2862,6 +3088,75 @@ app.post('/api/actions/feedback', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error storing feedback:', error);
     res.status(500).json({ error: 'Failed to store feedback' });
+  }
+});
+
+// Add custom action
+app.post('/api/actions/custom', authenticateToken, async (req, res) => {
+  try {
+    const { text } = req.body;
+    const userId = req.user.userId;
+
+    if (!text || text.trim().length === 0) {
+      return res.status(400).json({ error: 'Action text is required' });
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const newAction = {
+      id: `custom-${Date.now()}`,
+      text: text.trim(),
+      priority: 'medium',
+      status: 'accepted',
+      progress: 'red',
+      isCustom: true,
+      createdAt: new Date()
+    };
+
+    // Check if there's an existing actions document for today
+    const existingDoc = await actionsCollection.findOne({ userId, date: today });
+
+    if (existingDoc) {
+      // Add to existing actions array
+      await actionsCollection.updateOne(
+        { userId, date: today },
+        { $push: { actions: newAction } }
+      );
+    } else {
+      // Create new document for today
+      await actionsCollection.insertOne({
+        userId,
+        date: today,
+        actions: [newAction],
+        createdAt: new Date()
+      });
+    }
+
+    res.json({ success: true, action: newAction });
+  } catch (error) {
+    console.error('Error adding custom action:', error);
+    res.status(500).json({ error: 'Failed to add custom action' });
+  }
+});
+
+// Delete custom action
+app.delete('/api/actions/:actionId', authenticateToken, async (req, res) => {
+  try {
+    const { actionId } = req.params;
+    const userId = req.user.userId;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    await actionsCollection.updateOne(
+      { userId, date: today },
+      { $pull: { actions: { id: actionId } } }
+    );
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting action:', error);
+    res.status(500).json({ error: 'Failed to delete action' });
   }
 });
 

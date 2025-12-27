@@ -66,6 +66,56 @@
 	let showMethodologyModal = false; // For methodology breakdown modal
 	let showVrioInfo = false; // For VRIO framework explanation tooltip
 	
+	// GTM To-Do List state
+	interface GTMTodoItem {
+		id: number;
+		action: string;
+		owner: string;
+		expectedSignal: string;
+		reviewDate: string;
+		ragStatus: 'red' | 'amber' | 'green' | 'not-started';
+		createdAt: Date;
+	}
+	let gtmTodoItems: GTMTodoItem[] = [];
+	let newTodoAction = '';
+	let newTodoOwner = 'Founder';
+	let newTodoSignal = '';
+	let newTodoReviewDate = '';
+	let showAddTodoForm = false;
+	
+	function addGTMTodoItem() {
+		if (!newTodoAction.trim()) return;
+		
+		const newItem: GTMTodoItem = {
+			id: Date.now(),
+			action: newTodoAction.trim(),
+			owner: newTodoOwner || 'Founder',
+			expectedSignal: newTodoSignal.trim() || 'To be defined',
+			reviewDate: newTodoReviewDate || 'TBD',
+			ragStatus: 'not-started',
+			createdAt: new Date()
+		};
+		
+		gtmTodoItems = [...gtmTodoItems, newItem];
+		
+		// Reset form
+		newTodoAction = '';
+		newTodoOwner = 'Founder';
+		newTodoSignal = '';
+		newTodoReviewDate = '';
+		showAddTodoForm = false;
+	}
+	
+	function updateTodoRAGStatus(id: number, status: 'red' | 'amber' | 'green' | 'not-started') {
+		gtmTodoItems = gtmTodoItems.map(item => 
+			item.id === id ? { ...item, ragStatus: status } : item
+		);
+	}
+	
+	function deleteTodoItem(id: number) {
+		gtmTodoItems = gtmTodoItems.filter(item => item.id !== id);
+	}
+	
 	// Frame Info Modal state
 	let showFrameInfo = false;
 	let activeFrameInfo: { title: string; description: string; calculation?: string } | null = null;
@@ -78,9 +128,24 @@
 			calculation: 'Valuation is calculated using a weighted combination of: Berkus Method (evaluates 5 key risk factors: Sound Idea, Prototype, Quality Management, Strategic Relationships, Product Rollout) and Scorecard Method (compares your startup against average startups in your region using factors like Team, Opportunity Size, Product/Technology, Competitive Environment, Marketing/Sales, Need for Additional Investment, and Other factors).'
 		},
 		'introspection': {
-			title: 'SWOT Analysis (Introspection)',
-			description: 'A strategic planning framework that identifies your company\'s Strengths, Weaknesses, Opportunities, and Threats. This helps you understand internal and external factors affecting your business.',
-			calculation: 'Generated using AI analysis of your DDQ responses, including business category, competitive landscape, team composition, funding status, and market positioning. The AI considers industry benchmarks and startup best practices.'
+			title: 'Founder Decision Intelligence',
+			description: 'Not generic advice. Three actionable lenses: Value Driver Analysis (what moves company value most), Decision Impact Analysis (what happens if you act), and Trajectory & Trigger Analysis (where you\'re heading and when to intervene).',
+			calculation: 'Analyzes your specific situation to answer: What should you do next, and why is that the highest-leverage move? Each lens is ranked by expected valuation impact with clear reversibility ratings.'
+		},
+		'value-driver': {
+			title: 'Value Driver Analysis',
+			description: 'Identifies the top 3 factors that move your company value RIGHT NOW. Not a generic framework—specific to your stage, revenue, and situation. Each driver is assessed for signal strength and controllability.',
+			calculation: 'Ranks drivers by expected valuation impact. Signal strength: Weak (early signal, needs validation), Medium (clear trend, actionable), Strong (proven, optimize now). Controllability indicates if you can impact this in 30-60 days.'
+		},
+		'decision-impact': {
+			title: 'Decision Impact Analysis',
+			description: 'Analyzes specific founder decisions with clear scenarios. Shows impact on runway, growth momentum, and valuation perception. Ends with a recommendation, not a summary.',
+			calculation: 'Compares Act Now vs Delay scenarios. Each path shows: runway impact, growth impact, valuation perception change, key downside risk, and reversibility (High/Medium/Low). Exposes uncertainty rather than hiding it.'
+		},
+		'trajectory-trigger': {
+			title: 'Trajectory & Trigger Analysis',
+			description: 'Your current trajectory (stable/accelerating/fragile) with explicit triggers: If X happens → do Y. Includes time-based and metric-based thresholds. States what happens if you take no action.',
+			calculation: 'Identifies 2-3 leading indicators signaling risk or upside. Triggers are specific: metric thresholds, time windows, competitive moves. Each trigger has a prescribed response.'
 		},
 		'funding-schemes': {
 			title: 'Funding Schemes',
@@ -178,6 +243,244 @@
 	let chatLoading = false;
 	let chatContainer: HTMLElement;
 
+	// Strategic Advisor state
+	let advisorMessages: Array<{role: string, content: string, timestamp: Date, saved?: boolean}> = [];
+	let advisorInput = '';
+	let advisorLoading = false;
+	let advisorContainer: HTMLElement;
+
+	// InFinity Stats state
+	interface InfinityStats {
+		totalRevenue: number;
+		totalInvestment: number;
+		monthlyRevenue: number;
+		monthlyBurn: number;
+		runway: number;
+		status: string;
+		revenueGrowth: number;
+	}
+	let infinityStats: InfinityStats | null = null;
+	let infinityLoading = false;
+	let infinityError = '';
+
+	// Format value to Lakhs for display
+	function formatLakhs(value: number): string {
+		return `₹${(value / 100000).toFixed(1)}L`;
+	}
+
+	// Fetch InFinity stats
+	async function fetchInfinityStats() {
+		try {
+			infinityLoading = true;
+			infinityError = '';
+			
+			const token = localStorage.getItem('accessToken');
+			if (!token) {
+				infinityError = 'Not authenticated';
+				return;
+			}
+
+			const response = await fetch(`${API_URL}/api/infinity/stats`, {
+				headers: {
+					'Authorization': `Bearer ${token}`
+				}
+			});
+
+			if (!response.ok) {
+				throw new Error('Failed to fetch InFinity stats');
+			}
+
+			const result = await response.json();
+			if (result.success && result.data) {
+				infinityStats = result.data;
+			} else if (result.data) {
+				infinityStats = result.data;
+			}
+		} catch (error) {
+			console.error('Error fetching InFinity stats:', error);
+			infinityError = 'Could not load InFinity data';
+		} finally {
+			infinityLoading = false;
+		}
+	}
+
+	// Get persona-based suggested questions
+	function getAdvisorQuestions(): Array<{question: string, icon: string, category: string}> {
+		const stage = ddqResponses[5] || 'Idea';
+		const hasRevenue = ddqResponses[12] === 'Yes';
+		const challenge = ddqResponses[19] || 'Customer Acquisition';
+		const productName = ddqResponses[1] || 'your product';
+		
+		// Pre-Revenue / Idea Stage Questions
+		if (!hasRevenue || stage === 'Idea' || stage === 'MVP') {
+			return [
+				{ question: `How do I validate if ${productName} has product-market fit?`, icon: 'science', category: 'Validation' },
+				{ question: 'What metrics should I track before my first paying customer?', icon: 'analytics', category: 'Metrics' },
+				{ question: 'How should I price my product for early adopters?', icon: 'payments', category: 'Pricing' },
+				{ question: 'What are the biggest mistakes founders make at my stage?', icon: 'warning', category: 'Strategy' }
+			];
+		}
+		
+		// Early Traction (< 20 customers)
+		if (Number(ddqResponses[15] || 0) < 20) {
+			return [
+				{ question: 'How do I convert beta users to paying customers?', icon: 'group_add', category: 'Conversion' },
+				{ question: 'What should my customer acquisition strategy be right now?', icon: 'campaign', category: 'Growth' },
+				{ question: 'When is the right time to start fundraising?', icon: 'account_balance', category: 'Funding' },
+				{ question: 'How do I build a repeatable sales process?', icon: 'trending_up', category: 'Sales' }
+			];
+		}
+		
+		// Scaling Stage
+		return [
+			{ question: 'How do I maintain growth while improving unit economics?', icon: 'balance', category: 'Growth' },
+			{ question: 'What hiring decisions should I prioritize next?', icon: 'groups', category: 'Team' },
+			{ question: 'How should I structure my next funding round?', icon: 'payments', category: 'Funding' },
+			{ question: 'What expansion opportunities should I explore?', icon: 'explore', category: 'Strategy' }
+		];
+	}
+
+	// Send message to strategic advisor
+	async function sendAdvisorMessage(presetQuestion?: string) {
+		const message = presetQuestion || advisorInput.trim();
+		if (!message || advisorLoading) return;
+
+		advisorInput = '';
+		advisorLoading = true;
+
+		// Add user message
+		advisorMessages = [...advisorMessages, {
+			role: 'user',
+			content: message,
+			timestamp: new Date()
+		}];
+
+		try {
+			const token = localStorage.getItem('accessToken');
+			if (!token) throw new Error('Not authenticated');
+
+			// Build context for the advisor
+			const context = {
+				productName: ddqResponses[1] || 'Unknown Product',
+				businessDescription: ddqResponses[2] || '',
+				category: ddqResponses[3] || 'Other',
+				stage: ddqResponses[5] || 'Unknown',
+				hasRevenue: ddqResponses[12] === 'Yes',
+				monthlyRevenue: Number(ddqResponses[13]) || 0,
+				customerCount: Number(ddqResponses[15]) || 0,
+				teamSize: Number(ddqResponses[17]) || 1,
+				challenge: ddqResponses[19] || 'General',
+				sixMonthGoal: ddqResponses[21] || '',
+				fundingNeeded: ddqResponses[22] || '',
+				valuation: valuation ? {
+					estimated: valuation.estimatedValuation,
+					berkus: valuation.berkusValue,
+					scorecard: valuation.scorecardValue
+				} : null,
+				swot: swotAnalysis || null
+			};
+
+			const response = await fetch(`${API_URL}/api/chat/grok`, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					'Authorization': `Bearer ${token}`
+				},
+				body: JSON.stringify({
+					message: `As a strategic startup advisor, answer this question concisely and actionably: ${message}`,
+					context: context,
+					conversationHistory: advisorMessages.slice(-6)
+				})
+			});
+
+			if (!response.ok) throw new Error('Failed to get response');
+
+			const data = await response.json();
+			
+			// Add AI response
+			const aiMessage = {
+				role: 'assistant',
+				content: data.response,
+				timestamp: new Date(),
+				saved: false
+			};
+			advisorMessages = [...advisorMessages, aiMessage];
+
+			// Auto-save to notes
+			await autoSaveAdvisorNote(message, data.response);
+
+			// Scroll to bottom
+			setTimeout(() => {
+				if (advisorContainer) {
+					advisorContainer.scrollTop = advisorContainer.scrollHeight;
+				}
+			}, 100);
+
+		} catch (error) {
+			console.error('Error in advisor:', error);
+			advisorMessages = [...advisorMessages, {
+				role: 'assistant',
+				content: 'Sorry, I encountered an error. Please try again.',
+				timestamp: new Date()
+			}];
+		} finally {
+			advisorLoading = false;
+		}
+	}
+
+	// Auto-save advisor conversation to notes
+	async function autoSaveAdvisorNote(question: string, answer: string) {
+		try {
+			const token = localStorage.getItem('accessToken');
+			if (!token) return;
+
+			await fetch(`${API_URL}/api/notes/save`, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					'Authorization': `Bearer ${token}`
+				},
+				body: JSON.stringify({
+					chatMessage: question,
+					response: answer,
+					noteTitle: question,
+					category: 'Strategy Advisor'
+				})
+			});
+
+			// Mark as saved
+			advisorMessages = advisorMessages.map((msg, idx) => 
+				idx === advisorMessages.length - 1 ? { ...msg, saved: true } : msg
+			);
+
+		} catch (error) {
+			console.error('Error auto-saving note:', error);
+		}
+	}
+
+	// Initialize advisor with welcome message
+	function initializeAdvisor() {
+		const productName = ddqResponses[1] || 'your business';
+		const stage = ddqResponses[5] || 'early stage';
+		
+		if (advisorMessages.length === 0) {
+			advisorMessages = [{
+				role: 'assistant',
+				content: `👋 Welcome! I'm your Strategic Advisor.
+
+I've analyzed ${productName} and I'm here to help you make better decisions. Based on your ${stage} stage, I've prepared some relevant questions below.
+
+**You can:**
+• Click any suggested question to get instant advice
+• Ask your own question about strategy, growth, or funding
+• All conversations are automatically saved to your Notes
+
+What would you like to discuss?`,
+				timestamp: new Date()
+			}];
+		}
+	}
+
 	// Saved Notes state
 	let savedNotes: any[] = [];
 	let notesLoading = false;
@@ -206,6 +509,45 @@
 		movedToBacklogAt: Date;
 	}> = [];
 	let actionsLoading = false;
+	let showAddActionForm = false;
+	let newActionText = '';
+	let addingAction = false;
+
+	// Function to add custom action to dailyActions via API
+	async function addCustomAction() {
+		if (!newActionText.trim() || addingAction) return;
+		
+		addingAction = true;
+		try {
+			const token = localStorage.getItem('accessToken');
+			if (!token) {
+				console.error('No access token');
+				return;
+			}
+
+			const response = await fetch(`${API_URL}/api/actions/custom`, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					'Authorization': `Bearer ${token}`
+				},
+				body: JSON.stringify({ text: newActionText.trim() })
+			});
+
+			if (response.ok) {
+				const data = await response.json();
+				dailyActions = [...dailyActions, data.action];
+				newActionText = '';
+				showAddActionForm = false;
+			} else {
+				console.error('Failed to add custom action');
+			}
+		} catch (error) {
+			console.error('Error adding custom action:', error);
+		} finally {
+			addingAction = false;
+		}
+	}
 
 	// Company Logo state
 	let companyLogo: string | null = null;
@@ -718,6 +1060,9 @@
 			
 			// Check for existing DDQ and auto-open if needed
 			const hasExistingValuation = await checkExistingDDQ();
+			
+			// Fetch InFinity stats
+			fetchInfinityStats();
 			
 			// Don't auto-open DDQ - let users explore the dashboard first
 			// They can click "Begin Assessment" when ready
@@ -1874,6 +2219,85 @@
 						: 'Available for Delhi NCR registered startups',
 					url: 'https://startup.delhi.gov.in/',
 					priority: (location === 'Delhi' || location === 'Delhi NCR' || location === 'Noida' || location === 'Gurgaon') ? 1 : 6
+				},
+				// Andhra Pradesh specific
+				{
+					name: 'AP Innovation Society Grant',
+					amount: '₹10-30 Lakhs',
+					eligibility: 'AP-registered startups with innovative solutions',
+					benefits: 'Seed funding, incubation support, mentorship, investor connects',
+					eligible: location === 'Andhra Pradesh' || location === 'Vijayawada' || location === 'Visakhapatnam' || location === 'Vizag',
+					eligibilityStatus: (location === 'Andhra Pradesh' || location === 'Vijayawada' || location === 'Visakhapatnam' || location === 'Vizag') ? 'eligible' : 'partial',
+					reasoning: (location === 'Andhra Pradesh' || location === 'Vijayawada' || location === 'Visakhapatnam' || location === 'Vizag')
+						? 'AP Innovation Society offers excellent support for innovative startups!'
+						: 'Available for Andhra Pradesh registered startups',
+					url: 'https://apinnovationsociety.com/',
+					priority: (location === 'Andhra Pradesh' || location === 'Vijayawada' || location === 'Visakhapatnam' || location === 'Vizag') ? 1 : 6
+				},
+				{
+					name: 'Fintech Valley Fund',
+					amount: '₹25-75 Lakhs',
+					eligibility: 'FinTech startups in Andhra Pradesh',
+					benefits: 'Specialized fintech funding, ecosystem connect, regulatory sandbox access',
+					eligible: (location === 'Andhra Pradesh' || location === 'Vijayawada' || location === 'Visakhapatnam' || location === 'Vizag') && (category === 'FinTech' || String(category).includes('FinTech')),
+					eligibilityStatus: ((location === 'Andhra Pradesh' || location === 'Vijayawada' || location === 'Visakhapatnam' || location === 'Vizag') && (category === 'FinTech' || String(category).includes('FinTech'))) ? 'eligible' : 'partial',
+					reasoning: ((location === 'Andhra Pradesh' || location === 'Vijayawada' || location === 'Visakhapatnam' || location === 'Vizag') && (category === 'FinTech' || String(category).includes('FinTech')))
+						? 'Visakhapatnam Fintech Valley offers specialized funding for fintech!'
+						: 'Specialized for FinTech startups in Andhra Pradesh',
+					url: 'https://fintechvalley.in/',
+					priority: ((location === 'Andhra Pradesh' || location === 'Vijayawada' || location === 'Visakhapatnam' || location === 'Vizag') && (category === 'FinTech' || String(category).includes('FinTech'))) ? 1 : 6
+				},
+				{
+					name: 'APSFC Startup Loan Scheme',
+					amount: 'Up to ₹50 Lakhs',
+					eligibility: 'Andhra Pradesh registered MSMEs and startups',
+					benefits: 'Low-interest loans, working capital support, equipment financing',
+					eligible: location === 'Andhra Pradesh' || location === 'Vijayawada' || location === 'Visakhapatnam' || location === 'Vizag',
+					eligibilityStatus: (location === 'Andhra Pradesh' || location === 'Vijayawada' || location === 'Visakhapatnam' || location === 'Vizag') ? 'eligible' : 'partial',
+					reasoning: (location === 'Andhra Pradesh' || location === 'Vijayawada' || location === 'Visakhapatnam' || location === 'Vizag')
+						? 'APSFC provides competitive loans for AP-based startups!'
+						: 'Available for Andhra Pradesh registered businesses',
+					url: 'https://apsfc.in/',
+					priority: (location === 'Andhra Pradesh' || location === 'Vijayawada' || location === 'Visakhapatnam' || location === 'Vizag') ? 2 : 6
+				},
+				{
+					name: 'AP IT & Electronics Policy Support',
+					amount: 'Up to ₹25 Lakhs',
+					eligibility: 'IT/Electronics startups in Andhra Pradesh',
+					benefits: 'Infrastructure subsidies, power tariff concession, stamp duty exemption',
+					eligible: (location === 'Andhra Pradesh' || location === 'Vijayawada' || location === 'Visakhapatnam' || location === 'Vizag') && (category === 'SaaS' || category === 'AI/ML' || category === 'Hardware'),
+					eligibilityStatus: ((location === 'Andhra Pradesh' || location === 'Vijayawada' || location === 'Visakhapatnam' || location === 'Vizag') && (category === 'SaaS' || category === 'AI/ML' || category === 'Hardware')) ? 'eligible' : 'partial',
+					reasoning: ((location === 'Andhra Pradesh' || location === 'Vijayawada' || location === 'Visakhapatnam' || location === 'Vizag') && (category === 'SaaS' || category === 'AI/ML' || category === 'Hardware'))
+						? 'AP IT policy offers excellent support for tech startups!'
+						: 'Available for IT/Tech startups in Andhra Pradesh',
+					url: 'https://it.ap.gov.in/',
+					priority: ((location === 'Andhra Pradesh' || location === 'Vijayawada' || location === 'Visakhapatnam' || location === 'Vizag') && (category === 'SaaS' || category === 'AI/ML' || category === 'Hardware')) ? 2 : 6
+				},
+				{
+					name: 'TIDE Andhra Pradesh',
+					amount: 'Up to ₹15 Lakhs',
+					eligibility: 'Tech startups in tier-2 cities of Andhra Pradesh',
+					benefits: 'Technology incubation, mentorship, market access, DST support',
+					eligible: location === 'Andhra Pradesh' || location === 'Vijayawada' || location === 'Visakhapatnam' || location === 'Vizag',
+					eligibilityStatus: (location === 'Andhra Pradesh' || location === 'Vijayawada' || location === 'Visakhapatnam' || location === 'Vizag') ? 'eligible' : 'partial',
+					reasoning: (location === 'Andhra Pradesh' || location === 'Vijayawada' || location === 'Visakhapatnam' || location === 'Vizag')
+						? 'TIDE program supports tech innovation in AP tier-2 cities!'
+						: 'Available for AP tier-2 city startups',
+					url: 'https://dst.gov.in/tide-20',
+					priority: (location === 'Andhra Pradesh' || location === 'Vijayawada' || location === 'Visakhapatnam' || location === 'Vizag') ? 3 : 6
+				},
+				{
+					name: 'AP Skill Development Startup Grant',
+					amount: 'Up to ₹10 Lakhs',
+					eligibility: 'Startups in skill development and education sector in AP',
+					benefits: 'Seed grant, partnership with skill development centers, government tie-ups',
+					eligible: (location === 'Andhra Pradesh' || location === 'Vijayawada' || location === 'Visakhapatnam' || location === 'Vizag') && (category === 'EdTech' || category === 'Education'),
+					eligibilityStatus: ((location === 'Andhra Pradesh' || location === 'Vijayawada' || location === 'Visakhapatnam' || location === 'Vizag') && (category === 'EdTech' || category === 'Education')) ? 'eligible' : 'partial',
+					reasoning: ((location === 'Andhra Pradesh' || location === 'Vijayawada' || location === 'Visakhapatnam' || location === 'Vizag') && (category === 'EdTech' || category === 'Education'))
+						? 'AP prioritizes skill development - excellent for EdTech!'
+						: 'Available for EdTech/skill development startups in AP',
+					url: 'https://apssdc.in/',
+					priority: ((location === 'Andhra Pradesh' || location === 'Vijayawada' || location === 'Visakhapatnam' || location === 'Vizag') && (category === 'EdTech' || category === 'Education')) ? 2 : 6
 				}
 			];
 			
@@ -2470,6 +2894,39 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 		}
 	}
 
+	// Parse markdown-style text to HTML for chat messages
+	function parseMarkdownToHtml(text: string): string {
+		if (!text) return '';
+		
+		// Escape HTML to prevent XSS
+		let html = text
+			.replace(/&/g, '&amp;')
+			.replace(/</g, '&lt;')
+			.replace(/>/g, '&gt;');
+		
+		// Parse bold: **text** or *text*
+		html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+		html = html.replace(/\*([^*]+)\*/g, '<strong>$1</strong>');
+		
+		// Parse numbered lists (1. item, 2. item, etc.)
+		html = html.replace(/^(\d+)\.\s+(.+)$/gm, '<li><strong>$1.</strong> $2</li>');
+		
+		// Parse bullet points (• or - at start of line)
+		html = html.replace(/^[•\-]\s+(.+)$/gm, '<li>$1</li>');
+		
+		// Wrap consecutive <li> items in <ul>
+		html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul class="chat-list">$&</ul>');
+		
+		// Parse line breaks
+		html = html.replace(/\n/g, '<br>');
+		
+		// Clean up extra <br> inside lists
+		html = html.replace(/<\/li><br>/g, '</li>');
+		html = html.replace(/<ul class="chat-list"><br>/g, '<ul class="chat-list">');
+		
+		return html;
+	}
+
 	// Save a chat message to notes
 	async function saveToNotes(messageIndex: number) {
 		try {
@@ -2731,6 +3188,7 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 			dailyActions = dailyActions.map(a => 
 				a.id === actionId ? { ...a, status: 'accepted' } : a
 			);
+			saveActionsToStorage();
 		} catch (error) {
 			console.error('Error accepting action:', error);
 		}
@@ -2748,6 +3206,7 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 		
 		// Immediately remove the task from the UI
 		dailyActions = dailyActions.filter(a => a.id !== actionId);
+		saveActionsToStorage();
 		
 		// Also update in backend
 		try {
@@ -2894,6 +3353,8 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 			if (progress === 'green') {
 				backlogItems = backlogItems.filter(b => b.id !== actionId);
 			}
+			
+			saveActionsToStorage();
 		} catch (error) {
 			console.error('Error updating progress:', error);
 		}
@@ -3371,6 +3832,28 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 			</button>
 			<button
 				class="nav-item"
+				class:active={activeTab === 'gtm'}
+				on:click={() => (activeTab = 'gtm')}
+				title="GTM Co-Founder"
+			>
+				<span class="material-symbols-outlined nav-icon">rocket_launch</span>
+				{#if !sidebarMinimized}
+					<span class="nav-text">GTM Co-Founder</span>
+				{/if}
+			</button>
+			<button
+				class="nav-item"
+				class:active={activeTab === 'advisor'}
+				on:click={() => { activeTab = 'advisor'; initializeAdvisor(); }}
+				title="Strategic Advisor"
+			>
+				<span class="material-symbols-outlined nav-icon">psychology</span>
+				{#if !sidebarMinimized}
+					<span class="nav-text">Strategic Advisor</span>
+				{/if}
+			</button>
+			<button
+				class="nav-item"
 				class:active={activeTab === 'notes'}
 				on:click={() => (activeTab = 'notes')}
 				title="Notes"
@@ -3629,11 +4112,14 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 							{/if}
 						</div>
 
-						<!-- Middle Column: Top 5 Actions -->
+						<!-- Middle Column: Top Actions -->
 						<div class="home-card actions-card">
 							<div class="home-card-header-row">
-								<h3 class="home-card-title">Today's Top 5 Actions</h3>
+								<h3 class="home-card-title">Top Actions</h3>
 								<div class="card-header-actions">
+									<button class="add-action-btn" on:click={() => showAddActionForm = !showAddActionForm} title="Add Action">
+										<span class="material-symbols-outlined">{showAddActionForm ? 'close' : 'add'}</span>
+									</button>
 									<button class="info-btn" on:click={() => showInfo('daily-actions')} title="What is this?">
 										<span class="info-icon">i</span>
 									</button>
@@ -3642,13 +4128,29 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 									</button>
 								</div>
 							</div>
+							
+							<!-- Add Action Form -->
+							{#if showAddActionForm}
+								<div class="add-action-form">
+									<input 
+										type="text" 
+										bind:value={newActionText}
+										placeholder="Enter your action item..."
+										on:keydown={(e) => e.key === 'Enter' && addCustomAction()}
+									/>
+									<button class="add-action-submit" on:click={addCustomAction} disabled={!newActionText.trim()}>
+										<span class="material-symbols-outlined">add_task</span>
+									</button>
+								</div>
+							{/if}
+							
 							{#if actionsLoading}
 								<div class="loading-spinner-small">Loading...</div>
 							{:else if dailyActions.length === 0}
-								<p class="no-actions-text">Complete the assessment to get personalized daily actions.</p>
+								<p class="no-actions-text">Click + to add your action items, or complete the assessment for AI-generated actions.</p>
 							{:else}
 								<div class="actions-list">
-									{#each dailyActions.slice(0, 5) as action, index}
+									{#each dailyActions as action, index}
 										<div class="action-item" class:rejected={action.status === 'rejected'} class:accepted={action.status === 'accepted'}>
 											<span class="action-letter">{String.fromCharCode(97 + index)}.</span>
 											<span class="action-text" class:strikethrough={action.status === 'rejected'}>
@@ -3789,7 +4291,49 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 							<!-- inFINity stats Panel -->
 							<div class="home-card financial-panel">
 								<h3 class="home-card-title">inFINity stats</h3>
-								{#if valuation}
+								{#if infinityLoading}
+									<div class="infinity-loading">
+										<span class="material-symbols-outlined spinning">progress_activity</span>
+										<span>Loading InFinity data...</span>
+									</div>
+								{:else if infinityStats}
+									<div class="financial-grid">
+										<div class="fin-metric">
+											<span class="fin-label">TOTAL REVENUE</span>
+											<span class="fin-value revenue">₹{(infinityStats.totalRevenue / 100000).toFixed(1)}L</span>
+										</div>
+										<div class="fin-metric">
+											<span class="fin-label">TOTAL INVESTMENT</span>
+											<span class="fin-value">₹{(infinityStats.totalInvestment / 100000).toFixed(1)}L</span>
+										</div>
+										<div class="fin-metric">
+											<span class="fin-label">MONTHLY REVENUE</span>
+											<span class="fin-value revenue">₹{(infinityStats.monthlyRevenue / 100000).toFixed(1)}L</span>
+										</div>
+										<div class="fin-metric">
+											<span class="fin-label">MONTHLY BURN</span>
+											<span class="fin-value burn">₹{(infinityStats.monthlyBurn / 100000).toFixed(1)}L</span>
+										</div>
+										<div class="fin-metric">
+											<span class="fin-label">RUNWAY</span>
+											<span class="fin-value">
+												{infinityStats.runway > 100 ? '100+ mo' : infinityStats.runway + ' mo'}
+											</span>
+										</div>
+										<div class="fin-metric">
+											<span class="fin-label">STATUS</span>
+											<span class="fin-value {infinityStats.status === 'Profitable' ? 'profitable' : 'burning'}">
+												{infinityStats.status}
+											</span>
+										</div>
+										<div class="fin-metric full-width">
+											<span class="fin-label">REVENUE GROWTH</span>
+											<span class="fin-value {infinityStats.revenueGrowth >= 0 ? 'profitable' : 'burning'}">
+												{(infinityStats.revenueGrowth >= 0 ? '+' : '')}{infinityStats.revenueGrowth.toFixed(1)}%
+											</span>
+										</div>
+									</div>
+								{:else if valuation}
 									{@const hasRevenue = ddqResponses[12] === 'Yes'}
 									{@const monthlyRevenue = hasRevenue ? (Number(ddqResponses[13]) || 0) : 0}
 									{@const previousRevenue = hasRevenue ? (Number(ddqResponses[14]) || 0) : 0}
@@ -3801,35 +4345,35 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 									{@const isProfitable = hasRevenue && netProfit > 0}
 									<div class="financial-grid">
 										<div class="fin-metric">
-											<span class="fin-label">Total Revenue</span>
+											<span class="fin-label">TOTAL REVENUE</span>
 											<span class="fin-value revenue">₹{(monthlyRevenue * 12 / 100000).toFixed(1)}L</span>
 										</div>
 										<div class="fin-metric">
-											<span class="fin-label">Total Investment</span>
+											<span class="fin-label">TOTAL INVESTMENT</span>
 											<span class="fin-value">₹{(totalInvestment / 100000).toFixed(1)}L</span>
 										</div>
 										<div class="fin-metric">
-											<span class="fin-label">Monthly Revenue</span>
+											<span class="fin-label">MONTHLY REVENUE</span>
 											<span class="fin-value revenue">₹{(monthlyRevenue / 100000).toFixed(1)}L</span>
 										</div>
 										<div class="fin-metric">
-											<span class="fin-label">Monthly Burn</span>
+											<span class="fin-label">MONTHLY BURN</span>
 											<span class="fin-value burn">₹{(estimatedBurn / 100000).toFixed(1)}L</span>
 										</div>
 										<div class="fin-metric">
-											<span class="fin-label">Runway</span>
+											<span class="fin-label">RUNWAY</span>
 											<span class="fin-value">
 												{runway > 100 ? '100+ mo' : runway + ' mo'}
 											</span>
 										</div>
 										<div class="fin-metric">
-											<span class="fin-label">Status</span>
+											<span class="fin-label">STATUS</span>
 											<span class="fin-value {isProfitable ? 'profitable' : 'burning'}">
 												{isProfitable ? 'Profitable' : (hasRevenue ? 'Growing' : 'Pre-Revenue')}
 											</span>
 										</div>
 										<div class="fin-metric full-width">
-											<span class="fin-label">Revenue Growth</span>
+											<span class="fin-label">REVENUE GROWTH</span>
 											<span class="fin-value {revenueGrowth >= 0 ? 'profitable' : 'burning'}">
 												{(revenueGrowth >= 0 ? '+' : '') + revenueGrowth.toFixed(1)}%
 											</span>
@@ -4150,7 +4694,8 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 								{@const supplierPower = category === 'Manufacturing' || category === 'AgriTech' ? 'High' : 'Low'}
 								{@const buyerPower = customers > 1000 ? 'Low' : customers > 100 ? 'Medium' : 'High'}
 								{@const substituteThreat = competitors.toLowerCase().includes('none') ? 'Low' : category === 'Technology' ? 'High' : 'Medium'}
-								{@const rivalry = competitors.toLowerCase().includes('none') ? 'Low' : 'High'}									<div class="force-card">
+								{@const rivalry = competitors.toLowerCase().includes('none') ? 'Low' : 'High'}
+									<div class="force-card">
 										<div class="force-icon">
 											<span class="material-symbols-outlined">group_add</span>
 										</div>
@@ -4271,199 +4816,14 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 								</div>
 							</div>
 						</div>
-
-						<!-- Introspection Section -->
-						{#if swotAnalysis}
-						<div class="minimal-card">
-							<div class="card-header">
-								<span class="material-symbols-outlined icon-large">grid_view</span>
-								<h2 class="section-title">Introspection</h2>
-								<div class="card-header-actions">
-									<button class="info-btn" on:click={() => showInfo('introspection')} title="What is this?">
-										<span class="info-icon">i</span>
-									</button>
-									<button class="daddy-btn" on:click={() => askDaddy('introspection')} title="Ask Daddy">
-										<span class="daddy-icon">D</span>
-									</button>
-								</div>
-							</div>
-							
-							<div class="swot-grid">
-								<!-- Strengths -->
-								<div class="swot-quadrant strengths">
-									<div class="quadrant-header">
-										<span class="material-symbols-outlined">trending_up</span>
-										<h3>Strengths</h3>
-									</div>
-									<div class="quadrant-content">
-										{#if swotAnalysis.strengths && swotAnalysis.strengths.length > 0}
-											{#each swotAnalysis.strengths as item}
-												<div class="swot-item">• {item}</div>
-											{/each}
-										{:else}
-											<p class="empty-text">No strengths identified</p>
-										{/if}
-									</div>
-								</div>
-
-								<!-- Weaknesses -->
-								<div class="swot-quadrant weaknesses">
-									<div class="quadrant-header">
-										<span class="material-symbols-outlined">trending_down</span>
-										<h3>Weaknesses</h3>
-									</div>
-									<div class="quadrant-content">
-										{#if swotAnalysis.weaknesses && swotAnalysis.weaknesses.length > 0}
-											{#each swotAnalysis.weaknesses as item}
-												<div class="swot-item">• {item}</div>
-											{/each}
-										{:else}
-											<p class="empty-text">No weaknesses identified</p>
-										{/if}
-									</div>
-								</div>
-
-								<!-- Opportunities -->
-								<div class="swot-quadrant opportunities">
-									<div class="quadrant-header">
-										<span class="material-symbols-outlined">lightbulb</span>
-										<h3>Opportunities</h3>
-									</div>
-									<div class="quadrant-content">
-										{#if swotAnalysis.opportunities && swotAnalysis.opportunities.length > 0}
-											{#each swotAnalysis.opportunities as item}
-												<div class="swot-item">• {item}</div>
-											{/each}
-										{:else}
-											<p class="empty-text">No opportunities identified</p>
-										{/if}
-									</div>
-								</div>
-
-								<!-- Threats -->
-								<div class="swot-quadrant threats">
-									<div class="quadrant-header">
-										<span class="material-symbols-outlined">warning</span>
-										<h3>Threats</h3>
-									</div>
-									<div class="quadrant-content">
-										{#if swotAnalysis.threats && swotAnalysis.threats.length > 0}
-											{#each swotAnalysis.threats as item}
-												<div class="swot-item">• {item}</div>
-											{/each}
-										{:else}
-											<p class="empty-text">No threats identified</p>
-										{/if}
-									</div>
-								</div>
-							</div>
-						</div>
-						{/if}
-
-						<!-- VRIO Analysis Section -->
-						<div class="minimal-card">
-							<div class="card-header">
-								<span class="material-symbols-outlined icon-large">shield</span>
-								<h2 class="section-title">VRIO Framework Analysis</h2>
-								<div class="card-header-actions">
-									<button class="info-btn" on:click={() => showInfo('vrio')} title="What is this?">
-										<span class="info-icon">i</span>
-									</button>
-									<button class="daddy-btn" on:click={() => askDaddy('vrio')} title="Ask Daddy">
-										<span class="daddy-icon">D</span>
-									</button>
-								</div>
-							</div>
-							<p class="section-desc">Evaluating resources for sustainable competitive advantage</p>
-							
-							{#if true}
-							{@const hasProprietaryTech = String(ddqResponses[18] || '').includes('Yes')}
-							{@const hasPreviousStartup = String(ddqResponses[18] || '').includes('Previous Startup')}
-							{@const hasIndustryExpert = String(ddqResponses[18] || '').includes('Industry Expert')}
-							{@const hasTechnicalFounder = String(ddqResponses[18] || '').includes('Technical')}
-							{@const teamSize = Number(ddqResponses[17]) || 1}
-							{@const isOrganized = teamSize > 1}
-							{@const hasRevenue = ddqResponses[12] === 'Yes'}
-							{@const customerCount = Number(ddqResponses[15]) || 0}
-							
-							<div class="vrio-table">
-								<div class="vrio-header-row">
-									<div class="vrio-col resource-col">Resource</div>
-									<div class="vrio-col">Valuable</div>
-									<div class="vrio-col">Rare</div>
-									<div class="vrio-col">Inimitable</div>
-									<div class="vrio-col">Organized</div>
-									<div class="vrio-col result-col">Implication</div>
-								</div>
-								
-								<!-- Technology/IP -->
-								<div class="vrio-row">
-									<div class="vrio-col resource-col">
-										<span class="material-symbols-outlined">code</span>
-										Technology/IP
-									</div>
-									<div class="vrio-col"><span class="vrio-check-icon yes">✓</span></div>
-									<div class="vrio-col"><span class="vrio-check-icon {hasProprietaryTech ? 'yes' : 'no'}">{hasProprietaryTech ? '✓' : '✗'}</span></div>
-									<div class="vrio-col"><span class="vrio-check-icon {hasProprietaryTech && hasTechnicalFounder ? 'yes' : 'no'}">{hasProprietaryTech && hasTechnicalFounder ? '✓' : '✗'}</span></div>
-									<div class="vrio-col"><span class="vrio-check-icon {isOrganized ? 'yes' : 'no'}">{isOrganized ? '✓' : '✗'}</span></div>
-									<div class="vrio-col result-col {hasProprietaryTech && hasTechnicalFounder && isOrganized ? 'sustained' : hasProprietaryTech ? 'temporary' : 'parity'}">
-										{hasProprietaryTech && hasTechnicalFounder && isOrganized ? 'Sustained Advantage' : hasProprietaryTech ? 'Temporary Advantage' : 'Competitive Parity'}
-									</div>
-								</div>
-								
-								<!-- Team Expertise -->
-								<div class="vrio-row">
-									<div class="vrio-col resource-col">
-										<span class="material-symbols-outlined">groups</span>
-										Team Expertise
-									</div>
-									<div class="vrio-col"><span class="vrio-check-icon {hasIndustryExpert || hasPreviousStartup ? 'yes' : 'no'}">{hasIndustryExpert || hasPreviousStartup ? '✓' : '✗'}</span></div>
-									<div class="vrio-col"><span class="vrio-check-icon {hasIndustryExpert && hasPreviousStartup ? 'yes' : 'no'}">{hasIndustryExpert && hasPreviousStartup ? '✓' : '✗'}</span></div>
-									<div class="vrio-col"><span class="vrio-check-icon {hasPreviousStartup ? 'yes' : 'no'}">{hasPreviousStartup ? '✓' : '✗'}</span></div>
-									<div class="vrio-col"><span class="vrio-check-icon {isOrganized ? 'yes' : 'no'}">{isOrganized ? '✓' : '✗'}</span></div>
-									<div class="vrio-col result-col {hasIndustryExpert && hasPreviousStartup && isOrganized ? 'sustained' : hasIndustryExpert || hasPreviousStartup ? 'temporary' : 'disadvantage'}">
-										{hasIndustryExpert && hasPreviousStartup && isOrganized ? 'Sustained Advantage' : hasIndustryExpert || hasPreviousStartup ? 'Temporary Advantage' : 'Disadvantage'}
-									</div>
-								</div>
-								
-								<!-- Customer Base -->
-								<div class="vrio-row">
-									<div class="vrio-col resource-col">
-										<span class="material-symbols-outlined">people</span>
-										Customer Base
-									</div>
-									<div class="vrio-col"><span class="vrio-check-icon {hasRevenue ? 'yes' : 'no'}">{hasRevenue ? '✓' : '✗'}</span></div>
-									<div class="vrio-col"><span class="vrio-check-icon {customerCount > 500 ? 'yes' : 'no'}">{customerCount > 500 ? '✓' : '✗'}</span></div>
-									<div class="vrio-col"><span class="vrio-check-icon {customerCount > 1000 ? 'yes' : 'no'}">{customerCount > 1000 ? '✓' : '✗'}</span></div>
-									<div class="vrio-col"><span class="vrio-check-icon {isOrganized ? 'yes' : 'no'}">{isOrganized ? '✓' : '✗'}</span></div>
-									<div class="vrio-col result-col {customerCount > 1000 && isOrganized ? 'sustained' : hasRevenue ? 'temporary' : 'disadvantage'}">
-										{customerCount > 1000 && isOrganized ? 'Sustained Advantage' : hasRevenue ? 'Temporary Advantage' : 'Disadvantage'}
-									</div>
-								</div>
-								
-								<!-- Brand/Reputation -->
-								<div class="vrio-row">
-									<div class="vrio-col resource-col">
-										<span class="material-symbols-outlined">stars</span>
-										Brand
-									</div>
-									<div class="vrio-col"><span class="vrio-check-icon {customerCount > 100 ? 'yes' : 'no'}">{customerCount > 100 ? '✓' : '✗'}</span></div>
-									<div class="vrio-col"><span class="vrio-check-icon no">✗</span></div>
-									<div class="vrio-col"><span class="vrio-check-icon no">✗</span></div>
-									<div class="vrio-col"><span class="vrio-check-icon {isOrganized ? 'yes' : 'no'}">{isOrganized ? '✓' : '✗'}</span></div>
-									<div class="vrio-col result-col parity">Competitive Parity</div>
-								</div>
-							</div>
-							{/if}
-						</div>
 					</div>
 				</div>
-			{:else}
-				<div class="minimal-card">
-					<div class="empty-state">
-						<span class="material-symbols-outlined icon-empty">psychology</span>
-						<h3>No Introspection Data Yet</h3>
-						<p>Complete the assessment to view your company analysis</p>
+				{:else}
+					<div class="minimal-card">
+						<div class="empty-state">
+							<span class="material-symbols-outlined icon-empty">analytics</span>
+							<h3>No Valuation Data</h3>
+							<p>Complete the assessment to view your valuation</p>
 							<button class="btn-primary" on:click={startDDQ}>
 								<span class="material-symbols-outlined">rocket_launch</span>
 								Start Assessment
@@ -4475,570 +4835,436 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 			<!-- Introspection Tab -->
 			{:else if activeTab === 'strengths-weaknesses'}
 				{#if swotAnalysis}
+				{@const hasRevenue = ddqResponses[12] === 'Yes'}
+				{@const teamSize = Number(ddqResponses[17]) || 1}
+				{@const stage = ddqResponses[5] || 'Idea'}
+				{@const fundingNeeded = ddqResponses[22] || 'Less than ₹10 Lakhs'}
+				{@const challenges = ddqResponses[19] || []}
+				{@const monthlyRevenue = Number(ddqResponses[13]) || 0}
+				{@const customerCount = Number(ddqResponses[15]) || 0}
+				{@const arpc = Number(ddqResponses[16]) || 0}
+				{@const currentPhase = stage === 'Idea' || stage === 'MVP' ? 'Introduction' : stage === 'Beta' || stage === 'Launched' ? 'Growth' : stage === 'Growing' ? 'Acceleration' : 'Maturity'}
+				
 					<div class="strengths-weaknesses-section">
+						<!-- Introspection Overview -->
+						<div class="actionable-summary-box introspection-overview">
+							<div class="summary-header">
+								<span class="material-symbols-outlined">lightbulb</span>
+								<h3>What is Introspection?</h3>
+							</div>
+							<p class="summary-text">Introspection provides <strong>decision intelligence</strong> — not generic advice. It answers: What should you do next, and why is that the highest-leverage move?</p>
+							<div class="action-checklist">
+								<div class="checklist-title">🎯 Your Focus Areas:</div>
+								<ul>
+									<li><strong>Value Drivers:</strong> Identify what moves your valuation most</li>
+									<li><strong>Decision Impact:</strong> Understand Act Now vs Delay consequences</li>
+									<li><strong>Triggers:</strong> Set up IF→THEN rules for proactive decisions</li>
+								</ul>
+							</div>
+						</div>
+
+						<!-- 1. Value Driver Analysis -->
 						<div class="minimal-card">
+							<div class="actionable-guide">
+								<span class="guide-icon">📌</span>
+								<div class="guide-content">
+									<strong>What to do:</strong> Focus 70% of your energy on Driver #1. Check if "Signal" is Weak — that means you need more validation. "Controllable = Yes" means you can impact this in 30-60 days.
+								</div>
+							</div>
 							<div class="card-header">
-								<span class="material-symbols-outlined icon-large">balance</span>
-								<h2 class="section-title">Introspection</h2>
-								<p class="section-subtitle">Strengths, Weaknesses, Opportunities & Threats</p>
-							</div>
-
-							<div class="balance-grid">
-								<!-- Strengths -->
-								<div class="analysis-panel strengths-panel">
-									<div class="panel-header">
-										<span class="material-symbols-outlined">trending_up</span>
-										<h3>Strengths</h3>
-										<span class="count-badge">{swotAnalysis.strengths?.length || 0}</span>
-									</div>
-									<div class="panel-content">
-										{#if swotAnalysis.strengths && swotAnalysis.strengths.length > 0}
-											{#each swotAnalysis.strengths as strength, index}
-												<div class="analysis-item strengths-item">
-													<span class="item-number">{index + 1}</span>
-													<p>{strength}</p>
-												</div>
-											{/each}
-										{:else}
-											<div class="empty-panel">
-												<span class="material-symbols-outlined">lightbulb</span>
-												<p>No strengths identified yet</p>
-											</div>
-										{/if}
-									</div>
-								</div>
-
-								<!-- Weaknesses -->
-								<div class="analysis-panel weaknesses-panel">
-									<div class="panel-header">
-										<span class="material-symbols-outlined">trending_down</span>
-										<h3>Weaknesses</h3>
-										<span class="count-badge">{swotAnalysis.weaknesses?.length || 0}</span>
-									</div>
-									<div class="panel-content">
-										{#if swotAnalysis.weaknesses && swotAnalysis.weaknesses.length > 0}
-											{#each swotAnalysis.weaknesses as weakness, index}
-												<div class="analysis-item weaknesses-item">
-													<span class="item-number">{index + 1}</span>
-													<p>{weakness}</p>
-												</div>
-											{/each}
-										{:else}
-											<div class="empty-panel">
-												<span class="material-symbols-outlined">shield</span>
-												<p>No weaknesses identified yet</p>
-											</div>
-										{/if}
-									</div>
+								<span class="material-symbols-outlined icon-large">insights</span>
+								<h2 class="section-title">Value Driver Analysis</h2>
+								<div class="card-header-actions">
+									<button class="info-btn" on:click={() => showInfo('value-driver')} title="What is this?">
+										<span class="info-icon">i</span>
+									</button>
+									<button class="daddy-btn" on:click={() => askDaddy('value-driver')} title="Ask Daddy">
+										<span class="daddy-icon">D</span>
+									</button>
 								</div>
 							</div>
-
-<!-- Internal Balance Score removed -->
-
-							<!-- Opportunities vs Threats Section -->
-							<div class="opportunities-threats-section" style="margin-top: 2rem;">
-								<h3 class="subsection-title">
-									<span class="material-symbols-outlined">currency_exchange</span>
-									External Factors: Opportunities vs Threats
-								</h3>
-								<div class="balance-grid" style="margin-top: 1rem;">
-									<!-- Opportunities -->
-									<div class="analysis-panel opportunities-panel">
-										<div class="panel-header">
-											<span class="material-symbols-outlined">check_circle</span>
-											<h3>Opportunities</h3>
-											<span class="count-badge">{swotAnalysis.opportunities?.length || 0}</span>
-										</div>
-										<div class="panel-content">
-											{#if swotAnalysis.opportunities && swotAnalysis.opportunities.length > 0}
-												{#each swotAnalysis.opportunities as opportunity, index}
-													<div class="analysis-item opportunities-item">
-														<span class="item-number">{index + 1}</span>
-														<p>{opportunity}</p>
-													</div>
-												{/each}
-											{:else}
-												<div class="empty-panel">
-													<span class="material-symbols-outlined">explore</span>
-													<p>No opportunities identified yet</p>
-												</div>
-											{/if}
-										</div>
-									</div>
-
-									<!-- Threats -->
-									<div class="analysis-panel threats-panel">
-										<div class="panel-header">
-											<span class="material-symbols-outlined">warning</span>
-											<h3>Threats</h3>
-											<span class="count-badge">{swotAnalysis.threats?.length || 0}</span>
-										</div>
-										<div class="panel-content">
-											{#if swotAnalysis.threats && swotAnalysis.threats.length > 0}
-												{#each swotAnalysis.threats as threat, index}
-													<div class="analysis-item threats-item">
-														<span class="item-number">{index + 1}</span>
-														<p>{threat}</p>
-													</div>
-												{/each}
-											{:else}
-												<div class="empty-panel">
-													<span class="material-symbols-outlined">shield_locked</span>
-													<p>No threats identified yet</p>
-												</div>
-											{/if}
-										</div>
-									</div>
-								</div>
-
-								<!-- External Balance Indicator removed -->
-							</div>
-
-							<!-- VRIO Analysis Framework -->
-							<div class="vrio-section">
-								<h3 class="subsection-title">
-									<span class="material-symbols-outlined">shield_with_heart</span>
-									VRIO Analysis - Competitive Advantage
-							</h3>
-							<p class="subsection-desc">Evaluate your resources for sustainable competitive advantage</p>
+							<p class="section-desc">Top 3 factors that move your company value right now — ranked by expected impact</p>
 							
 							{#if true}
-							{@const hasProprietaryTech = String(ddqResponses[18] || '').includes('Yes')}
-							{@const hasPreviousStartup = String(ddqResponses[18] || '').includes('Previous Startup')}
-							{@const hasIndustryExpert = String(ddqResponses[18] || '').includes('Industry Expert')}
-							{@const hasTechnicalFounder = String(ddqResponses[18] || '').includes('Technical')}
-							{@const teamSizeValue = Number(ddqResponses[17]) || 1}
-							{@const isOrganized = teamSizeValue > 1}
-							{@const uniqueValue = ddqResponses[7] || ''}
-							{@const hasRevenueCheck = ddqResponses[12] === 'Yes'}
+							{@const driver1Signal = hasRevenue ? 'Strong' : customerCount > 50 ? 'Medium' : 'Weak'}
+							{@const driver2Signal = teamSize >= 2 && stage !== 'Idea' ? 'Medium' : 'Weak'}
+							{@const driver3Signal = monthlyRevenue > 100000 ? 'Strong' : hasRevenue ? 'Medium' : 'Weak'}
 							
-							{@const hasExpertise = hasIndustryExpert || hasPreviousStartup}
-							{@const expertiseRare = hasIndustryExpert && hasPreviousStartup}
-							{@const customerValue = hasRevenueCheck && Number(ddqResponses[15]) > 50}
-							{@const customerRare = Number(ddqResponses[15]) > 500}
-							{@const hardToSteal = Number(ddqResponses[15]) > 1000 || String(ddqResponses[19] || '').includes('Referrals')}
-							
-							{@const uvpStrong = (uniqueValue?.length || 0) > 50}
-							{@const uvpDifferentiated = !String(ddqResponses[5] || '').toLowerCase().includes('none')}
-							
-							{@const expertiseAdvantage = hasExpertise && expertiseRare && isOrganized ? 'sustained' : hasExpertise && expertiseRare ? 'temporary' : hasExpertise ? 'parity' : 'disadvantage'}
-							{@const tractionAdvantage = customerValue && customerRare && hardToSteal && isOrganized ? 'sustained' : customerValue && customerRare && hardToSteal ? 'temporary' : customerValue ? 'parity' : 'disadvantage'}
-							{@const uvpAdvantage = uvpStrong && uvpDifferentiated && isOrganized ? 'temporary' : uvpStrong ? 'parity' : 'disadvantage'}
-							
-							<!-- Dynamic contextual explanations -->
-							{@const expertiseExplanation = (() => {
-								if (hasExpertise && expertiseRare && isOrganized) return "Strong founder background with rare skill combo. Team is leveraging it well — sustainable moat.";
-								if (hasExpertise && expertiseRare) return "Rare expertise exists but team structure limits leverage. Build the team to capitalize.";
-								if (hasExpertise && isOrganized) return "Solid expertise but common in the market. Others can hire similar talent easily.";
-								if (hasExpertise) return "You have relevant experience but it's not rare. Competitors can match this.";
-								if (isOrganized) return "Team structure is good but founder expertise needs strengthening. Consider advisors or co-founders.";
-								return "Limited founder expertise for this domain. Consider building advisory network or upskilling.";
-							})()}
-							
-							{@const tractionExplanation = (() => {
-								if (customerValue && customerRare && hardToSteal && isOrganized) return "Strong customer base with high switching costs. Well-organized to scale — major competitive moat.";
-								if (customerValue && customerRare && hardToSteal) return "Great traction with sticky customers but team capacity limits growth. Scale operations.";
-								if (customerValue && customerRare) return "Good customer numbers but they can easily switch. Build loyalty programs and integrations.";
-								if (customerValue && isOrganized) return "Revenue exists but customer base is still early. Focus on growth and retention.";
-								if (customerValue) return "Some traction but not at scale yet. Keep pushing customer acquisition.";
-								if (isOrganized) return "Team is ready but traction is weak. Prioritize product-market fit and sales.";
-								return "Early stage with minimal traction. Focus on acquiring first customers and proving demand.";
-							})()}
-							
-							{@const uvpExplanation = (() => {
-								if (uvpStrong && uvpDifferentiated && isOrganized) return "Clear differentiation with solid execution. But UVPs can be copied — keep innovating.";
-								if (uvpStrong && uvpDifferentiated) return "You have differentiation — good sign. But competitors can replicate. Execution needs work.";
-								if (uvpStrong && isOrganized) return "Well-articulated UVP with good execution. But it's not unique enough — refine positioning.";
-								if (uvpDifferentiated && isOrganized) return "You have differentiation and execution is solid, but defensibility is weak.";
-								if (uvpStrong) return "UVP is defined but not differentiated enough. Study competitors and find unique angles.";
-								if (uvpDifferentiated) return "Differentiation exists but not well-articulated. Clarify your value proposition.";
-								if (isOrganized) return "Team is executing but UVP is unclear. Define what makes you truly different.";
-								return "Value proposition needs work. Clearly define why customers should choose you over alternatives.";
-							})()}
-							
-							<!-- VRIO Matrix Table -->
-							<div class="vrio-matrix-container">
-								<button class="vrio-info-btn" on:click={() => showVrioInfo = !showVrioInfo} title="What is VRIO?">
-									<span class="material-symbols-outlined">info</span>
-								</button>
-								
-								{#if showVrioInfo}
-								<div class="vrio-info-popup">
-									<div class="vrio-info-header">
-										<h4>Understanding VRIO Framework</h4>
-										<button class="close-btn" on:click={() => showVrioInfo = false}>
-											<span class="material-symbols-outlined">close</span>
-										</button>
+							<div class="value-drivers-list">
+								<!-- Driver #1 -->
+								<div class="value-driver-card rank-1">
+									<div class="driver-rank">
+										<span class="rank-number">#1</span>
+										<span class="rank-label">Highest Impact</span>
 									</div>
-									<div class="explanation-grid">
-										<div class="explanation-item">
-											<strong>V - Valuable</strong>
-											<p>Does this resource help exploit opportunities or neutralize threats?</p>
-										</div>
-										<div class="explanation-item">
-											<strong>R - Rare</strong>
-											<p>Is this resource scarce in the market?</p>
-										</div>
-										<div class="explanation-item">
-											<strong>I - Inimitable</strong>
-											<p>Is it difficult to copy or replicate?</p>
-										</div>
-										<div class="explanation-item">
-											<strong>O - Organized</strong>
-											<p>Is your organization structured to exploit these resources?</p>
+									<div class="driver-content">
+										<h4 class="driver-title">
+											<span class="material-symbols-outlined">{hasRevenue ? 'payments' : 'group_add'}</span>
+											{hasRevenue ? 'Revenue Velocity' : 'Customer Acquisition'}
+										</h4>
+										<p class="driver-why">
+											{#if hasRevenue}
+												<strong>Why now:</strong> You have revenue. Increasing velocity directly multiplies valuation at your stage. Every 10% MoM growth adds ~15% to valuation perception.
+											{:else}
+												<strong>Why now:</strong> Pre-revenue stage = all valuation hinges on traction proof. First 10 paying customers are worth more than any feature.
+											{/if}
+										</p>
+										<div class="driver-metrics">
+											<div class="metric-badge signal-{driver1Signal.toLowerCase()}">
+												<span class="metric-label">Signal</span>
+												<span class="metric-value">{driver1Signal}</span>
+											</div>
+											<div class="metric-badge controllable-yes">
+												<span class="metric-label">Controllable</span>
+												<span class="metric-value">Yes (30-60 days)</span>
+											</div>
 										</div>
 									</div>
-									<div class="implications-list">
-										<div class="implication-row"><span class="dot disadvantage"></span><span><strong>Competitive Disadvantage:</strong> Resource is not valuable — address urgently</span></div>
-										<div class="implication-row"><span class="dot parity"></span><span><strong>Competitive Parity:</strong> Valuable but not rare — meets baseline</span></div>
-										<div class="implication-row"><span class="dot temporary"></span><span><strong>Temporary Advantage:</strong> Valuable & rare but can be copied</span></div>
-										<div class="implication-row"><span class="dot sustained"></span><span><strong>Sustained Advantage:</strong> V+R+I+O — your strategic moat</span></div>
+									<div class="driver-impact">
+										<span class="impact-label">Valuation Impact</span>
+										<span class="impact-value">+20-40%</span>
 									</div>
 								</div>
-								{/if}
 								
-								<table class="vrio-matrix">
-									<thead>
-										<tr>
-											<th class="resource-col">Resource</th>
-											<th>Valuable</th>
-											<th>Rare</th>
-											<th>Hard to Imitate</th>
-											<th>Organized</th>
-											<th class="outcome-col">Insight</th>
-										</tr>
-									</thead>
-									<tbody>
-										<!-- Founder Expertise Row -->
-										<tr>
-											<td class="resource-name">Founder expertise</td>
-											<td class="vrio-cell">
-												<span class="vrio-icon {hasExpertise ? 'yes' : 'no'}">
-													{#if hasExpertise}✓{:else}✗{/if}
-												</span>
-											</td>
-											<td class="vrio-cell">
-												<span class="vrio-icon {expertiseRare ? 'yes' : 'no'}">
-													{#if expertiseRare}✓{:else}✗{/if}
-												</span>
-											</td>
-											<td class="vrio-cell">
-												<span class="vrio-icon no">✗</span>
-											</td>
-											<td class="vrio-cell">
-												<span class="vrio-icon {isOrganized ? 'yes' : 'no'}">
-													{#if isOrganized}✓{:else}✗{/if}
-												</span>
-											</td>
-											<td class="outcome-cell {expertiseAdvantage}">
-												{expertiseExplanation}
-											</td>
-										</tr>
-										
-										<!-- Customer Traction Row -->
-										<tr>
-											<td class="resource-name">Customer traction</td>
-											<td class="vrio-cell">
-												<span class="vrio-icon {customerValue ? 'yes' : 'no'}">
-													{#if customerValue}✓{:else}✗{/if}
-												</span>
-											</td>
-											<td class="vrio-cell">
-												<span class="vrio-icon {customerRare ? 'yes' : 'no'}">
-													{#if customerRare}✓{:else}✗{/if}
-												</span>
-											</td>
-											<td class="vrio-cell">
-												<span class="vrio-icon {hardToSteal ? 'yes' : 'no'}">
-													{#if hardToSteal}✓{:else}✗{/if}
-												</span>
-											</td>
-											<td class="vrio-cell">
-												<span class="vrio-icon {isOrganized ? 'yes' : 'no'}">
-													{#if isOrganized}✓{:else}✗{/if}
-												</span>
-											</td>
-											<td class="outcome-cell {tractionAdvantage}">
-												{tractionExplanation}
-											</td>
-										</tr>
-										
-										<!-- UVP Row -->
-										<tr>
-											<td class="resource-name">UVP</td>
-											<td class="vrio-cell">
-												<span class="vrio-icon {uvpStrong ? 'yes' : 'no'}">
-													{#if uvpStrong}✓{:else}✗{/if}
-												</span>
-											</td>
-											<td class="vrio-cell">
-												<span class="vrio-icon {uvpDifferentiated ? 'yes' : 'no'}">
-													{#if uvpDifferentiated}✓{:else}✗{/if}
-												</span>
-											</td>
-											<td class="vrio-cell">
-												<span class="vrio-icon no">✗</span>
-											</td>
-											<td class="vrio-cell">
-												<span class="vrio-icon {isOrganized ? 'yes' : 'no'}">
-													{#if isOrganized}✓{:else}✗{/if}
-												</span>
-											</td>
-											<td class="outcome-cell {uvpAdvantage}">
-												{uvpExplanation}
-											</td>
-										</tr>
-										
-										<!-- Proprietary Technology Row (if applicable) -->
-										{#if hasProprietaryTech}
-										{@const techRare = hasTechnicalFounder && hasProprietaryTech}
-										{@const techHardToImitate = hasTechnicalFounder && hasProprietaryTech}
-										{@const techAdvantage = isOrganized && techHardToImitate && techRare ? 'sustained' : techHardToImitate && techRare ? 'temporary' : techRare ? 'parity' : 'disadvantage'}
-										{@const techExplanation = (() => {
-											if (isOrganized && techHardToImitate && techRare) return "Proprietary tech with technical depth and team to scale. Strong defensible moat.";
-											if (techHardToImitate && techRare) return "Solid tech IP but team structure limits leverage. Build engineering capacity.";
-											if (techRare) return "Tech exists but can be replicated. Consider patents or deeper technical moats.";
-											return "Tech claimed but not differentiated. Invest in R&D or unique technical approaches.";
-										})()}
-										<tr>
-											<td class="resource-name">Proprietary tech/IP</td>
-											<td class="vrio-cell">
-												<span class="vrio-icon yes">✓</span>
-											</td>
-											<td class="vrio-cell">
-												<span class="vrio-icon {techRare ? 'yes' : 'no'}">
-													{#if techRare}✓{:else}✗{/if}
-												</span>
-											</td>
-											<td class="vrio-cell">
-												<span class="vrio-icon {techHardToImitate ? 'yes' : 'no'}">
-													{#if techHardToImitate}✓{:else}✗{/if}
-												</span>
-											</td>
-											<td class="vrio-cell">
-												<span class="vrio-icon {isOrganized ? 'yes' : 'no'}">
-													{#if isOrganized}✓{:else}✗{/if}
-												</span>
-											</td>
-											<td class="outcome-cell {techAdvantage}">
-												{techExplanation}
-											</td>
-										</tr>
-										{/if}
-									</tbody>
-								</table>
+								<!-- Driver #2 -->
+								<div class="value-driver-card rank-2">
+									<div class="driver-rank">
+										<span class="rank-number">#2</span>
+										<span class="rank-label">High Impact</span>
+									</div>
+									<div class="driver-content">
+										<h4 class="driver-title">
+											<span class="material-symbols-outlined">{stage === 'Idea' || stage === 'MVP' ? 'science' : 'trending_up'}</span>
+											{stage === 'Idea' || stage === 'MVP' ? 'Product-Market Fit Signal' : 'Growth Rate Consistency'}
+										</h4>
+										<p class="driver-why">
+											{#if stage === 'Idea' || stage === 'MVP'}
+												<strong>Why now:</strong> Without PMF signal, you're fundraising on vision alone. One clear retention metric changes the entire conversation.
+											{:else}
+												<strong>Why now:</strong> Consistent growth beats spiky growth. 3 months of steady 15% beats one month of 50%. Investors pattern-match on trajectory.
+											{/if}
+										</p>
+										<div class="driver-metrics">
+											<div class="metric-badge signal-{driver2Signal.toLowerCase()}">
+												<span class="metric-label">Signal</span>
+												<span class="metric-value">{driver2Signal}</span>
+											</div>
+											<div class="metric-badge controllable-partial">
+												<span class="metric-label">Controllable</span>
+												<span class="metric-value">Partially</span>
+											</div>
+										</div>
+									</div>
+									<div class="driver-impact">
+										<span class="impact-label">Valuation Impact</span>
+										<span class="impact-value">+15-25%</span>
+									</div>
+								</div>
+								
+								<!-- Driver #3 -->
+								<div class="value-driver-card rank-3">
+									<div class="driver-rank">
+										<span class="rank-number">#3</span>
+										<span class="rank-label">Medium Impact</span>
+									</div>
+									<div class="driver-content">
+										<h4 class="driver-title">
+											<span class="material-symbols-outlined">{Array.isArray(challenges) && challenges.includes('Funding') ? 'account_balance' : 'reduce_capacity'}</span>
+											{Array.isArray(challenges) && challenges.includes('Funding') ? 'Runway Extension' : 'Unit Economics'}
+										</h4>
+										<p class="driver-why">
+											{#if Array.isArray(challenges) && challenges.includes('Funding')}
+												<strong>Why now:</strong> With funding as a challenge, extending runway buys negotiating leverage. Every extra month = better terms or backup options.
+											{:else}
+												<strong>Why now:</strong> LTV:CAC ratio is the investor litmus test. Proving you can acquire customers profitably removes the biggest risk question.
+											{/if}
+										</p>
+										<div class="driver-metrics">
+											<div class="metric-badge signal-{driver3Signal.toLowerCase()}">
+												<span class="metric-label">Signal</span>
+												<span class="metric-value">{driver3Signal}</span>
+											</div>
+											<div class="metric-badge controllable-yes">
+												<span class="metric-label">Controllable</span>
+												<span class="metric-value">Yes (30-60 days)</span>
+											</div>
+										</div>
+									</div>
+									<div class="driver-impact">
+										<span class="impact-label">Valuation Impact</span>
+										<span class="impact-value">+10-20%</span>
+									</div>
+								</div>
 							</div>
-
-								<!-- VRIO Summary & Explanations -->
-								<div class="vrio-summary">
-									<h4>
-										<span class="material-symbols-outlined">summarize</span>
-									Strategic Recommendation
-								</h4>
-								{#if true}
-								{@const sustainedCount = [
-									hasProprietaryTech && isOrganized ? 1 : 0,
-									hasExpertise && expertiseRare && isOrganized ? 1 : 0,
-									customerValue && customerRare && hardToSteal && isOrganized ? 1 : 0
-								].reduce((a, b) => a + b, 0)}
-								{@const categories = toDisplayString(ddqResponses[3]) || 'Technology'}
-								{@const productStage = ddqResponses[5] || 'MVP'}
-								{@const mainChallenges = toDisplayString(ddqResponses[19]) || 'Growth'}
-									<p>
-										{#if sustainedCount >= 2}
-											<strong>Strong Position for {categories}:</strong> With {sustainedCount} sustained competitive advantages, your {productStage}-stage startup has solid foundations. 
-											<span class="recommendation-detail">Priority Actions: 1) Protect IP through patents/trade secrets, 2) Build organizational processes to scale your {categories} expertise, 3) Deepen customer relationships to increase switching costs.</span>
-										{:else if sustainedCount === 1}
-											<strong>Developing Position in {categories}:</strong> You have 1 sustainable advantage which is good for {productStage} stage.
-											<span class="recommendation-detail">Priority Actions: 1) {!hasProprietaryTech ? 'Invest in proprietary technology/IP development' : 'Strengthen team expertise'}, 2) {mainChallenges.includes('Customers') ? 'Focus on customer acquisition and retention strategies' : 'Build organizational capabilities'}, 3) Document and protect your competitive advantages.</span>
+							{/if}
+						</div>
+						
+						<!-- 2. Decision Impact Analysis -->
+						<div class="minimal-card">
+							<div class="actionable-guide">
+								<span class="guide-icon">⚡</span>
+								<div class="guide-content">
+									<strong>What to do:</strong> Compare "Act Now" vs "Delay" scenarios. Check the <em>Reversibility</em> — if it's "Low", don't delay. Follow the Recommendation timeline (14-30 days). Lost time cannot be recovered.
+								</div>
+							</div>
+							<div class="card-header">
+								<span class="material-symbols-outlined icon-large">compare_arrows</span>
+								<h2 class="section-title">Decision Impact Analysis</h2>
+								<div class="card-header-actions">
+									<button class="info-btn" on:click={() => showInfo('decision-impact')} title="What is this?">
+										<span class="info-icon">i</span>
+									</button>
+									<button class="daddy-btn" on:click={() => askDaddy('decision-impact')} title="Ask Daddy">
+										<span class="daddy-icon">D</span>
+									</button>
+								</div>
+							</div>
+							<p class="section-desc">Act Now vs. Delay — impact on runway, growth, and valuation perception</p>
+							
+							{#if true}
+							{@const primaryDecision = !hasRevenue ? 'Launch pricing & get first paying customer' : stage === 'Idea' || stage === 'MVP' ? 'Accelerate to PMF validation' : 'Scale customer acquisition'}
+							{@const runwayMonths = fundingNeeded === 'Less than ₹10 Lakhs' ? 6 : fundingNeeded === '₹10-50 Lakhs' ? 12 : 18}
+							
+							<div class="decision-scenarios">
+								<div class="current-decision">
+									<span class="material-symbols-outlined">priority_high</span>
+									<div class="decision-text">
+										<span class="decision-label">Key Decision:</span>
+										<strong>{primaryDecision}</strong>
+									</div>
+								</div>
+								
+								<div class="scenarios-grid">
+									<!-- Scenario A: Act Now -->
+									<div class="scenario-card act-now">
+										<div class="scenario-header">
+											<span class="scenario-badge">Scenario A</span>
+											<h4>Act Now</h4>
+										</div>
+										<div class="scenario-impacts">
+											<div class="impact-row">
+												<span class="impact-icon">💰</span>
+												<span class="impact-name">Runway Impact</span>
+												<span class="impact-result negative">{hasRevenue ? '-1 to -2 months (investment)' : '-2 to -3 months (burn increase)'}</span>
+											</div>
+											<div class="impact-row">
+												<span class="impact-icon">📈</span>
+												<span class="impact-name">Growth Impact</span>
+												<span class="impact-result positive">{hasRevenue ? '+15-25% MoM acceleration' : 'Establishes baseline metrics'}</span>
+											</div>
+											<div class="impact-row">
+												<span class="impact-icon">💎</span>
+												<span class="impact-name">Valuation Perception</span>
+												<span class="impact-result positive">{hasRevenue ? '+20-30% if successful' : 'Moves from idea to traction stage'}</span>
+											</div>
+											<div class="impact-row">
+												<span class="impact-icon">⚠️</span>
+												<span class="impact-name">Key Downside</span>
+												<span class="impact-result warning">{hasRevenue ? 'Execution risk, team bandwidth' : 'Premature scaling if PMF unclear'}</span>
+											</div>
+											<div class="impact-row">
+												<span class="impact-icon">🔄</span>
+												<span class="impact-name">Reversibility</span>
+												<span class="impact-result">Medium — can course-correct in 4-6 weeks</span>
+											</div>
+										</div>
+									</div>
+									
+									<!-- Scenario B: Delay -->
+									<div class="scenario-card delay">
+										<div class="scenario-header">
+											<span class="scenario-badge">Scenario B</span>
+											<h4>Delay 60 Days</h4>
+										</div>
+										<div class="scenario-impacts">
+											<div class="impact-row">
+												<span class="impact-icon">💰</span>
+												<span class="impact-name">Runway Impact</span>
+												<span class="impact-result neutral">Preserves current burn rate</span>
+											</div>
+											<div class="impact-row">
+												<span class="impact-icon">📈</span>
+												<span class="impact-name">Growth Impact</span>
+												<span class="impact-result negative">{hasRevenue ? 'Momentum stalls, competitors gain' : 'Validation delayed 60+ days'}</span>
+											</div>
+											<div class="impact-row">
+												<span class="impact-icon">💎</span>
+												<span class="impact-name">Valuation Perception</span>
+												<span class="impact-result negative">{stage === 'Idea' ? 'Stagnant = negative signal' : '-10-15% if growth slows'}</span>
+											</div>
+											<div class="impact-row">
+												<span class="impact-icon">⚠️</span>
+												<span class="impact-name">Key Downside</span>
+												<span class="impact-result warning">Window closes — market timing, competitor moves</span>
+											</div>
+											<div class="impact-row">
+												<span class="impact-icon">🔄</span>
+												<span class="impact-name">Reversibility</span>
+												<span class="impact-result">Low — lost time cannot be recovered</span>
+											</div>
+										</div>
+									</div>
+								</div>
+								
+								<!-- Recommendation -->
+								<div class="decision-recommendation">
+									<div class="recommendation-header">
+										<span class="material-symbols-outlined">gavel</span>
+										<strong>Recommendation</strong>
+									</div>
+									<p class="recommendation-text">
+										{#if !hasRevenue}
+											<strong>Act within 14 days.</strong> Your highest-leverage move is getting to first revenue. Delay compounds — every week without revenue data makes fundraising harder. The downside of premature action (course-correction) is lower than the downside of waiting (market window, competitor progress).
+										{:else if stage === 'Idea' || stage === 'MVP'}
+											<strong>Act within 21 days.</strong> PMF signal is your unlock. Delaying validation means building on assumptions. Execute a focused 4-week sprint to prove retention or pivot fast. Uncertainty is your enemy — resolve it.
 										{:else}
-											<strong>Building Phase for {categories} Startup:</strong> As a {productStage}-stage company facing {mainChallenges} challenges, focus on developing defensible advantages.
-											<span class="recommendation-detail">Priority Actions: 1) {categories.includes('AI') || categories.includes('SaaS') ? 'Develop proprietary algorithms or unique data moats' : 'Create unique processes or partnerships'}, 2) Build founder expertise through industry networking and certifications, 3) Focus on early customer wins to build traction moat.</span>
+											<strong>Act within 30 days.</strong> Growth compounds. A 60-day delay at your stage costs ~{Math.round(15 * (runwayMonths/12))}% in potential valuation gain. Your unit economics support scaling — waiting is leaving money on the table.
 										{/if}
 									</p>
-								{/if}
 								</div>
-
-								<!-- Product Insight - Performance Comparison -->
-								<div class="product-insight-section">
-									<h4>
-										<span class="material-symbols-outlined">insights</span>
-										Product Insight
-										<div class="card-header-actions inline">
-											<button class="info-btn" on:click={() => showInfo('product-insight')} title="What is this?">
-												<span class="info-icon">i</span>
-											</button>
-											<button class="daddy-btn" on:click={() => askDaddy('product-insight')} title="Ask Daddy">
-												<span class="daddy-icon">D</span>
-											</button>
-										</div>
-									</h4>
-									<p class="insight-subtitle">How your product performs against market benchmarks</p>
-									
-									{#if true}
-									{@const userRevenue = Number(ddqResponses[13]) || 0}
-									{@const userInvestment = Number(ddqResponses[11]) || 0}
-									{@const userBurnRate = Number(ddqResponses[16]) || (userRevenue * 0.6)}
-									{@const userRunway = userBurnRate > 0 ? Math.round((userInvestment + (userRevenue * 12)) / (userBurnRate * 12)) : 0}
-									{@const userMarketingSpend = Math.round(userBurnRate * 0.25)}
-									{@const userEfficiency = userBurnRate > 0 ? (userRevenue / userBurnRate) * 100 : 0}
-									
-									<!-- Profitable Company Benchmark -->
-									{@const profitableBenchmark = {
-										revenue: 8000000,
-										investment: 25000000,
-										burnRate: 5000000,
-										runway: 24,
-										marketingSpend: 1200000,
-										efficiency: 160,
-										grossMargin: 65,
-										netMargin: 15
-									}}
-									
-									<div class="benchmark-comparison-section">
-										<div class="benchmark-header-info">
-											<span class="material-symbols-outlined">emoji_events</span>
-											<div>
-												<h4>Profitable Company Benchmark</h4>
-												<p>What successful Series A+ startups look like</p>
+							</div>
+							{/if}
+						</div>
+						
+						<!-- 3. Trajectory & Trigger Analysis -->
+						<div class="minimal-card">
+							<div class="actionable-guide">
+								<span class="guide-icon">🎯</span>
+								<div class="guide-content">
+									<strong>What to do:</strong> Check your Trajectory status (🔴 Fragile/🟡 Stable/🟢 Accelerating). Monitor the Leading Indicators weekly. Set calendar reminders for each IF→THEN trigger. Act BEFORE triggers fire — don't wait for crises.
+								</div>
+							</div>
+							<div class="card-header">
+								<span class="material-symbols-outlined icon-large">timeline</span>
+								<h2 class="section-title">Trajectory & Trigger Analysis</h2>
+								<div class="card-header-actions">
+									<button class="info-btn" on:click={() => showInfo('trajectory-trigger')} title="What is this?">
+										<span class="info-icon">i</span>
+									</button>
+									<button class="daddy-btn" on:click={() => askDaddy('trajectory-trigger')} title="Ask Daddy">
+										<span class="daddy-icon">D</span>
+									</button>
+								</div>
+							</div>
+							<p class="section-desc">Current trajectory assessment with explicit "If X → do Y" triggers</p>
+							
+							{#if true}
+							{@const trajectoryStatus = !hasRevenue ? 'Fragile' : monthlyRevenue > 500000 && customerCount > 100 ? 'Accelerating' : 'Stable'}
+							{@const runwayEstimate = fundingNeeded === 'Less than ₹10 Lakhs' ? 6 : fundingNeeded === '₹10-50 Lakhs' ? 12 : 18}
+							
+							<div class="trajectory-analysis">
+								<!-- Current Trajectory Status -->
+								<div class="trajectory-status status-{trajectoryStatus.toLowerCase()}">
+									<div class="status-indicator">
+										<span class="material-symbols-outlined">
+											{trajectoryStatus === 'Accelerating' ? 'rocket_launch' : trajectoryStatus === 'Stable' ? 'trending_flat' : 'warning'}
+										</span>
+									</div>
+									<div class="status-content">
+										<h4>Current Trajectory: <strong class="trajectory-label">{trajectoryStatus}</strong></h4>
+										<p class="trajectory-desc">
+											{#if trajectoryStatus === 'Fragile'}
+												Pre-revenue or early stage with unvalidated assumptions. High dependency on execution and market timing. Vulnerable to delays and competitive moves.
+											{:else if trajectoryStatus === 'Stable'}
+												Positive signals but not yet compounding. Risk of stagnation if growth levers aren't activated. Need to convert stability into momentum.
+											{:else}
+												Multiple growth signals firing. Momentum building. Primary risk is now execution capacity and capital efficiency, not validation.
+											{/if}
+										</p>
+									</div>
+								</div>
+								
+								<!-- Leading Indicators -->
+								<div class="leading-indicators">
+									<h4><span class="material-symbols-outlined">monitoring</span> Leading Indicators to Watch</h4>
+									<div class="indicators-list">
+										<div class="indicator-item signal-{hasRevenue ? 'positive' : 'neutral'}">
+											<span class="indicator-icon">{hasRevenue ? '🟢' : '🟡'}</span>
+											<div class="indicator-content">
+												<span class="indicator-name">Revenue Signal</span>
+												<span class="indicator-status">{hasRevenue ? 'Active — monitor MoM growth rate' : 'Not yet — critical to establish'}</span>
 											</div>
 										</div>
-										
-										<div class="benchmark-table">
-											<div class="benchmark-row header">
-												<span class="metric-name">Metric</span>
-												<span class="your-val">Your Value</span>
-												<span class="benchmark-val">Profitable Benchmark</span>
-												<span class="status-col">Status</span>
-											</div>
-											
-											<div class="benchmark-row">
-												<span class="metric-name">
-													<span class="material-symbols-outlined">payments</span>
-													Monthly Revenue
-												</span>
-												<span class="your-val">₹{(userRevenue / 100000).toFixed(1)}L</span>
-												<span class="benchmark-val">₹{(profitableBenchmark.revenue / 100000).toFixed(0)}L</span>
-												<span class="status-col {userRevenue >= profitableBenchmark.revenue ? 'positive' : userRevenue >= profitableBenchmark.revenue * 0.5 ? 'warning' : 'negative'}">
-													{#if userRevenue >= profitableBenchmark.revenue}
-														✓ Exceeds
-													{:else if userRevenue >= profitableBenchmark.revenue * 0.5}
-														↗ Growing
-													{:else}
-														⚠ Below
-													{/if}
-												</span>
-											</div>
-											
-											<div class="benchmark-row">
-												<span class="metric-name">
-													<span class="material-symbols-outlined">local_fire_department</span>
-													Monthly Burn
-												</span>
-												<span class="your-val">₹{(userBurnRate / 100000).toFixed(1)}L</span>
-												<span class="benchmark-val">₹{(profitableBenchmark.burnRate / 100000).toFixed(0)}L</span>
-												<span class="status-col {userBurnRate <= profitableBenchmark.burnRate ? 'positive' : 'warning'}">
-													{#if userBurnRate <= profitableBenchmark.burnRate * 0.5}
-														✓ Lean
-													{:else if userBurnRate <= profitableBenchmark.burnRate}
-														✓ Controlled
-													{:else}
-														⚠ High
-													{/if}
-												</span>
-											</div>
-											
-											<div class="benchmark-row">
-												<span class="metric-name">
-													<span class="material-symbols-outlined">speed</span>
-													Revenue Efficiency
-												</span>
-												<span class="your-val">{userEfficiency.toFixed(0)}%</span>
-												<span class="benchmark-val">{profitableBenchmark.efficiency}%</span>
-												<span class="status-col {userEfficiency >= 100 ? 'positive' : userEfficiency >= 50 ? 'warning' : 'negative'}">
-													{#if userEfficiency >= 100}
-														✓ Profitable
-													{:else if userEfficiency >= 50}
-														↗ Near
-													{:else}
-														⚠ Work needed
-													{/if}
-												</span>
-											</div>
-											
-											<div class="benchmark-row">
-												<span class="metric-name">
-													<span class="material-symbols-outlined">timer</span>
-													Runway
-												</span>
-												<span class="your-val">{userRunway} months</span>
-												<span class="benchmark-val">{profitableBenchmark.runway}+ months</span>
-												<span class="status-col {userRunway >= 18 ? 'positive' : userRunway >= 12 ? 'warning' : 'negative'}">
-													{#if userRunway >= 18}
-														✓ Strong
-													{:else if userRunway >= 12}
-														↗ Adequate
-													{:else}
-														⚠ Low
-													{/if}
-												</span>
-											</div>
-											
-											<div class="benchmark-row">
-												<span class="metric-name">
-													<span class="material-symbols-outlined">account_balance</span>
-													Total Raised
-												</span>
-												<span class="your-val">₹{(userInvestment / 10000000).toFixed(2)}Cr</span>
-												<span class="benchmark-val">₹{(profitableBenchmark.investment / 10000000).toFixed(1)}Cr</span>
-												<span class="status-col neutral">
-													{#if userInvestment >= profitableBenchmark.investment}
-														💰 Well-funded
-													{:else if userInvestment > 0}
-														💡 Capital efficient
-													{:else}
-														🎯 Bootstrapped
-													{/if}
-												</span>
+										<div class="indicator-item signal-{customerCount > 50 ? 'positive' : customerCount > 10 ? 'neutral' : 'negative'}">
+											<span class="indicator-icon">{customerCount > 50 ? '🟢' : customerCount > 10 ? '🟡' : '🔴'}</span>
+											<div class="indicator-content">
+												<span class="indicator-name">Customer Velocity</span>
+												<span class="indicator-status">{customerCount > 50 ? 'Healthy acquisition rate' : customerCount > 10 ? 'Building traction' : 'Below threshold — focus here'}</span>
 											</div>
 										</div>
-										
-										<!-- Key Insights Box -->
-										<div class="profitability-insights">
-											<div class="insight-title">
-												<span class="material-symbols-outlined">lightbulb</span>
-												Key Profitability Metrics
+										<div class="indicator-item signal-{Array.isArray(challenges) && challenges.includes('Funding') ? 'negative' : 'neutral'}">
+											<span class="indicator-icon">{Array.isArray(challenges) && challenges.includes('Funding') ? '🔴' : '🟡'}</span>
+											<div class="indicator-content">
+												<span class="indicator-name">Runway Pressure</span>
+												<span class="indicator-status">{Array.isArray(challenges) && challenges.includes('Funding') ? 'Active concern — {runwayEstimate} months est.' : '~{runwayEstimate} months — monitor burn'}</span>
 											</div>
-											<div class="insight-grid">
-												<div class="insight-item">
-													<span class="label">Target Gross Margin</span>
-													<span class="value">{profitableBenchmark.grossMargin}%+</span>
-												</div>
-												<div class="insight-item">
-													<span class="label">Target Net Margin</span>
-													<span class="value">{profitableBenchmark.netMargin}%+</span>
-												</div>
-												<div class="insight-item">
-													<span class="label">Revenue/Burn Ratio</span>
-													<span class="value">&gt;1.6x</span>
-												</div>
-												<div class="insight-item">
-													<span class="label">Path to Profit</span>
-													<span class="value">12-18 mo</span>
-												</div>
-											</div>
-											<p class="insight-note">
-												💡 <strong>Profitable startups</strong> typically achieve revenue that exceeds burn by 60%+, 
-												maintain 18+ months runway, and reach profitability within 3-4 years of founding.
-											</p>
 										</div>
 									</div>
-									{/if}
 								</div>
+								
+								<!-- Explicit Triggers -->
+								<div class="explicit-triggers">
+									<h4><span class="material-symbols-outlined">alt_route</span> Decision Triggers</h4>
+									<div class="triggers-list">
+										<!-- Trigger 1 -->
+										<div class="trigger-rule">
+											<div class="trigger-condition">
+												<span class="if-label">IF</span>
+												<span class="condition-text">{hasRevenue ? 'MoM growth drops below 10% for 2 consecutive months' : 'No paying customer within 45 days'}</span>
+											</div>
+											<div class="trigger-arrow">→</div>
+											<div class="trigger-action">
+												<span class="then-label">THEN</span>
+												<span class="action-text">{hasRevenue ? 'Pause new features. Run customer interviews. Identify churn drivers.' : 'Pivot positioning or target segment. Current approach is not converting.'}</span>
+											</div>
+										</div>
+										
+										<!-- Trigger 2 -->
+										<div class="trigger-rule">
+											<div class="trigger-condition">
+												<span class="if-label">IF</span>
+												<span class="condition-text">{Array.isArray(challenges) && challenges.includes('Competition') ? 'Competitor raises funding or launches major feature' : 'Runway drops below 4 months'}</span>
+											</div>
+											<div class="trigger-arrow">→</div>
+											<div class="trigger-action">
+												<span class="then-label">THEN</span>
+												<span class="action-text">{Array.isArray(challenges) && challenges.includes('Competition') ? 'Accelerate core differentiation. Consider strategic partnerships for defensibility.' : 'Cut non-essential burn by 30%. Start fundraise conversations immediately.'}</span>
+											</div>
+										</div>
+										
+										<!-- Trigger 3 -->
+										<div class="trigger-rule positive">
+											<div class="trigger-condition">
+												<span class="if-label">IF</span>
+												<span class="condition-text">{hasRevenue ? 'Organic referrals exceed 20% of new customers' : 'First 5 customers show >60% week-1 retention'}</span>
+											</div>
+											<div class="trigger-arrow">→</div>
+											<div class="trigger-action">
+												<span class="then-label">THEN</span>
+												<span class="action-text">{hasRevenue ? 'Double down on referral program. This is your growth lever — invest aggressively.' : 'You have PMF signal. Shift from validation to scaling mode. Start fundraise prep.'}</span>
+											</div>
+										</div>
+									</div>
+								</div>
+								
+								<!-- Inaction Consequence -->
+								<div class="inaction-warning">
+									<span class="material-symbols-outlined">report</span>
+									<div class="warning-content">
+										<strong>If no action taken:</strong>
+										{#if trajectoryStatus === 'Fragile'}
+											Runway depletes without validation. Forces distressed fundraising or shutdown within {runwayEstimate} months. Competitor moat deepens.
+										{:else if trajectoryStatus === 'Stable'}
+											Stability becomes stagnation. Investors see flat metrics as negative signal. Valuation erodes 15-20% per quarter without growth.
+										{:else}
+											Momentum peaks then declines. Market window closes. Growth compounds work both ways — missed opportunities don't return.
+										{/if}
+									</div>
+								</div>
+							</div>
 							{/if}
 						</div>
 					</div>
-				</div>
 			{:else}
 				<div class="minimal-card">
 					<div class="empty-state">
@@ -6550,6 +6776,963 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 						</div>
 					</div>
 				{/if}
+
+			<!-- GTM Co-Founder Tab -->
+			{:else if activeTab === 'gtm'}
+				{#if valuation && ddqResponses}
+					{@const stage = ddqResponses[5] || 'Idea'}
+					{@const fundingNeeded = ddqResponses[22] || 'Less than ₹10 Lakhs'}
+					{@const teamSize = Number(ddqResponses[17]) || 1}
+					{@const challenge = ddqResponses[19] || 'Customer Acquisition'}
+					{@const acquisitionChannels = Array.isArray(ddqResponses[20]) ? ddqResponses[20] : (ddqResponses[20] ? [ddqResponses[20]] : [])}
+					{@const acquisitionStrategy = acquisitionChannels.join(', ').toLowerCase()}
+					{@const targetCustomer = ddqResponses[8] || 'Not specified'}
+					{@const monthlyRevenue = Number(ddqResponses[13]) || 0}
+					{@const customerCount = Number(ddqResponses[15]) || 0}
+					{@const runwayMonths = fundingNeeded === 'Less than ₹10 Lakhs' ? 6 : fundingNeeded === '₹10-50 Lakhs' ? 12 : 18}
+					{@const founderHoursPerWeek = teamSize <= 2 ? 15 : teamSize <= 5 ? 10 : 5}
+					{@const gtmStage = !hasRevenue ? 'Pre-Revenue' : customerCount < 20 ? 'Early Traction' : 'Scaling'}
+					{@const currentTraction = hasRevenue ? `₹${monthlyRevenue.toLocaleString('en-IN')}/mo, ${customerCount} customers` : customerCount > 0 ? `${customerCount} beta users` : 'No traction yet'}
+
+					<div class="gtm-section">
+						<!-- GTM Overview -->
+						<div class="actionable-summary-box gtm-overview">
+							<div class="summary-header">
+								<span class="material-symbols-outlined">rocket_launch</span>
+								<h3>What is GTM Co-Founder?</h3>
+							</div>
+							<p class="summary-text">Your <strong>Go-To-Market execution partner</strong>. Not a strategy document — a decision loop. Test hypotheses, measure signals, kill or scale in 14 days.</p>
+							<div class="action-checklist">
+								<div class="checklist-title">🚀 Your GTM Priorities:</div>
+								<ul>
+									<li><strong>State:</strong> Know your constraints (runway, bandwidth)</li>
+									<li><strong>Hypotheses:</strong> Run max 3 experiments at once</li>
+									<li><strong>Signals:</strong> Define success metrics before testing</li>
+									<li><strong>Decision:</strong> Kill losers fast, double down on winners</li>
+								</ul>
+							</div>
+						</div>
+
+						<!-- GTM Header -->
+						<div class="gtm-header minimal-card">
+							<div class="gtm-header-content">
+								<div class="gtm-title-section">
+									<span class="material-symbols-outlined gtm-icon">rocket_launch</span>
+									<div>
+										<h1 class="gtm-title">GTM Co-Founder</h1>
+										<p class="gtm-subtitle">Decision loop, not a plan. Evidence, not assumptions.</p>
+									</div>
+								</div>
+								<div class="gtm-philosophy">
+									<div class="philosophy-item">
+										<span class="philosophy-label">Operating Mode</span>
+										<span class="philosophy-value">Test → Learn → Kill/Scale</span>
+									</div>
+									<div class="philosophy-item">
+										<span class="philosophy-label">Decision Cycle</span>
+										<span class="philosophy-value">14 days max</span>
+									</div>
+									<div class="philosophy-item">
+										<span class="philosophy-label">Core Metric</span>
+										<span class="philosophy-value">Cost per Learning</span>
+									</div>
+								</div>
+							</div>
+						</div>
+
+						<!-- Section A: Current GTM State -->
+						<div class="minimal-card gtm-state-card">
+							<div class="actionable-guide">
+								<span class="guide-icon">📊</span>
+								<div class="guide-content">
+									<strong>What to do:</strong> These are your constraints. If runway ≤6 months, every experiment must show signal in 14 days. Allocate your GTM bandwidth wisely — don't spread thin across too many channels.
+								</div>
+							</div>
+							<div class="card-header">
+								<span class="material-symbols-outlined icon-large">dashboard</span>
+								<h2 class="section-title">Current GTM State</h2>
+							</div>
+
+							<div class="gtm-state-grid">
+								<div class="state-item">
+									<span class="state-label">Company Stage</span>
+									<span class="state-value stage-{gtmStage.toLowerCase().replace(' ', '-')}">{gtmStage}</span>
+								</div>
+								<div class="state-item">
+									<span class="state-label">Runway</span>
+									<span class="state-value">{runwayMonths} months</span>
+								</div>
+								<div class="state-item">
+									<span class="state-label">Founder GTM Bandwidth</span>
+									<span class="state-value">{founderHoursPerWeek} hrs/week</span>
+								</div>
+								<div class="state-item">
+									<span class="state-label">Current Traction</span>
+									<span class="state-value traction">{currentTraction}</span>
+								</div>
+							</div>
+
+							<div class="gtm-constraint-warning">
+								<span class="material-symbols-outlined">warning</span>
+								<div>
+									<strong>Constraint Reality:</strong>
+									{#if runwayMonths <= 6}
+										With {runwayMonths} months runway, every GTM experiment must generate signal within 14 days. No long-term bets.
+									{:else if runwayMonths <= 12}
+										{runwayMonths} months gives room for 2-3 channel tests. But kill losers fast—don't let zombie channels consume time.
+									{:else}
+										Runway allows experimentation, but don't mistake time for permission to be unfocused. Test 2 channels max at once.
+									{/if}
+								</div>
+							</div>
+						</div>
+
+						<!-- Section B: Active GTM Hypotheses -->
+						<div class="minimal-card">
+							<div class="actionable-guide">
+								<span class="guide-icon">🧪</span>
+								<div class="guide-content">
+									<strong>What to do:</strong> Pick ONE hypothesis to test this week. Define your "Success Signal" before starting. After 14 days: if signal is positive → scale it. If negative → kill it and test next hypothesis. Never run more than 3 experiments simultaneously.
+								</div>
+							</div>
+							<div class="card-header">
+								<span class="material-symbols-outlined icon-large">science</span>
+								<h2 class="section-title">Active GTM Hypotheses</h2>
+								<span class="hypothesis-limit">Max 3 Active</span>
+							</div>
+							<p class="section-desc">Each hypothesis is testable in &lt;30 days. If you can't invalidate it, it's not a hypothesis.</p>
+
+							<div class="hypotheses-grid">
+								<!-- Hypothesis 1 -->
+								<div class="hypothesis-card active">
+									<div class="hypothesis-header">
+										<span class="hypothesis-id">H1</span>
+										<span class="hypothesis-status status-active">🔬 Testing</span>
+									</div>
+									<div class="hypothesis-content">
+										<div class="hypothesis-field">
+											<span class="field-label">Target Persona</span>
+											<span class="field-value">{targetCustomer}</span>
+										</div>
+										<div class="hypothesis-field">
+											<span class="field-label">Channel</span>
+											<span class="field-value">
+												{#if !hasRevenue}
+													Direct Outreach (LinkedIn/Email)
+												{:else if customerCount < 20}
+													Referral from existing customers
+												{:else}
+													Content-led inbound
+												{/if}
+											</span>
+										</div>
+										<div class="hypothesis-field">
+											<span class="field-label">Core Message</span>
+											<span class="field-value">
+												{#if !hasRevenue}
+													"I'm building X for [persona]. Can I show you a 5-min demo for feedback?"
+												{:else if customerCount < 20}
+													"Your peer [Customer X] is using this. Want to see why?"
+												{:else}
+													Problem-focused content showing expertise without selling
+												{/if}
+											</span>
+										</div>
+										<div class="hypothesis-metrics">
+											<div class="metric">
+												<span class="metric-label">Timebox</span>
+												<span class="metric-value">14 days</span>
+											</div>
+											<div class="metric">
+												<span class="metric-label">Cost</span>
+												<span class="metric-value">₹0 + {founderHoursPerWeek}h</span>
+											</div>
+											<div class="metric">
+												<span class="metric-label">Confidence</span>
+												<span class="metric-value confidence-medium">Medium</span>
+											</div>
+										</div>
+										<div class="hypothesis-signal">
+											<span class="signal-label">Success Signal</span>
+											<span class="signal-value">
+												{#if !hasRevenue}
+													≥3 demo calls booked from 30 outreach attempts (10% conversion)
+												{:else if customerCount < 20}
+													≥2 warm intros from 5 customer asks (40% referral rate)
+												{:else}
+													≥5 inbound inquiries from content in 14 days
+												{/if}
+											</span>
+										</div>
+									</div>
+									<div class="hypothesis-why">
+										<strong>Why this now:</strong>
+										{#if !hasRevenue}
+											Pre-revenue = validation mode. Direct outreach gives fastest feedback loop. Zero cost, max learning.
+										{:else if customerCount < 20}
+											Early customers are your GTM cheat code. Referrals convert 4x better than cold outreach.
+										{:else}
+											You have proof points. Content lets you scale trust without scaling founder time.
+										{/if}
+									</div>
+								</div>
+
+								<!-- Hypothesis 2 -->
+								<div class="hypothesis-card queued">
+									<div class="hypothesis-header">
+										<span class="hypothesis-id">H2</span>
+										<span class="hypothesis-status status-queued">⏳ Queued</span>
+									</div>
+									<div class="hypothesis-content">
+										<div class="hypothesis-field">
+											<span class="field-label">Target Persona</span>
+											<span class="field-value">{targetCustomer} — adjacent segment</span>
+										</div>
+										<div class="hypothesis-field">
+											<span class="field-label">Channel</span>
+											<span class="field-value">
+												{#if stage === 'Idea' || stage === 'MVP'}
+													Community participation (forums, Discord, Reddit)
+												{:else}
+													Partnership with complementary tool/service
+												{/if}
+											</span>
+										</div>
+										<div class="hypothesis-field">
+											<span class="field-label">Core Message</span>
+											<span class="field-value">
+												{#if stage === 'Idea' || stage === 'MVP'}
+													Genuine help first. Mention product only when asked.
+												{:else}
+													Joint value prop: "Our customers also need Y. Let's co-sell."
+												{/if}
+											</span>
+										</div>
+										<div class="hypothesis-metrics">
+											<div class="metric">
+												<span class="metric-label">Timebox</span>
+												<span class="metric-value">21 days</span>
+											</div>
+											<div class="metric">
+												<span class="metric-label">Cost</span>
+												<span class="metric-value">₹0 + 8h</span>
+											</div>
+											<div class="metric">
+												<span class="metric-label">Confidence</span>
+												<span class="metric-value confidence-low">Low</span>
+											</div>
+										</div>
+										<div class="hypothesis-signal">
+											<span class="signal-label">Success Signal</span>
+											<span class="signal-value">
+												{#if stage === 'Idea' || stage === 'MVP'}
+													≥2 DMs asking about product from 10 helpful posts
+												{:else}
+													≥1 partner willing to do co-marketing test
+												{/if}
+											</span>
+										</div>
+									</div>
+									<div class="hypothesis-why">
+										<strong>Why queued:</strong> Lower confidence. Only activate if H1 shows weak signal after 14 days.
+									</div>
+								</div>
+							</div>
+						</div>
+
+						<!-- Section C: GTM Decisions (NON-NEGOTIABLE) -->
+						<div class="minimal-card gtm-decisions-card">
+							<div class="card-header">
+								<span class="material-symbols-outlined icon-large">gavel</span>
+								<h2 class="section-title">GTM Decisions</h2>
+								<span class="decision-badge">Non-Negotiable</span>
+							</div>
+							<p class="section-desc">Every cycle must have a kill decision. If you can't kill anything, you're not operating—you're hoping.</p>
+
+							<div class="decisions-grid">
+								<!-- Double Down -->
+								<div class="decision-card double-down">
+									<div class="decision-header">
+										<span class="material-symbols-outlined">keyboard_double_arrow_up</span>
+										<h4>Double Down</h4>
+									</div>
+									<div class="decision-content">
+										<div class="decision-what">
+											{#if hasRevenue && customerCount >= 5}
+												<strong>Customer referral outreach</strong>
+											{:else}
+												<strong>Direct outreach to {targetCustomer}</strong>
+											{/if}
+										</div>
+										<div class="decision-evidence">
+											<span class="evidence-label">Evidence Required</span>
+											<span class="evidence-value">
+												{#if hasRevenue && customerCount >= 5}
+													If ≥2 referrals convert in 14 days → increase ask frequency to every customer
+												{:else}
+													If ≥10% response rate on first 30 outreach → increase volume to 50/week
+												{/if}
+											</span>
+										</div>
+										<div class="decision-impact">
+											<span class="impact-item">
+												<span class="impact-label">Runway Impact</span>
+												<span class="impact-value">Neutral (time only)</span>
+											</span>
+											<span class="impact-item">
+												<span class="impact-label">Traction Narrative</span>
+												<span class="impact-value positive">+Strong (shows hustle)</span>
+											</span>
+										</div>
+									</div>
+								</div>
+
+								<!-- Pause -->
+								<div class="decision-card pause">
+									<div class="decision-header">
+										<span class="material-symbols-outlined">pause_circle</span>
+										<h4>Pause</h4>
+									</div>
+									<div class="decision-content">
+										<div class="decision-what">
+											<strong>
+												{#if acquisitionStrategy.includes('social')}
+													Social media posting without engagement tracking
+												{:else if acquisitionStrategy.includes('content')}
+													Long-form content creation
+												{:else}
+													Generic networking / coffee chats
+												{/if}
+											</strong>
+										</div>
+										<div class="decision-evidence">
+											<span class="evidence-label">Reason</span>
+											<span class="evidence-value">
+												{#if acquisitionStrategy.includes('social')}
+													Posting ≠ distribution. Pause until you have a content-to-conversation playbook.
+												{:else if acquisitionStrategy.includes('content')}
+													Content takes 90+ days to compound. At {runwayMonths} months runway, you need faster signals.
+												{:else}
+													Coffee chats feel productive but rarely convert. Pause until you have a specific ask.
+												{/if}
+											</span>
+										</div>
+										<div class="decision-impact">
+											<span class="impact-item">
+												<span class="impact-label">Runway Impact</span>
+												<span class="impact-value positive">+{Math.round(founderHoursPerWeek * 0.3)}h/week freed</span>
+											</span>
+											<span class="impact-item">
+												<span class="impact-label">Review In</span>
+												<span class="impact-value">30 days</span>
+											</span>
+										</div>
+									</div>
+								</div>
+
+								<!-- Kill -->
+								<div class="decision-card kill">
+									<div class="decision-header">
+										<span class="material-symbols-outlined">cancel</span>
+										<h4>Kill</h4>
+									</div>
+									<div class="decision-content">
+										<div class="decision-what">
+											<strong>
+												{#if stage === 'Idea' || stage === 'MVP'}
+													Paid ads of any kind
+												{:else if !hasRevenue}
+													SEO / organic search investment
+												{:else}
+													Spray-and-pray cold email tools
+												{/if}
+											</strong>
+										</div>
+										<div class="decision-evidence">
+											<span class="evidence-label">Reason</span>
+											<span class="evidence-value">
+												{#if stage === 'Idea' || stage === 'MVP'}
+													You don't know your ICP yet. Ads amplify confusion, not clarity. Kill until post-PMF.
+												{:else if !hasRevenue}
+													SEO is a 6-12 month play. With {runwayMonths} months runway and no revenue, it's a distraction.
+												{:else}
+													Automated cold email has less than 1% reply rates. Manual personalization beats volume at your stage.
+												{/if}
+											</span>
+										</div>
+										<div class="decision-impact">
+											<span class="impact-item">
+												<span class="impact-label">Reversibility</span>
+												<span class="impact-value">High (can restart anytime)</span>
+											</span>
+											<span class="impact-item">
+												<span class="impact-label">Founder Time Saved</span>
+												<span class="impact-value positive">+5h/week</span>
+											</span>
+										</div>
+									</div>
+								</div>
+							</div>
+						</div>
+
+						<!-- Section D: 14-Day Action Plan -->
+						<div class="minimal-card">
+							<div class="card-header">
+								<span class="material-symbols-outlined icon-large">sprint</span>
+								<h2 class="section-title">Next 14-Day Action Plan</h2>
+							</div>
+
+							<div class="action-plan-table">
+								<div class="action-row header">
+									<span class="action-col action">Action</span>
+									<span class="action-col owner">Owner</span>
+									<span class="action-col signal">Expected Signal</span>
+									<span class="action-col review">Review Date</span>
+								</div>
+
+								<div class="action-row">
+									<span class="action-col action">
+										<span class="action-number">1</span>
+										{#if !hasRevenue}
+											Send 30 personalized outreach messages to {targetCustomer}
+										{:else}
+											Ask 5 best customers for 1 warm intro each
+										{/if}
+									</span>
+									<span class="action-col owner">Founder</span>
+									<span class="action-col signal">
+										{#if !hasRevenue}
+											≥3 replies, ≥1 demo call
+										{:else}
+											≥2 intros received
+										{/if}
+									</span>
+									<span class="action-col review">Day 7</span>
+								</div>
+
+								<div class="action-row">
+									<span class="action-col action">
+										<span class="action-number">2</span>
+										{#if !hasRevenue}
+											Conduct 2 discovery calls, document objections
+										{:else if customerCount < 20}
+											Follow up on all intros within 24h
+										{:else}
+											Publish 2 problem-focused posts on LinkedIn
+										{/if}
+									</span>
+									<span class="action-col owner">Founder</span>
+									<span class="action-col signal">
+										{#if !hasRevenue}
+											Top 3 objections identified
+										{:else if customerCount < 20}
+											≥1 demo scheduled
+										{:else}
+											≥10 comments or DMs
+										{/if}
+									</span>
+									<span class="action-col review">Day 10</span>
+								</div>
+
+								<div class="action-row">
+									<span class="action-col action">
+										<span class="action-number">3</span>
+										Compile GTM signal data and make Go/No-Go decision on H1
+									</span>
+									<span class="action-col owner">Founder</span>
+									<span class="action-col signal">Clear decision: Double down or Kill</span>
+									<span class="action-col review">Day 14</span>
+								</div>
+
+								<div class="action-row highlight">
+									<span class="action-col action">
+										<span class="action-number">⚡</span>
+										<strong>Invalidation Checkpoint:</strong> If Day 7 signal is 0 responses, pivot outreach angle immediately—don't wait for Day 14.
+									</span>
+									<span class="action-col owner">—</span>
+									<span class="action-col signal">—</span>
+									<span class="action-col review">Day 7</span>
+								</div>
+							</div>
+
+							<!-- Custom To-Do Items with RAG Status -->
+							<div class="custom-todo-section">
+								<div class="todo-section-header">
+									<div class="todo-title-area">
+										<span class="material-symbols-outlined">playlist_add_check</span>
+										<h3>Your Custom Action Items</h3>
+										<span class="todo-count">{gtmTodoItems.length} items</span>
+									</div>
+									<button 
+										class="add-todo-btn" 
+										on:click={() => showAddTodoForm = !showAddTodoForm}
+									>
+										<span class="material-symbols-outlined">{showAddTodoForm ? 'close' : 'add'}</span>
+										{showAddTodoForm ? 'Cancel' : 'Add Action'}
+									</button>
+								</div>
+
+								<!-- Add New To-Do Form -->
+								{#if showAddTodoForm}
+									<div class="add-todo-form">
+										<div class="form-row">
+											<div class="form-field full-width">
+												<label for="todo-action">Action Item *</label>
+												<input 
+													type="text" 
+													id="todo-action"
+													bind:value={newTodoAction}
+													placeholder="e.g., Set up analytics tracking for conversion funnel"
+												/>
+											</div>
+										</div>
+										<div class="form-row three-col">
+											<div class="form-field">
+												<label for="todo-owner">Owner</label>
+												<select id="todo-owner" bind:value={newTodoOwner}>
+													<option value="Founder">Founder</option>
+													<option value="Co-Founder">Co-Founder</option>
+													<option value="CTO">CTO</option>
+													<option value="Marketing">Marketing</option>
+													<option value="Sales">Sales</option>
+													<option value="Team">Team</option>
+													<option value="External">External</option>
+												</select>
+											</div>
+											<div class="form-field">
+												<label for="todo-signal">Expected Signal</label>
+												<input 
+													type="text" 
+													id="todo-signal"
+													bind:value={newTodoSignal}
+													placeholder="e.g., ≥5% conversion rate"
+												/>
+											</div>
+											<div class="form-field">
+												<label for="todo-review">Review Date</label>
+												<input 
+													type="text" 
+													id="todo-review"
+													bind:value={newTodoReviewDate}
+													placeholder="e.g., Day 7, Jan 5"
+												/>
+											</div>
+										</div>
+										<div class="form-actions">
+											<button class="btn-cancel" on:click={() => showAddTodoForm = false}>Cancel</button>
+											<button class="btn-add" on:click={addGTMTodoItem} disabled={!newTodoAction.trim()}>
+												<span class="material-symbols-outlined">add_task</span>
+												Add Action Item
+											</button>
+										</div>
+									</div>
+								{/if}
+
+								<!-- Custom To-Do List with RAG Status -->
+								{#if gtmTodoItems.length > 0}
+									<div class="todo-list">
+										{#each gtmTodoItems as item, index (item.id)}
+											<div class="todo-item rag-{item.ragStatus}">
+												<div class="todo-item-main">
+													<span class="todo-number">{index + 4}</span>
+													<div class="todo-content">
+														<span class="todo-action-text">{item.action}</span>
+														<div class="todo-meta">
+															<span class="todo-owner"><span class="material-symbols-outlined">person</span> {item.owner}</span>
+															<span class="todo-signal"><span class="material-symbols-outlined">trending_up</span> {item.expectedSignal}</span>
+															<span class="todo-review"><span class="material-symbols-outlined">event</span> {item.reviewDate}</span>
+														</div>
+													</div>
+												</div>
+												<div class="todo-item-controls">
+													<div class="rag-selector">
+														<button 
+															class="rag-btn not-started" 
+															class:active={item.ragStatus === 'not-started'}
+															on:click={() => updateTodoRAGStatus(item.id, 'not-started')}
+															title="Not Started"
+														>
+															<span class="material-symbols-outlined">hourglass_empty</span>
+														</button>
+														<button 
+															class="rag-btn red" 
+															class:active={item.ragStatus === 'red'}
+															on:click={() => updateTodoRAGStatus(item.id, 'red')}
+															title="At Risk / Blocked"
+														>
+															<span class="material-symbols-outlined">error</span>
+														</button>
+														<button 
+															class="rag-btn amber" 
+															class:active={item.ragStatus === 'amber'}
+															on:click={() => updateTodoRAGStatus(item.id, 'amber')}
+															title="In Progress / Needs Attention"
+														>
+															<span class="material-symbols-outlined">warning</span>
+														</button>
+														<button 
+															class="rag-btn green" 
+															class:active={item.ragStatus === 'green'}
+															on:click={() => updateTodoRAGStatus(item.id, 'green')}
+															title="On Track / Completed"
+														>
+															<span class="material-symbols-outlined">check_circle</span>
+														</button>
+													</div>
+													<button class="delete-todo-btn" on:click={() => deleteTodoItem(item.id)} title="Delete">
+														<span class="material-symbols-outlined">delete</span>
+													</button>
+												</div>
+											</div>
+										{/each}
+									</div>
+
+									<!-- RAG Summary -->
+									<div class="rag-summary">
+										<div class="rag-summary-item not-started">
+											<span class="material-symbols-outlined">hourglass_empty</span>
+											<span class="rag-label">Not Started</span>
+											<span class="rag-count">{gtmTodoItems.filter(i => i.ragStatus === 'not-started').length}</span>
+										</div>
+										<div class="rag-summary-item red">
+											<span class="material-symbols-outlined">error</span>
+											<span class="rag-label">At Risk</span>
+											<span class="rag-count">{gtmTodoItems.filter(i => i.ragStatus === 'red').length}</span>
+										</div>
+										<div class="rag-summary-item amber">
+											<span class="material-symbols-outlined">warning</span>
+											<span class="rag-label">In Progress</span>
+											<span class="rag-count">{gtmTodoItems.filter(i => i.ragStatus === 'amber').length}</span>
+										</div>
+										<div class="rag-summary-item green">
+											<span class="material-symbols-outlined">check_circle</span>
+											<span class="rag-label">Completed</span>
+											<span class="rag-count">{gtmTodoItems.filter(i => i.ragStatus === 'green').length}</span>
+										</div>
+									</div>
+								{:else}
+									<div class="empty-todo-state">
+										<span class="material-symbols-outlined">playlist_add</span>
+										<p>No custom actions yet. Click "Add Action" to create your own trackable items.</p>
+									</div>
+								{/if}
+							</div>
+						</div>
+
+						<!-- Section E: Risks & Blind Spots -->
+						<div class="minimal-card">
+							<div class="card-header">
+								<span class="material-symbols-outlined icon-large">visibility_off</span>
+								<h2 class="section-title">Risks & Blind Spots</h2>
+							</div>
+
+							<div class="risks-grid">
+								<div class="risk-item">
+									<div class="risk-header">
+										<span class="material-symbols-outlined">help_outline</span>
+										<h4>What This GTM Loop Does NOT Validate</h4>
+									</div>
+									<ul class="risk-list">
+										<li>Whether {targetCustomer} will actually pay (only validates interest)</li>
+										<li>Optimal pricing point (requires separate pricing experiments)</li>
+										<li>Long-term retention (too early to measure)</li>
+										<li>Scalability of channel beyond founder-led effort</li>
+									</ul>
+								</div>
+
+								<div class="risk-item">
+									<div class="risk-header">
+										<span class="material-symbols-outlined">broken_image</span>
+										<h4>What Could Break the Model</h4>
+									</div>
+									<ul class="risk-list">
+										<li>Target persona doesn't have budget authority</li>
+										<li>Problem isn't urgent enough to buy now</li>
+										<li>Competitor launches with aggressive pricing</li>
+										<li>Founder burns out on high-touch outreach</li>
+									</ul>
+								</div>
+
+								<div class="risk-item full-width">
+									<div class="risk-header">
+										<span class="material-symbols-outlined">restart_alt</span>
+										<h4>GTM Reset Triggers</h4>
+									</div>
+									<div class="reset-triggers">
+										<div class="reset-trigger">
+											<span class="trigger-if">IF</span>
+											<span class="trigger-condition">&lt;5% response rate after 50 outreach attempts</span>
+											<span class="trigger-then">→</span>
+											<span class="trigger-action">Persona or message is wrong. Reset ICP hypothesis.</span>
+										</div>
+										<div class="reset-trigger">
+											<span class="trigger-if">IF</span>
+											<span class="trigger-condition">3 consecutive demos but 0 conversions</span>
+											<span class="trigger-then">→</span>
+											<span class="trigger-action">Product-market gap. Pause GTM, fix product.</span>
+										</div>
+										<div class="reset-trigger">
+											<span class="trigger-if">IF</span>
+											<span class="trigger-condition">Runway drops below 3 months with no traction</span>
+											<span class="trigger-then">→</span>
+											<span class="trigger-action">Emergency mode. One channel only. All-in or shut down.</span>
+										</div>
+									</div>
+								</div>
+							</div>
+						</div>
+
+						<!-- VC-Grade GTM Slides -->
+						<div class="minimal-card gtm-slides-card">
+							<div class="card-header">
+								<span class="material-symbols-outlined icon-large">slideshow</span>
+								<h2 class="section-title">VC-Grade GTM Slides</h2>
+								<span class="slides-badge">3 Slides Only</span>
+							</div>
+							<p class="section-desc">Operating logic, not a pitch. These slides show how you think, not what you hope.</p>
+
+							<div class="gtm-slides">
+								<!-- Slide 1: GTM Philosophy -->
+								<div class="gtm-slide">
+									<div class="slide-number">01</div>
+									<h4 class="slide-title">GTM Philosophy</h4>
+									<div class="slide-content">
+										<p class="slide-point">
+											<span class="point-marker">●</span>
+											<strong>How we decide:</strong> Every GTM channel must generate learnable signal within 14 days or gets killed.
+										</p>
+										<p class="slide-point">
+											<span class="point-marker">●</span>
+											<strong>How we evolve:</strong> We run 2 hypotheses max. Winners get doubled, losers get cut—no zombies.
+										</p>
+										<p class="slide-point">
+											<span class="point-marker">●</span>
+											<strong>Runway protection:</strong> Cost per learning &lt; ₹{Math.round(500000 / runwayMonths).toLocaleString('en-IN')}/month. Time is the constraint, not money.
+										</p>
+									</div>
+								</div>
+
+								<!-- Slide 2: Current GTM Focus -->
+								<div class="gtm-slide">
+									<div class="slide-number">02</div>
+									<h4 class="slide-title">Current GTM Focus</h4>
+									<div class="slide-content">
+										<p class="slide-point">
+											<span class="point-marker">●</span>
+											<strong>Channel 1:</strong>
+											{#if !hasRevenue}
+												Direct founder outreach to {targetCustomer}
+											{:else}
+												Customer referrals + warm intros
+											{/if}
+										</p>
+										<p class="slide-point">
+											<span class="point-marker">●</span>
+											<strong>Channel 2 (backup):</strong>
+											{#if stage === 'Idea' || stage === 'MVP'}
+												Community participation for organic discovery
+											{:else}
+												Strategic partnerships for distribution leverage
+											{/if}
+										</p>
+										<p class="slide-point">
+											<span class="point-marker">●</span>
+											<strong>30-day success:</strong>
+											{#if !hasRevenue}
+												3 paying customers from direct outreach
+											{:else}
+												2x current customer count through referrals
+											{/if}
+										</p>
+									</div>
+								</div>
+
+								<!-- Slide 3: GTM Learning Engine -->
+								<div class="gtm-slide">
+									<div class="slide-number">03</div>
+									<h4 class="slide-title">GTM Learning Engine</h4>
+									<div class="slide-content">
+										<p class="slide-point">
+											<span class="point-marker">●</span>
+											<strong>Experiment cadence:</strong> 14-day cycles. Data review on Day 7, decision on Day 14.
+										</p>
+										<p class="slide-point">
+											<span class="point-marker">●</span>
+											<strong>Kill criteria:</strong> &lt;50% of expected signal by Day 7 = immediate pivot. No sunk cost bias.
+										</p>
+										<p class="slide-point">
+											<span class="point-marker">●</span>
+											<strong>Reallocation rule:</strong> Killed channel's time goes to winner or next hypothesis in queue.
+										</p>
+									</div>
+								</div>
+							</div>
+						</div>
+
+						<!-- GTM Signal Metrics Reference -->
+						<div class="minimal-card gtm-metrics-card">
+							<div class="card-header">
+								<span class="material-symbols-outlined icon-large">speed</span>
+								<h2 class="section-title">GTM Signal Metrics</h2>
+								<span class="metrics-badge">Track These Only</span>
+							</div>
+							<p class="section-desc">Vanity metrics (impressions, likes, reach) are banned. These 5 metrics tell you if GTM is working.</p>
+
+							<div class="metrics-grid">
+								<div class="metric-card">
+									<span class="material-symbols-outlined metric-icon">timer</span>
+									<div class="metric-info">
+										<span class="metric-name">Time to First Response</span>
+										<span class="metric-desc">How fast does outreach get a reply?</span>
+										<span class="metric-target">Target: &lt;48 hours</span>
+									</div>
+								</div>
+								<div class="metric-card">
+									<span class="material-symbols-outlined metric-icon">conversion_path</span>
+									<div class="metric-info">
+										<span class="metric-name">Conversion per Conversation</span>
+										<span class="metric-desc">What % of conversations become next steps?</span>
+										<span class="metric-target">Target: &gt;20%</span>
+									</div>
+								</div>
+								<div class="metric-card">
+									<span class="material-symbols-outlined metric-icon">schedule</span>
+									<div class="metric-info">
+										<span class="metric-name">Sales Cycle Length</span>
+										<span class="metric-desc">First touch to closed deal</span>
+										<span class="metric-target">Target: &lt;30 days</span>
+									</div>
+								</div>
+								<div class="metric-card">
+									<span class="material-symbols-outlined metric-icon">school</span>
+									<div class="metric-info">
+										<span class="metric-name">Cost per Learning</span>
+										<span class="metric-desc">₹ + time spent per validated insight</span>
+										<span class="metric-target">Target: &lt;₹5,000/insight</span>
+									</div>
+								</div>
+								<div class="metric-card">
+									<span class="material-symbols-outlined metric-icon">thumb_up</span>
+									<div class="metric-info">
+										<span class="metric-name">Trust Signal Strength</span>
+										<span class="metric-desc">Are prospects sharing your content / referring others?</span>
+										<span class="metric-target">Target: 1 unsolicited referral/month</span>
+									</div>
+								</div>
+							</div>
+						</div>
+					</div>
+				{:else}
+					<div class="minimal-card">
+						<div class="empty-state">
+							<span class="material-symbols-outlined icon-empty">rocket_launch</span>
+							<h3>GTM Co-Founder Ready</h3>
+							<p>Complete the assessment to activate your GTM decision loop</p>
+							<button class="btn-primary" on:click={startDDQ}>
+								<span class="material-symbols-outlined">play_arrow</span>
+								Start Assessment
+							</button>
+						</div>
+					</div>
+				{/if}
+
+			{:else if activeTab === 'advisor'}
+				<!-- Strategic Advisor Tab - Clean Card Design -->
+				<div class="advisor-page">
+					<!-- Main Chat Card -->
+					<div class="advisor-card">
+						<!-- Chat Messages Area -->
+						<div class="advisor-chat-container" bind:this={advisorContainer}>
+							{#if advisorMessages.length === 0}
+								<div class="advisor-empty-state">
+									<div class="empty-icon">
+										<span class="material-symbols-outlined">forum</span>
+									</div>
+									<h2>Strategic Advisor</h2>
+									<p>Your AI-powered strategy partner. Ask any question or choose from suggestions below.</p>
+								</div>
+							{:else}
+								{#each advisorMessages as message, index}
+									<div class="chat-bubble {message.role}">
+										{#if message.role === 'user'}
+											<div class="bubble-content user-bubble">
+												<p class="bubble-text">{message.content}</p>
+											</div>
+										{:else}
+											<div class="bubble-content assistant-bubble">
+												<div class="bubble-header">
+													<span class="advisor-label">Strategy Advisor</span>
+													{#if message.saved}
+														<span class="saved-tag">
+															<span class="material-symbols-outlined">check</span>
+															Saved to Notes
+														</span>
+													{/if}
+												</div>
+												<div class="bubble-text">
+													{@html message.content.replace(/\n/g, '<br>').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\*(.*?)\*/g, '<em>$1</em>')}
+												</div>
+											</div>
+										{/if}
+									</div>
+								{/each}
+								{#if advisorLoading}
+									<div class="chat-bubble assistant">
+										<div class="bubble-content assistant-bubble">
+											<div class="typing-dots">
+												<span></span>
+												<span></span>
+												<span></span>
+											</div>
+										</div>
+									</div>
+								{/if}
+							{/if}
+						</div>
+					</div>
+
+					<!-- Quick Action Buttons -->
+					<div class="advisor-quick-actions">
+						{#each getAdvisorQuestions() as q}
+							<button 
+								class="quick-action-btn"
+								on:click={() => sendAdvisorMessage(q.question)}
+								disabled={advisorLoading}
+							>
+								{q.question}
+							</button>
+						{/each}
+					</div>
+
+					<!-- Input Bar -->
+					<div class="advisor-input-bar">
+						<input
+							type="text"
+							class="advisor-input"
+							placeholder="Ask your strategy question..."
+							bind:value={advisorInput}
+							on:keydown={(e) => e.key === 'Enter' && sendAdvisorMessage()}
+							disabled={advisorLoading}
+						/>
+						<button 
+							class="advisor-send-btn"
+							on:click={() => sendAdvisorMessage()}
+							disabled={advisorLoading || !advisorInput.trim()}
+						>
+							{#if advisorLoading}
+								<span class="material-symbols-outlined rotating">sync</span>
+							{:else}
+								<span class="material-symbols-outlined">arrow_upward</span>
+							{/if}
+						</button>
+					</div>
+					
+					<p class="advisor-footer-note">
+						<span class="material-symbols-outlined">bookmark</span>
+						All responses are auto-saved to Notes under "Strategy Advisor" category
+					</p>
+				</div>
+
 			{:else if activeTab === 'chat'}
 				<div class="chat-section elegant-card">
 					<h2 class="section-title">💬 AI Strategic Assistant</h2>
@@ -6859,7 +8042,11 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 								{/if}
 							</div>
 							<div class="chat-message-content">
-								<div class="chat-message-text">{message.content}</div>
+								{#if message.role === 'assistant'}
+									<div class="chat-message-text">{@html parseMarkdownToHtml(message.content)}</div>
+								{:else}
+									<div class="chat-message-text">{message.content}</div>
+								{/if}
 								<div class="chat-message-footer">
 									<div class="chat-message-time">
 										{message.timestamp.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
@@ -7413,6 +8600,21 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 		border-top: 3px solid #3b82f6;
 	}
 
+	.infinity-loading {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		padding: 2rem 1rem;
+		color: var(--text-secondary);
+		font-size: 0.85rem;
+	}
+
+	.infinity-loading .material-symbols-outlined {
+		font-size: 1.25rem;
+		color: #3b82f6;
+	}
+
 	.financial-grid {
 		display: grid;
 		grid-template-columns: 1fr 1fr;
@@ -7511,7 +8713,6 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 		border-radius: 10px;
 		padding: 1rem;
 		min-width: 0;
-		overflow: hidden;
 		display: flex;
 		flex-direction: column;
 	}
@@ -7529,6 +8730,90 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 	
 	.home-card-header-row .card-header-actions {
 		margin-left: 0;
+	}
+
+	/* Add Action Button in Header */
+	.add-action-btn {
+		width: 22px;
+		height: 22px;
+		border-radius: 50%;
+		border: none;
+		background: linear-gradient(135deg, #10b981, #059669);
+		color: white;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: all 0.2s ease;
+		box-shadow: 0 2px 4px rgba(16, 185, 129, 0.3);
+	}
+
+	.add-action-btn:hover {
+		transform: scale(1.1);
+		box-shadow: 0 4px 8px rgba(16, 185, 129, 0.4);
+	}
+
+	.add-action-btn .material-symbols-outlined {
+		font-size: 14px;
+		font-weight: 600;
+	}
+
+	/* Add Action Form */
+	.add-action-form {
+		display: flex;
+		gap: 0.5rem;
+		margin-bottom: 0.75rem;
+		padding: 0.5rem;
+		background: var(--bg-tertiary);
+		border-radius: 8px;
+		border: 1px solid var(--border-color);
+	}
+
+	.add-action-form input {
+		flex: 1;
+		padding: 0.5rem 0.75rem;
+		border: 1px solid var(--border-color);
+		border-radius: 6px;
+		background: var(--bg-secondary);
+		color: var(--text-primary);
+		font-size: 0.8rem;
+	}
+
+	.add-action-form input:focus {
+		outline: none;
+		border-color: #10b981;
+		box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
+	}
+
+	.add-action-form input::placeholder {
+		color: var(--text-tertiary);
+	}
+
+	.add-action-submit {
+		padding: 0.5rem;
+		border: none;
+		border-radius: 6px;
+		background: linear-gradient(135deg, #10b981, #059669);
+		color: white;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: all 0.2s ease;
+	}
+
+	.add-action-submit:hover:not(:disabled) {
+		transform: scale(1.05);
+		box-shadow: 0 2px 8px rgba(16, 185, 129, 0.4);
+	}
+
+	.add-action-submit:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.add-action-submit .material-symbols-outlined {
+		font-size: 18px;
 	}
 
 	.home-card-title {
@@ -7589,7 +8874,8 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 	/* Actions Card */
 	.actions-card {
 		min-width: 0;
-		overflow: hidden;
+		overflow: visible;
+		max-height: none;
 	}
 
 	.actions-list {
@@ -7597,6 +8883,7 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 		flex-direction: column;
 		gap: 0.4rem;
 		width: 100%;
+		max-height: 400px;
 		overflow-y: auto;
 		flex: 1;
 	}
@@ -7689,47 +8976,52 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 	/* RAG Buttons */
 	.rag-buttons {
 		display: flex;
-		gap: 0.4rem;
+		gap: 0.35rem;
 		flex-shrink: 0;
+		align-items: center;
 	}
 
 	.rag-buttons.small .rag-btn {
-		width: 14px;
-		height: 14px;
+		width: 12px;
+		height: 12px;
 	}
 
 	.rag-btn {
-		width: 18px;
-		height: 18px;
+		width: 16px;
+		height: 16px;
 		border-radius: 50%;
 		border: 2px solid transparent;
 		cursor: pointer;
 		transition: all 0.2s ease;
-		opacity: 0.4;
+		opacity: 0.5;
 		flex-shrink: 0;
 	}
 
 	.rag-btn:hover {
-		opacity: 0.8;
-		transform: scale(1.2);
+		opacity: 0.85;
+		transform: scale(1.15);
 	}
 
 	.rag-btn.active {
 		opacity: 1;
-		border-color: white;
-		box-shadow: 0 0 8px currentColor;
+		border-color: currentColor;
+		box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.4);
+		transform: scale(1.1);
 	}
 
 	.rag-btn.red {
 		background: #ef4444;
+		color: #ef4444;
 	}
 
 	.rag-btn.amber {
-		background: #f59e0b;
+		background: #fbbf24;
+		color: #fbbf24;
 	}
 
 	.rag-btn.green {
-		background: #22c55e;
+		background: #10b981;
+		color: #10b981;
 	}
 
 	/* Backlog Card */
@@ -7780,8 +9072,9 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 	}
 
 	.rag-buttons.small .rag-btn {
-		width: 14px;
-		height: 14px;
+		width: 12px;
+		height: 12px;
+		border-width: 1.5px;
 	}
 
 	.no-actions-text, .no-backlog-text {
@@ -14429,6 +15722,32 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 		border-radius: 12px 12px 12px 0;
 	}
 
+	/* Chat message markdown styles */
+	.chat-message-text strong {
+		font-weight: 700;
+		color: inherit;
+	}
+
+	.chat-message-text .chat-list {
+		margin: 0.5rem 0;
+		padding-left: 0;
+		list-style: none;
+	}
+
+	.chat-message-text .chat-list li {
+		margin: 0.4rem 0;
+		padding-left: 0.5rem;
+		line-height: 1.5;
+	}
+
+	.chat-message-text .chat-list li strong {
+		color: var(--accent-primary);
+	}
+
+	.chat-message.assistant .chat-message-text strong {
+		color: #fbbf24;
+	}
+
 	.chat-message-time {
 		font-size: 0.75rem;
 		color: var(--text-tertiary);
@@ -14979,6 +16298,3024 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 		.implication-row {
 			font-size: 0.8rem;
 			padding: 0.5rem 0.75rem;
+		}
+	}
+
+	/* ===============================================
+	   NEW INTROSPECTION METHODOLOGIES STYLES
+	   =============================================== */
+	
+	/* Decision Impact Analysis */
+	.decision-impact-grid {
+		display: grid;
+		grid-template-columns: repeat(2, 1fr);
+		gap: 1.5rem;
+		margin-top: 1.5rem;
+	}
+
+	.impact-card {
+		background: var(--bg-secondary);
+		border-radius: 16px;
+		padding: 1.5rem;
+		border: 1px solid var(--border-color);
+		transition: all 0.3s ease;
+	}
+
+	.impact-card:hover {
+		transform: translateY(-4px);
+		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+	}
+
+	.impact-header {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		margin-bottom: 1rem;
+	}
+
+	.impact-header .material-symbols-outlined {
+		font-size: 24px;
+		padding: 8px;
+		border-radius: 10px;
+		background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+		color: white;
+	}
+
+	.impact-header h4 {
+		margin: 0;
+		font-size: 1rem;
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.revenue-impact .impact-header .material-symbols-outlined {
+		background: linear-gradient(135deg, #10b981, #059669);
+	}
+
+	.cost-impact .impact-header .material-symbols-outlined {
+		background: linear-gradient(135deg, #3b82f6, #2563eb);
+	}
+
+	.customer-impact .impact-header .material-symbols-outlined {
+		background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+	}
+
+	.risk-impact .impact-header .material-symbols-outlined {
+		background: linear-gradient(135deg, #f59e0b, #d97706);
+	}
+
+	.impact-score-ring {
+		display: flex;
+		align-items: baseline;
+		justify-content: center;
+		gap: 2px;
+		margin: 1rem 0;
+	}
+
+	.score-value {
+		font-size: 2.5rem;
+		font-weight: 700;
+		background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+		-webkit-background-clip: text;
+		-webkit-text-fill-color: transparent;
+		background-clip: text;
+	}
+
+	.score-label {
+		font-size: 1rem;
+		color: var(--text-secondary);
+		font-weight: 500;
+	}
+
+	.impact-items {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+	}
+
+	.impact-item {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 0.75rem 1rem;
+		background: var(--bg-tertiary);
+		border-radius: 10px;
+		font-size: 0.9rem;
+		color: var(--text-primary);
+	}
+
+	.impact-dot {
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		background: var(--text-secondary);
+	}
+
+	.impact-item.positive .impact-dot {
+		background: #10b981;
+		box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);
+	}
+
+	.impact-item.warning .impact-dot {
+		background: #f59e0b;
+		box-shadow: 0 0 8px rgba(245, 158, 11, 0.5);
+	}
+
+	.impact-item.neutral .impact-dot {
+		background: #6b7280;
+	}
+
+	/* Value Driver Tree */
+	.value-tree-container {
+		margin-top: 1.5rem;
+		padding: 2rem;
+		background: var(--bg-secondary);
+		border-radius: 16px;
+		border: 1px solid var(--border-color);
+	}
+
+	.tree-level {
+		display: flex;
+		justify-content: center;
+		gap: 1.5rem;
+		flex-wrap: wrap;
+	}
+
+	.tree-node {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 1rem 1.5rem;
+		background: var(--bg-tertiary);
+		border-radius: 12px;
+		border: 1px solid var(--border-color);
+		min-width: 120px;
+		transition: all 0.3s ease;
+	}
+
+	.tree-node:hover {
+		transform: scale(1.05);
+		box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+	}
+
+	.tree-node .material-symbols-outlined {
+		font-size: 24px;
+		color: var(--accent-primary);
+	}
+
+	.node-label {
+		font-size: 0.85rem;
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.node-value {
+		font-size: 0.9rem;
+		color: var(--accent-primary);
+		font-weight: 600;
+	}
+
+	.node-weight {
+		font-size: 0.75rem;
+		color: var(--text-secondary);
+		padding: 0.25rem 0.5rem;
+		background: rgba(var(--accent-primary-rgb), 0.1);
+		border-radius: 20px;
+	}
+
+	.root-node {
+		background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+		color: white;
+		padding: 1.5rem 2rem;
+	}
+
+	.root-node .material-symbols-outlined,
+	.root-node .node-label,
+	.root-node .node-value {
+		color: white;
+	}
+
+	.primary-level {
+		gap: 1rem;
+	}
+
+	.primary-node {
+		flex: 1;
+		max-width: 180px;
+	}
+
+	.revenue-node { border-color: #10b981; }
+	.growth-node { border-color: #3b82f6; }
+	.profit-node { border-color: #8b5cf6; }
+	.risk-node { border-color: #f59e0b; }
+
+	.tree-connector {
+		width: 2px;
+		height: 30px;
+		background: linear-gradient(to bottom, var(--accent-primary), transparent);
+		margin: 0.5rem auto;
+	}
+
+	.tree-connector.secondary {
+		width: 60%;
+		height: 2px;
+		background: linear-gradient(to right, transparent, var(--border-color), transparent);
+		margin: 1rem auto;
+	}
+
+	.secondary-level {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 1rem;
+	}
+
+	.secondary-node {
+		min-width: 100px;
+		padding: 0.75rem 1rem;
+		background: var(--bg-tertiary);
+	}
+
+	.tree-formula {
+		font-size: 1.5rem;
+		font-weight: 300;
+		color: var(--text-secondary);
+	}
+
+	.action-level {
+		margin-top: 1.5rem;
+	}
+
+	.action-metrics {
+		display: flex;
+		justify-content: center;
+		gap: 1rem;
+		flex-wrap: wrap;
+	}
+
+	.action-metric {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.5rem 1rem;
+		background: linear-gradient(135deg, rgba(var(--accent-primary-rgb), 0.1), rgba(var(--accent-secondary-rgb), 0.1));
+		border-radius: 20px;
+		font-size: 0.85rem;
+		color: var(--text-primary);
+	}
+
+	.metric-icon {
+		font-size: 1rem;
+	}
+
+	/* Trajectory & Trigger Analysis */
+	.trajectory-container {
+		margin-top: 1.5rem;
+	}
+
+	.trajectory-curve {
+		background: var(--bg-secondary);
+		border-radius: 16px;
+		padding: 2rem;
+		border: 1px solid var(--border-color);
+		margin-bottom: 1.5rem;
+	}
+
+	.curve-phases {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+	}
+
+	.phase {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.75rem;
+		z-index: 1;
+	}
+
+	.phase-dot {
+		width: 20px;
+		height: 20px;
+		border-radius: 50%;
+		background: var(--border-color);
+		border: 3px solid var(--bg-primary);
+		transition: all 0.3s ease;
+	}
+
+	.phase.completed .phase-dot {
+		background: #10b981;
+		box-shadow: 0 0 12px rgba(16, 185, 129, 0.5);
+	}
+
+	.phase.active .phase-dot {
+		background: var(--accent-primary);
+		box-shadow: 0 0 16px rgba(var(--accent-primary-rgb), 0.6);
+		transform: scale(1.3);
+	}
+
+	.phase-label {
+		font-size: 0.85rem;
+		font-weight: 500;
+		color: var(--text-secondary);
+	}
+
+	.phase.active .phase-label {
+		color: var(--accent-primary);
+		font-weight: 600;
+	}
+
+	.phase-connector {
+		flex: 1;
+		height: 3px;
+		background: var(--border-color);
+		margin: 0 -5px;
+		margin-bottom: 2rem;
+	}
+
+	.phase-connector.completed {
+		background: linear-gradient(90deg, #10b981, #22c55e);
+	}
+
+	.current-position {
+		text-align: center;
+		margin-top: 1.5rem;
+		padding-top: 1rem;
+		border-top: 1px solid var(--border-color);
+	}
+
+	.position-label {
+		font-size: 1rem;
+		color: var(--text-secondary);
+	}
+
+	.position-label strong {
+		color: var(--accent-primary);
+		font-size: 1.1rem;
+	}
+
+	.triggers-grid {
+		display: grid;
+		grid-template-columns: repeat(2, 1fr);
+		gap: 1.5rem;
+	}
+
+	.triggers-section {
+		background: var(--bg-secondary);
+		border-radius: 16px;
+		padding: 1.5rem;
+		border: 1px solid var(--border-color);
+	}
+
+	.triggers-section h4 {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		margin: 0 0 1rem 0;
+		font-size: 1rem;
+		font-weight: 600;
+	}
+
+	.positive-triggers h4 {
+		color: #10b981;
+	}
+
+	.positive-triggers h4 .material-symbols-outlined {
+		color: #10b981;
+	}
+
+	.risk-triggers h4 {
+		color: #ef4444;
+	}
+
+	.risk-triggers h4 .material-symbols-outlined {
+		color: #ef4444;
+	}
+
+	.trigger-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+	}
+
+	.trigger-item {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 0.75rem 1rem;
+		background: var(--bg-tertiary);
+		border-radius: 10px;
+		font-size: 0.9rem;
+	}
+
+	.trigger-timeline {
+		padding: 0.25rem 0.5rem;
+		border-radius: 6px;
+		font-size: 0.7rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		white-space: nowrap;
+	}
+
+	.trigger-timeline.imminent {
+		background: rgba(239, 68, 68, 0.15);
+		color: #ef4444;
+	}
+
+	.trigger-timeline.near-term {
+		background: rgba(245, 158, 11, 0.15);
+		color: #f59e0b;
+	}
+
+	.trigger-timeline.long-term {
+		background: rgba(107, 114, 128, 0.15);
+		color: #6b7280;
+	}
+
+	.trigger-text {
+		flex: 1;
+		color: var(--text-primary);
+	}
+
+	.trigger-impact {
+		padding: 0.25rem 0.5rem;
+		border-radius: 6px;
+		font-size: 0.7rem;
+		font-weight: 600;
+		white-space: nowrap;
+	}
+
+	.trigger-impact.high {
+		background: rgba(16, 185, 129, 0.15);
+		color: #10b981;
+	}
+
+	.trigger-impact.medium {
+		background: rgba(59, 130, 246, 0.15);
+		color: #3b82f6;
+	}
+
+	.positive-triggers .trigger-impact.high {
+		background: rgba(16, 185, 129, 0.15);
+		color: #10b981;
+	}
+
+	.risk-triggers .trigger-impact.high {
+		background: rgba(239, 68, 68, 0.15);
+		color: #ef4444;
+	}
+
+	.risk-triggers .trigger-impact.medium {
+		background: rgba(245, 158, 11, 0.15);
+		color: #f59e0b;
+	}
+
+	/* ========================================
+	   FOUNDER DECISION INTELLIGENCE ENGINE
+	   ======================================== */
+
+	/* Actionable Summary Box */
+	.actionable-summary-box {
+		background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.05));
+		border: 1px solid rgba(99, 102, 241, 0.2);
+		border-radius: 16px;
+		padding: 1.5rem;
+		margin-bottom: 1.5rem;
+	}
+
+	.actionable-summary-box .summary-header {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		margin-bottom: 0.75rem;
+	}
+
+	.actionable-summary-box .summary-header .material-symbols-outlined {
+		font-size: 1.5rem;
+		color: #6366f1;
+	}
+
+	.actionable-summary-box .summary-header h3 {
+		margin: 0;
+		font-size: 1.1rem;
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.actionable-summary-box .summary-text {
+		color: var(--text-secondary);
+		font-size: 0.95rem;
+		line-height: 1.5;
+		margin-bottom: 1rem;
+	}
+
+	.actionable-summary-box .action-checklist {
+		background: rgba(255, 255, 255, 0.05);
+		border-radius: 10px;
+		padding: 1rem;
+	}
+
+	.actionable-summary-box .checklist-title {
+		font-weight: 600;
+		font-size: 0.9rem;
+		color: var(--text-primary);
+		margin-bottom: 0.5rem;
+	}
+
+	.actionable-summary-box ul {
+		margin: 0;
+		padding-left: 1.25rem;
+		list-style: none;
+	}
+
+	.actionable-summary-box li {
+		position: relative;
+		color: var(--text-secondary);
+		font-size: 0.9rem;
+		padding: 0.35rem 0;
+		padding-left: 0.5rem;
+	}
+
+	.actionable-summary-box li::before {
+		content: '→';
+		position: absolute;
+		left: -1rem;
+		color: #10b981;
+		font-weight: bold;
+	}
+
+	.actionable-summary-box li strong {
+		color: var(--text-primary);
+	}
+
+	/* Actionable Guide (inline) */
+	.actionable-guide {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.75rem;
+		background: linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(6, 182, 212, 0.05));
+		border: 1px solid rgba(16, 185, 129, 0.2);
+		border-radius: 10px;
+		padding: 1rem 1.25rem;
+		margin-bottom: 1rem;
+	}
+
+	.actionable-guide .guide-icon {
+		font-size: 1.25rem;
+		flex-shrink: 0;
+	}
+
+	.actionable-guide .guide-content {
+		font-size: 0.9rem;
+		color: var(--text-secondary);
+		line-height: 1.5;
+	}
+
+	.actionable-guide .guide-content strong {
+		color: #10b981;
+	}
+
+	.actionable-guide .guide-content em {
+		color: #f59e0b;
+		font-style: normal;
+		font-weight: 500;
+	}
+
+	/* GTM Overview specific */
+	.gtm-overview {
+		background: linear-gradient(135deg, rgba(249, 115, 22, 0.1), rgba(234, 88, 12, 0.05));
+		border-color: rgba(249, 115, 22, 0.2);
+	}
+
+	.gtm-overview .summary-header .material-symbols-outlined {
+		color: #f97316;
+	}
+
+	/* Value Driver Analysis */
+	.value-drivers-list {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+		margin-top: 1.5rem;
+	}
+
+	.value-driver-card {
+		display: flex;
+		align-items: stretch;
+		background: var(--bg-secondary);
+		border-radius: 12px;
+		border: 1px solid var(--border-color);
+		overflow: hidden;
+		transition: all 0.3s ease;
+	}
+
+	.value-driver-card:hover {
+		transform: translateX(4px);
+		box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+	}
+
+	.value-driver-card.rank-1 {
+		border-left: 4px solid #10b981;
+	}
+
+	.value-driver-card.rank-2 {
+		border-left: 4px solid #3b82f6;
+	}
+
+	.value-driver-card.rank-3 {
+		border-left: 4px solid #8b5cf6;
+	}
+
+	.driver-rank {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		padding: 1rem;
+		min-width: 80px;
+		background: var(--bg-tertiary);
+	}
+
+	.rank-1 .driver-rank { background: rgba(16, 185, 129, 0.1); }
+	.rank-2 .driver-rank { background: rgba(59, 130, 246, 0.1); }
+	.rank-3 .driver-rank { background: rgba(139, 92, 246, 0.1); }
+
+	.rank-number {
+		font-size: 1.5rem;
+		font-weight: 700;
+		color: var(--text-primary);
+	}
+
+	.rank-1 .rank-number { color: #10b981; }
+	.rank-2 .rank-number { color: #3b82f6; }
+	.rank-3 .rank-number { color: #8b5cf6; }
+
+	.rank-label {
+		font-size: 0.65rem;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		color: var(--text-secondary);
+		margin-top: 0.25rem;
+	}
+
+	.driver-content {
+		flex: 1;
+		padding: 1rem 1.25rem;
+	}
+
+	.driver-title {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-size: 1rem;
+		font-weight: 600;
+		color: var(--text-primary);
+		margin: 0 0 0.5rem 0;
+	}
+
+	.driver-title .material-symbols-outlined {
+		font-size: 1.1rem;
+		color: var(--accent-primary);
+	}
+
+	.driver-why {
+		font-size: 0.85rem;
+		color: var(--text-secondary);
+		line-height: 1.5;
+		margin: 0 0 0.75rem 0;
+	}
+
+	.driver-why strong {
+		color: var(--text-primary);
+		font-weight: 600;
+	}
+
+	.driver-metrics {
+		display: flex;
+		gap: 0.75rem;
+		flex-wrap: wrap;
+	}
+
+	.metric-badge {
+		display: flex;
+		flex-direction: column;
+		padding: 0.4rem 0.75rem;
+		border-radius: 6px;
+		font-size: 0.75rem;
+	}
+
+	.metric-badge .metric-label {
+		font-size: 0.65rem;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		color: var(--text-secondary);
+		margin-bottom: 0.1rem;
+	}
+
+	.metric-badge .metric-value {
+		font-weight: 600;
+	}
+
+	.metric-badge.signal-strong {
+		background: rgba(16, 185, 129, 0.15);
+	}
+	.metric-badge.signal-strong .metric-value { color: #10b981; }
+
+	.metric-badge.signal-medium {
+		background: rgba(245, 158, 11, 0.15);
+	}
+	.metric-badge.signal-medium .metric-value { color: #f59e0b; }
+
+	.metric-badge.signal-weak {
+		background: rgba(239, 68, 68, 0.15);
+	}
+	.metric-badge.signal-weak .metric-value { color: #ef4444; }
+
+	.metric-badge.controllable-yes {
+		background: rgba(59, 130, 246, 0.1);
+	}
+	.metric-badge.controllable-yes .metric-value { color: #3b82f6; }
+
+	.metric-badge.controllable-partial {
+		background: rgba(139, 92, 246, 0.1);
+	}
+	.metric-badge.controllable-partial .metric-value { color: #8b5cf6; }
+
+	.driver-impact {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		padding: 1rem 1.25rem;
+		min-width: 100px;
+		background: linear-gradient(135deg, rgba(var(--accent-primary-rgb), 0.1), rgba(var(--accent-secondary-rgb), 0.15));
+		border-left: 1px solid var(--border-color);
+	}
+
+	.impact-label {
+		font-size: 0.65rem;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		color: var(--text-secondary);
+		margin-bottom: 0.25rem;
+	}
+
+	.impact-value {
+		font-size: 1.1rem;
+		font-weight: 700;
+		color: #10b981;
+	}
+
+	/* Decision Impact Analysis */
+	.decision-scenarios {
+		margin-top: 1.5rem;
+	}
+
+	.current-decision {
+		background: linear-gradient(135deg, rgba(var(--accent-primary-rgb), 0.1), rgba(var(--accent-secondary-rgb), 0.1));
+		border: 1px solid var(--border-color);
+		border-radius: 12px;
+		padding: 1rem 1.25rem;
+		margin-bottom: 1.25rem;
+	}
+
+	.current-decision h4 {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-size: 0.9rem;
+		font-weight: 600;
+		color: var(--text-primary);
+		margin: 0 0 0.5rem 0;
+	}
+
+	.current-decision .material-symbols-outlined {
+		color: var(--accent-primary);
+		font-size: 1.1rem;
+	}
+
+	.decision-question {
+		font-size: 1rem;
+		font-weight: 500;
+		color: var(--text-primary);
+		margin: 0;
+		line-height: 1.4;
+	}
+
+	.scenarios-grid {
+		display: grid;
+		grid-template-columns: repeat(2, 1fr);
+		gap: 1rem;
+		margin-bottom: 1.25rem;
+	}
+
+	.scenario-card {
+		background: var(--bg-secondary);
+		border-radius: 12px;
+		border: 2px solid var(--border-color);
+		overflow: hidden;
+		transition: all 0.3s ease;
+	}
+
+	.scenario-card:hover {
+		transform: translateY(-2px);
+		box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+	}
+
+	.scenario-card.act-now {
+		border-color: #10b981;
+	}
+
+	.scenario-card.delay {
+		border-color: #f59e0b;
+	}
+
+	.scenario-header {
+		padding: 1rem 1.25rem;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.act-now .scenario-header {
+		background: rgba(16, 185, 129, 0.1);
+	}
+
+	.delay .scenario-header {
+		background: rgba(245, 158, 11, 0.1);
+	}
+
+	.scenario-header .material-symbols-outlined {
+		font-size: 1.25rem;
+	}
+
+	.act-now .scenario-header .material-symbols-outlined { color: #10b981; }
+	.delay .scenario-header .material-symbols-outlined { color: #f59e0b; }
+
+	.scenario-header h4 {
+		margin: 0;
+		font-size: 1rem;
+		font-weight: 600;
+	}
+
+	.act-now .scenario-header h4 { color: #10b981; }
+	.delay .scenario-header h4 { color: #f59e0b; }
+
+	.scenario-impacts {
+		padding: 1rem 1.25rem;
+	}
+
+	.impact-row {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 0.5rem 0;
+		border-bottom: 1px solid var(--border-color);
+	}
+
+	.impact-row:last-child {
+		border-bottom: none;
+	}
+
+	.impact-row .impact-label {
+		font-size: 0.8rem;
+		color: var(--text-secondary);
+		text-transform: none;
+		letter-spacing: normal;
+	}
+
+	.impact-row .impact-value {
+		font-size: 0.85rem;
+		font-weight: 600;
+	}
+
+	.impact-row .impact-value.positive { color: #10b981; }
+	.impact-row .impact-value.negative { color: #ef4444; }
+	.impact-row .impact-value.warning { color: #f59e0b; }
+	.impact-row .impact-value.neutral { color: var(--text-secondary); }
+
+	.decision-recommendation {
+		background: linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(16, 185, 129, 0.05));
+		border: 1px solid rgba(16, 185, 129, 0.3);
+		border-radius: 12px;
+		padding: 1rem 1.25rem;
+	}
+
+	.decision-recommendation h4 {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-size: 0.85rem;
+		font-weight: 600;
+		color: #10b981;
+		margin: 0 0 0.5rem 0;
+	}
+
+	.decision-recommendation .material-symbols-outlined {
+		font-size: 1.1rem;
+	}
+
+	.recommendation-text {
+		font-size: 0.9rem;
+		color: var(--text-primary);
+		line-height: 1.5;
+		margin: 0;
+	}
+
+	.recommendation-text strong {
+		color: #10b981;
+	}
+
+	/* Trajectory & Trigger Analysis */
+	.trajectory-analysis {
+		margin-top: 1.5rem;
+		display: flex;
+		flex-direction: column;
+		gap: 1.25rem;
+	}
+
+	.trajectory-status {
+		display: flex;
+		align-items: flex-start;
+		gap: 1rem;
+		padding: 1.25rem;
+		border-radius: 12px;
+		border: 2px solid var(--border-color);
+	}
+
+	.trajectory-status.status-fragile {
+		background: rgba(239, 68, 68, 0.08);
+		border-color: #ef4444;
+	}
+
+	.trajectory-status.status-stable {
+		background: rgba(59, 130, 246, 0.08);
+		border-color: #3b82f6;
+	}
+
+	.trajectory-status.status-accelerating {
+		background: rgba(16, 185, 129, 0.08);
+		border-color: #10b981;
+	}
+
+	.status-indicator {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 48px;
+		height: 48px;
+		border-radius: 12px;
+		flex-shrink: 0;
+	}
+
+	.status-fragile .status-indicator {
+		background: rgba(239, 68, 68, 0.2);
+	}
+	.status-fragile .status-indicator .material-symbols-outlined { color: #ef4444; }
+
+	.status-stable .status-indicator {
+		background: rgba(59, 130, 246, 0.2);
+	}
+	.status-stable .status-indicator .material-symbols-outlined { color: #3b82f6; }
+
+	.status-accelerating .status-indicator {
+		background: rgba(16, 185, 129, 0.2);
+	}
+	.status-accelerating .status-indicator .material-symbols-outlined { color: #10b981; }
+
+	.status-indicator .material-symbols-outlined {
+		font-size: 1.5rem;
+	}
+
+	.status-content h4 {
+		margin: 0 0 0.5rem 0;
+		font-size: 1rem;
+		color: var(--text-primary);
+	}
+
+	.trajectory-label {
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+	}
+
+	.status-fragile .trajectory-label { color: #ef4444; }
+	.status-stable .trajectory-label { color: #3b82f6; }
+	.status-accelerating .trajectory-label { color: #10b981; }
+
+	.trajectory-desc {
+		font-size: 0.85rem;
+		color: var(--text-secondary);
+		line-height: 1.5;
+		margin: 0;
+	}
+
+	.leading-indicators {
+		background: var(--bg-secondary);
+		border-radius: 12px;
+		padding: 1.25rem;
+		border: 1px solid var(--border-color);
+	}
+
+	.leading-indicators > h4 {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-size: 0.9rem;
+		font-weight: 600;
+		color: var(--text-primary);
+		margin: 0 0 1rem 0;
+	}
+
+	.leading-indicators > h4 .material-symbols-outlined {
+		color: var(--accent-primary);
+		font-size: 1.1rem;
+	}
+
+	.indicators-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+	}
+
+	.indicator-item {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 0.75rem;
+		background: var(--bg-tertiary);
+		border-radius: 8px;
+	}
+
+	.indicator-icon {
+		font-size: 1rem;
+	}
+
+	.indicator-content {
+		display: flex;
+		flex-direction: column;
+		gap: 0.1rem;
+	}
+
+	.indicator-name {
+		font-size: 0.85rem;
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.indicator-status {
+		font-size: 0.75rem;
+		color: var(--text-secondary);
+	}
+
+	.explicit-triggers {
+		background: var(--bg-secondary);
+		border-radius: 12px;
+		padding: 1.25rem;
+		border: 1px solid var(--border-color);
+	}
+
+	.explicit-triggers > h4 {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-size: 0.9rem;
+		font-weight: 600;
+		color: var(--text-primary);
+		margin: 0 0 1rem 0;
+	}
+
+	.explicit-triggers > h4 .material-symbols-outlined {
+		color: var(--accent-primary);
+		font-size: 1.1rem;
+	}
+
+	.triggers-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+	}
+
+	.trigger-rule {
+		display: flex;
+		align-items: stretch;
+		background: var(--bg-tertiary);
+		border-radius: 10px;
+		border: 1px solid var(--border-color);
+		overflow: hidden;
+	}
+
+	.trigger-rule.positive {
+		border-color: rgba(16, 185, 129, 0.3);
+		background: rgba(16, 185, 129, 0.05);
+	}
+
+	.trigger-condition,
+	.trigger-action {
+		flex: 1;
+		padding: 0.75rem 1rem;
+	}
+
+	.trigger-condition {
+		background: rgba(239, 68, 68, 0.08);
+		border-right: 1px solid var(--border-color);
+	}
+
+	.trigger-rule.positive .trigger-condition {
+		background: rgba(16, 185, 129, 0.1);
+	}
+
+	.trigger-action {
+		background: rgba(59, 130, 246, 0.08);
+	}
+
+	.trigger-rule.positive .trigger-action {
+		background: rgba(16, 185, 129, 0.08);
+	}
+
+	.if-label,
+	.then-label {
+		display: inline-block;
+		font-size: 0.65rem;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		padding: 0.2rem 0.4rem;
+		border-radius: 3px;
+		margin-bottom: 0.35rem;
+	}
+
+	.if-label {
+		background: rgba(239, 68, 68, 0.2);
+		color: #ef4444;
+	}
+
+	.trigger-rule.positive .if-label {
+		background: rgba(16, 185, 129, 0.2);
+		color: #10b981;
+	}
+
+	.then-label {
+		background: rgba(59, 130, 246, 0.2);
+		color: #3b82f6;
+	}
+
+	.trigger-rule.positive .then-label {
+		background: rgba(16, 185, 129, 0.2);
+		color: #10b981;
+	}
+
+	.condition-text,
+	.action-text {
+		display: block;
+		font-size: 0.8rem;
+		color: var(--text-primary);
+		line-height: 1.4;
+	}
+
+	.trigger-arrow {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 0 0.5rem;
+		font-size: 1.25rem;
+		font-weight: 700;
+		color: var(--text-secondary);
+		background: var(--bg-secondary);
+	}
+
+	.inaction-warning {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.75rem;
+		padding: 1rem 1.25rem;
+		background: rgba(239, 68, 68, 0.08);
+		border: 1px solid rgba(239, 68, 68, 0.3);
+		border-radius: 10px;
+	}
+
+	.inaction-warning .material-symbols-outlined {
+		color: #ef4444;
+		font-size: 1.25rem;
+		flex-shrink: 0;
+	}
+
+	.inaction-warning h4 {
+		margin: 0 0 0.35rem 0;
+		font-size: 0.85rem;
+		font-weight: 600;
+		color: #ef4444;
+	}
+
+	.inaction-warning p {
+		margin: 0;
+		font-size: 0.8rem;
+		color: var(--text-secondary);
+		line-height: 1.4;
+	}
+
+	/* Responsive adjustments for new methodologies */
+	@media (max-width: 992px) {
+		.decision-impact-grid {
+			grid-template-columns: 1fr;
+		}
+		
+		.triggers-grid {
+			grid-template-columns: 1fr;
+		}
+
+		.scenarios-grid {
+			grid-template-columns: 1fr;
+		}
+
+		.value-driver-card {
+			flex-direction: column;
+		}
+
+		.driver-rank {
+			flex-direction: row;
+			justify-content: flex-start;
+			gap: 0.75rem;
+			min-width: auto;
+		}
+
+		.driver-impact {
+			flex-direction: row;
+			justify-content: space-between;
+			border-left: none;
+			border-top: 1px solid var(--border-color);
+		}
+	}
+
+	@media (max-width: 768px) {
+		.value-tree-container {
+			padding: 1rem;
+		}
+		
+		.tree-level {
+			flex-direction: column;
+			align-items: center;
+		}
+		
+		.primary-node {
+			max-width: 100%;
+			width: 100%;
+		}
+		
+		.secondary-level {
+			flex-direction: column;
+		}
+		
+		.tree-formula {
+			transform: rotate(90deg);
+		}
+		
+		.curve-phases {
+			flex-direction: column;
+			gap: 0;
+		}
+		
+		.phase-connector {
+			width: 3px;
+			height: 30px;
+			margin: -5px 0;
+		}
+		
+		.trigger-item {
+			flex-wrap: wrap;
+			gap: 0.5rem;
+		}
+		
+		.trigger-text {
+			width: 100%;
+			order: 3;
+		}
+	}
+
+	/* ========================================
+	   STRATEGIC ADVISOR TAB STYLES
+	   ======================================== */
+
+	/* ========================================
+	   STRATEGIC ADVISOR - CLEAN CARD DESIGN
+	   ======================================== */
+	.advisor-page {
+		display: flex;
+		flex-direction: column;
+		gap: 1.25rem;
+		max-width: 900px;
+		margin: 0 auto;
+		padding: 1rem;
+	}
+
+	.advisor-card {
+		background: #ffffff;
+		border-radius: 16px;
+		border: 1px solid #e5e7eb;
+		box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+		min-height: 400px;
+		max-height: 55vh;
+		display: flex;
+		flex-direction: column;
+		overflow: hidden;
+	}
+
+	[data-theme='dark'] .advisor-card {
+		background: #1f2937;
+		border-color: #374151;
+	}
+
+	.advisor-chat-container {
+		flex: 1;
+		overflow-y: auto;
+		padding: 2rem;
+		display: flex;
+		flex-direction: column;
+		gap: 1.25rem;
+	}
+
+	/* Empty State */
+	.advisor-empty-state {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		height: 100%;
+		text-align: center;
+		padding: 3rem;
+	}
+
+	.advisor-empty-state .empty-icon {
+		width: 80px;
+		height: 80px;
+		background: linear-gradient(135deg, #e0e7ff, #c7d2fe);
+		border-radius: 50%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		margin-bottom: 1.5rem;
+	}
+
+	.advisor-empty-state .empty-icon .material-symbols-outlined {
+		font-size: 40px;
+		color: #6366f1;
+	}
+
+	.advisor-empty-state h2 {
+		font-size: 1.5rem;
+		font-weight: 700;
+		color: #1f2937;
+		margin: 0 0 0.5rem 0;
+	}
+
+	[data-theme='dark'] .advisor-empty-state h2 {
+		color: #f9fafb;
+	}
+
+	.advisor-empty-state p {
+		font-size: 1rem;
+		color: #6b7280;
+		margin: 0;
+		max-width: 400px;
+		line-height: 1.6;
+	}
+
+	[data-theme='dark'] .advisor-empty-state p {
+		color: #9ca3af;
+	}
+
+	/* Chat Bubbles */
+	.chat-bubble {
+		display: flex;
+		animation: bubbleFadeIn 0.3s ease;
+	}
+
+	@keyframes bubbleFadeIn {
+		from { opacity: 0; transform: translateY(10px); }
+		to { opacity: 1; transform: translateY(0); }
+	}
+
+	.chat-bubble.user {
+		justify-content: flex-end;
+	}
+
+	.chat-bubble.assistant {
+		justify-content: flex-start;
+	}
+
+	.bubble-content {
+		max-width: 80%;
+		padding: 1rem 1.25rem;
+		border-radius: 16px;
+		line-height: 1.7;
+	}
+
+	.user-bubble {
+		background: #6366f1;
+		color: white;
+		border-bottom-right-radius: 4px;
+	}
+
+	.user-bubble .bubble-text {
+		font-size: 1rem;
+		margin: 0;
+	}
+
+	.assistant-bubble {
+		background: #f3f4f6;
+		color: #1f2937;
+		border-bottom-left-radius: 4px;
+	}
+
+	[data-theme='dark'] .assistant-bubble {
+		background: #374151;
+		color: #f9fafb;
+	}
+
+	.bubble-header {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		margin-bottom: 0.5rem;
+	}
+
+	.advisor-label {
+		font-size: 0.8rem;
+		font-weight: 600;
+		color: #6366f1;
+	}
+
+	.saved-tag {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+		background: rgba(16, 185, 129, 0.15);
+		color: #059669;
+		font-size: 0.7rem;
+		font-weight: 600;
+		padding: 0.2rem 0.6rem;
+		border-radius: 12px;
+	}
+
+	.saved-tag .material-symbols-outlined {
+		font-size: 14px;
+	}
+
+	.assistant-bubble .bubble-text {
+		font-size: 1rem;
+		line-height: 1.8;
+	}
+
+	.assistant-bubble .bubble-text strong {
+		color: #4f46e5;
+		font-weight: 600;
+	}
+
+	[data-theme='dark'] .assistant-bubble .bubble-text strong {
+		color: #818cf8;
+	}
+
+	.assistant-bubble .bubble-text em {
+		color: #f59e0b;
+		font-style: normal;
+	}
+
+	/* Typing Dots */
+	.typing-dots {
+		display: flex;
+		gap: 6px;
+		padding: 0.25rem 0;
+	}
+
+	.typing-dots span {
+		width: 10px;
+		height: 10px;
+		background: #9ca3af;
+		border-radius: 50%;
+		animation: dotPulse 1.4s infinite ease-in-out;
+	}
+
+	.typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+	.typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+	@keyframes dotPulse {
+		0%, 60%, 100% { transform: scale(0.8); opacity: 0.5; }
+		30% { transform: scale(1.2); opacity: 1; }
+	}
+
+	/* Quick Action Buttons - 2x2 Grid */
+	.advisor-quick-actions {
+		display: grid;
+		grid-template-columns: repeat(2, 1fr);
+		gap: 0.75rem;
+	}
+
+	.quick-action-btn {
+		padding: 1rem 1.25rem;
+		background: #ffffff;
+		border: 1px solid #e5e7eb;
+		border-radius: 12px;
+		font-size: 0.9rem;
+		color: #374151;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		text-align: left;
+		white-space: normal;
+		line-height: 1.5;
+	}
+
+	[data-theme='dark'] .quick-action-btn {
+		background: #374151;
+		border-color: #4b5563;
+		color: #e5e7eb;
+	}
+
+	.quick-action-btn:hover:not(:disabled) {
+		background: #6366f1;
+		border-color: #6366f1;
+		color: white;
+		transform: translateY(-2px);
+		box-shadow: 0 4px 12px rgba(99, 102, 241, 0.25);
+	}
+
+	.quick-action-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	/* Input Bar */
+	.advisor-input-bar {
+		display: flex;
+		gap: 0.75rem;
+		background: #ffffff;
+		border: 1px solid #e5e7eb;
+		border-radius: 28px;
+		padding: 0.5rem 0.5rem 0.5rem 1.5rem;
+		box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+	}
+
+	[data-theme='dark'] .advisor-input-bar {
+		background: #1f2937;
+		border-color: #374151;
+	}
+
+	.advisor-input {
+		flex: 1;
+		border: none;
+		outline: none;
+		background: transparent;
+		font-size: 1rem;
+		color: #1f2937;
+	}
+
+	[data-theme='dark'] .advisor-input {
+		color: #f9fafb;
+	}
+
+	.advisor-input::placeholder {
+		color: #9ca3af;
+	}
+
+	.advisor-send-btn {
+		width: 44px;
+		height: 44px;
+		background: #6366f1;
+		border: none;
+		border-radius: 50%;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: all 0.2s ease;
+		flex-shrink: 0;
+	}
+
+	.advisor-send-btn:hover:not(:disabled) {
+		background: #4f46e5;
+		transform: scale(1.05);
+	}
+
+	.advisor-send-btn:disabled {
+		background: #d1d5db;
+		cursor: not-allowed;
+	}
+
+	[data-theme='dark'] .advisor-send-btn:disabled {
+		background: #4b5563;
+	}
+
+	.advisor-send-btn .material-symbols-outlined {
+		font-size: 22px;
+		color: white;
+	}
+
+	/* Footer Note */
+	.advisor-footer-note {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.4rem;
+		font-size: 0.8rem;
+		color: #9ca3af;
+		margin: 0;
+	}
+
+	.advisor-footer-note .material-symbols-outlined {
+		font-size: 16px;
+	}
+
+	@media (max-width: 768px) {
+		.advisor-page {
+			padding: 0.5rem;
+		}
+		
+		.advisor-card {
+			min-height: 300px;
+		}
+		
+		.advisor-quick-actions {
+			grid-template-columns: 1fr;
+		}
+		
+		.quick-action-btn {
+			font-size: 0.85rem;
+			padding: 0.85rem 1rem;
+		}
+		
+		.bubble-content {
+			max-width: 90%;
+		}
+	}
+
+	.input-container {
+		display: flex;
+		gap: 0.75rem;
+	}
+
+	.advisor-input-area input {
+		flex: 1;
+		padding: 1rem 1.5rem;
+		background: var(--bg-secondary);
+		border: 1px solid var(--border-color);
+		border-radius: 12px;
+		font-size: 1rem;
+		color: var(--text-primary);
+		transition: all 0.2s ease;
+	}
+
+	.advisor-input-area input:focus {
+		outline: none;
+		border-color: #6366f1;
+		box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+	}
+
+	.advisor-input-area input::placeholder {
+		color: var(--text-tertiary);
+	}
+
+	.send-btn {
+		width: 52px;
+		height: 52px;
+		background: linear-gradient(135deg, #6366f1, #8b5cf6);
+		border: none;
+		border-radius: 12px;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: all 0.2s ease;
+		flex-shrink: 0;
+	}
+
+	.send-btn:hover:not(:disabled) {
+		transform: scale(1.05);
+		box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4);
+	}
+
+	.send-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.send-btn .material-symbols-outlined {
+		font-size: 24px;
+		color: white;
+	}
+
+	.input-hint {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		margin: 0.75rem 0 0 0;
+		font-size: 0.75rem;
+		color: var(--text-tertiary);
+	}
+
+	.input-hint .material-symbols-outlined {
+		font-size: 14px;
+	}
+
+	/* ========================================
+	   GTM CO-FOUNDER TAB STYLES
+	   ======================================== */
+
+	.gtm-section {
+		display: flex;
+		flex-direction: column;
+		gap: 1.5rem;
+	}
+
+	.gtm-header {
+		background: linear-gradient(135deg, rgba(139, 92, 246, 0.1), rgba(59, 130, 246, 0.1));
+		border: 1px solid rgba(139, 92, 246, 0.3);
+	}
+
+	.gtm-header-content {
+		display: flex;
+		justify-content: space-between;
+		align-items: flex-start;
+		flex-wrap: wrap;
+		gap: 1.5rem;
+	}
+
+	.gtm-title-section {
+		display: flex;
+		align-items: center;
+		gap: 1rem;
+	}
+
+	.gtm-icon {
+		font-size: 2.5rem;
+		color: #8b5cf6;
+	}
+
+	.gtm-title {
+		font-size: 1.75rem;
+		font-weight: 700;
+		color: var(--text-primary);
+		margin: 0;
+	}
+
+	.gtm-subtitle {
+		font-size: 0.9rem;
+		color: var(--text-secondary);
+		margin: 0.25rem 0 0 0;
+	}
+
+	.gtm-philosophy {
+		display: flex;
+		gap: 1.5rem;
+		flex-wrap: wrap;
+	}
+
+	.philosophy-item {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		padding: 0.75rem 1rem;
+		background: var(--bg-tertiary);
+		border-radius: 8px;
+		border: 1px solid var(--border-color);
+	}
+
+	.philosophy-label {
+		font-size: 0.7rem;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		color: var(--text-secondary);
+	}
+
+	.philosophy-value {
+		font-size: 0.85rem;
+		font-weight: 600;
+		color: #8b5cf6;
+	}
+
+	/* GTM State Card */
+	.gtm-state-card {
+		border-left: 4px solid #3b82f6;
+	}
+
+	.gtm-state-grid {
+		display: grid;
+		grid-template-columns: repeat(4, 1fr);
+		gap: 1rem;
+		margin-top: 1.25rem;
+	}
+
+	.state-item {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		padding: 1rem;
+		background: var(--bg-tertiary);
+		border-radius: 10px;
+		border: 1px solid var(--border-color);
+	}
+
+	.state-label {
+		font-size: 0.75rem;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		color: var(--text-secondary);
+	}
+
+	.state-value {
+		font-size: 1.1rem;
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.state-value.stage-pre-revenue {
+		color: #f59e0b;
+	}
+
+	.state-value.stage-early-traction {
+		color: #3b82f6;
+	}
+
+	.state-value.stage-scaling {
+		color: #10b981;
+	}
+
+	.state-value.traction {
+		font-size: 0.95rem;
+	}
+
+	.gtm-constraint-warning {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.75rem;
+		margin-top: 1.25rem;
+		padding: 1rem;
+		background: rgba(245, 158, 11, 0.1);
+		border: 1px solid rgba(245, 158, 11, 0.3);
+		border-radius: 10px;
+	}
+
+	.gtm-constraint-warning .material-symbols-outlined {
+		color: #f59e0b;
+		font-size: 1.25rem;
+		flex-shrink: 0;
+	}
+
+	.gtm-constraint-warning strong {
+		color: #f59e0b;
+	}
+
+	/* Hypothesis Cards */
+	.hypothesis-limit,
+	.decision-badge,
+	.slides-badge,
+	.metrics-badge {
+		padding: 0.35rem 0.75rem;
+		background: rgba(139, 92, 246, 0.15);
+		color: #8b5cf6;
+		font-size: 0.75rem;
+		font-weight: 600;
+		border-radius: 20px;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+	}
+
+	.hypotheses-grid {
+		display: grid;
+		grid-template-columns: repeat(2, 1fr);
+		gap: 1.25rem;
+		margin-top: 1.25rem;
+	}
+
+	.hypothesis-card {
+		background: var(--bg-secondary);
+		border-radius: 12px;
+		border: 2px solid var(--border-color);
+		overflow: hidden;
+		transition: all 0.3s ease;
+	}
+
+	.hypothesis-card:hover {
+		transform: translateY(-2px);
+		box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+	}
+
+	.hypothesis-card.active {
+		border-color: #10b981;
+	}
+
+	.hypothesis-card.queued {
+		border-color: #f59e0b;
+		opacity: 0.85;
+	}
+
+	.hypothesis-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 1rem 1.25rem;
+		background: var(--bg-tertiary);
+	}
+
+	.hypothesis-id {
+		font-size: 1.25rem;
+		font-weight: 700;
+		color: var(--text-primary);
+	}
+
+	.hypothesis-status {
+		font-size: 0.75rem;
+		font-weight: 600;
+		padding: 0.25rem 0.75rem;
+		border-radius: 20px;
+	}
+
+	.status-active {
+		background: rgba(16, 185, 129, 0.15);
+		color: #10b981;
+	}
+
+	.status-queued {
+		background: rgba(245, 158, 11, 0.15);
+		color: #f59e0b;
+	}
+
+	.hypothesis-content {
+		padding: 1.25rem;
+	}
+
+	.hypothesis-field {
+		margin-bottom: 0.75rem;
+	}
+
+	.field-label {
+		display: block;
+		font-size: 0.7rem;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		color: var(--text-secondary);
+		margin-bottom: 0.25rem;
+	}
+
+	.field-value {
+		font-size: 0.9rem;
+		color: var(--text-primary);
+		line-height: 1.4;
+	}
+
+	.hypothesis-metrics {
+		display: flex;
+		gap: 0.75rem;
+		margin: 1rem 0;
+		flex-wrap: wrap;
+	}
+
+	.hypothesis-metrics .metric {
+		display: flex;
+		flex-direction: column;
+		padding: 0.5rem 0.75rem;
+		background: var(--bg-tertiary);
+		border-radius: 6px;
+		flex: 1;
+		min-width: 80px;
+	}
+
+	.hypothesis-metrics .metric-label {
+		font-size: 0.65rem;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		color: var(--text-secondary);
+	}
+
+	.hypothesis-metrics .metric-value {
+		font-size: 0.85rem;
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.confidence-high { color: #10b981 !important; }
+	.confidence-medium { color: #f59e0b !important; }
+	.confidence-low { color: #ef4444 !important; }
+
+	.hypothesis-signal {
+		padding: 0.75rem;
+		background: rgba(59, 130, 246, 0.1);
+		border-radius: 8px;
+		margin-top: 0.75rem;
+	}
+
+	.signal-label {
+		display: block;
+		font-size: 0.7rem;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		color: #3b82f6;
+		margin-bottom: 0.25rem;
+	}
+
+	.signal-value {
+		font-size: 0.85rem;
+		color: var(--text-primary);
+		font-weight: 500;
+	}
+
+	.hypothesis-why {
+		padding: 1rem 1.25rem;
+		background: var(--bg-tertiary);
+		font-size: 0.85rem;
+		color: var(--text-secondary);
+		line-height: 1.5;
+	}
+
+	.hypothesis-why strong {
+		color: var(--text-primary);
+	}
+
+	/* GTM Decisions */
+	.gtm-decisions-card {
+		border-left: 4px solid #ef4444;
+	}
+
+	.decisions-grid {
+		display: grid;
+		grid-template-columns: repeat(3, 1fr);
+		gap: 1rem;
+		margin-top: 1.25rem;
+	}
+
+	.decision-card {
+		background: var(--bg-secondary);
+		border-radius: 12px;
+		border: 2px solid var(--border-color);
+		overflow: hidden;
+	}
+
+	.decision-card.double-down {
+		border-color: #10b981;
+	}
+
+	.decision-card.pause {
+		border-color: #f59e0b;
+	}
+
+	.decision-card.kill {
+		border-color: #ef4444;
+	}
+
+	.decision-header {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.75rem 1rem;
+	}
+
+	.double-down .decision-header {
+		background: rgba(16, 185, 129, 0.1);
+	}
+
+	.double-down .decision-header .material-symbols-outlined,
+	.double-down .decision-header h4 {
+		color: #10b981;
+	}
+
+	.pause .decision-header {
+		background: rgba(245, 158, 11, 0.1);
+	}
+
+	.pause .decision-header .material-symbols-outlined,
+	.pause .decision-header h4 {
+		color: #f59e0b;
+	}
+
+	.kill .decision-header {
+		background: rgba(239, 68, 68, 0.1);
+	}
+
+	.kill .decision-header .material-symbols-outlined,
+	.kill .decision-header h4 {
+		color: #ef4444;
+	}
+
+	.decision-header h4 {
+		margin: 0;
+		font-size: 1rem;
+		font-weight: 600;
+	}
+
+	.decision-content {
+		padding: 1rem;
+	}
+
+	.decision-what {
+		font-size: 0.9rem;
+		color: var(--text-primary);
+		margin-bottom: 0.75rem;
+	}
+
+	.decision-evidence {
+		padding: 0.75rem;
+		background: var(--bg-tertiary);
+		border-radius: 8px;
+		margin-bottom: 0.75rem;
+	}
+
+	.evidence-label {
+		display: block;
+		font-size: 0.65rem;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		color: var(--text-secondary);
+		margin-bottom: 0.25rem;
+	}
+
+	.evidence-value {
+		font-size: 0.8rem;
+		color: var(--text-primary);
+		line-height: 1.4;
+	}
+
+	.decision-impact {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.decision-impact .impact-item {
+		display: flex;
+		justify-content: space-between;
+		font-size: 0.8rem;
+	}
+
+	.decision-impact .impact-label {
+		color: var(--text-secondary);
+	}
+
+	.decision-impact .impact-value {
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.decision-impact .impact-value.positive {
+		color: #10b981;
+	}
+
+	/* Action Plan Table */
+	.action-plan-table {
+		margin-top: 1.25rem;
+		border: 1px solid var(--border-color);
+		border-radius: 12px;
+		overflow: hidden;
+	}
+
+	.action-row {
+		display: grid;
+		grid-template-columns: 2fr 0.75fr 1.25fr 0.75fr;
+		gap: 1rem;
+		padding: 1rem 1.25rem;
+		border-bottom: 1px solid var(--border-color);
+		align-items: center;
+	}
+
+	.action-row:last-child {
+		border-bottom: none;
+	}
+
+	.action-row.header {
+		background: var(--bg-tertiary);
+		font-weight: 600;
+		font-size: 0.75rem;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		color: var(--text-secondary);
+	}
+
+	.action-row.highlight {
+		background: rgba(245, 158, 11, 0.1);
+	}
+
+	.action-col.action {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.75rem;
+	}
+
+	.action-number {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 24px;
+		height: 24px;
+		background: var(--accent-primary);
+		color: white;
+		border-radius: 50%;
+		font-size: 0.75rem;
+		font-weight: 600;
+		flex-shrink: 0;
+	}
+
+	/* Risks Grid */
+	.risks-grid {
+		display: grid;
+		grid-template-columns: repeat(2, 1fr);
+		gap: 1.25rem;
+		margin-top: 1.25rem;
+	}
+
+	.risk-item {
+		background: var(--bg-secondary);
+		border-radius: 12px;
+		padding: 1.25rem;
+		border: 1px solid var(--border-color);
+	}
+
+	.risk-item.full-width {
+		grid-column: 1 / -1;
+	}
+
+	.risk-header {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		margin-bottom: 1rem;
+	}
+
+	.risk-header .material-symbols-outlined {
+		color: #f59e0b;
+		font-size: 1.25rem;
+	}
+
+	.risk-header h4 {
+		margin: 0;
+		font-size: 0.95rem;
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.risk-list {
+		margin: 0;
+		padding-left: 1.25rem;
+	}
+
+	.risk-list li {
+		font-size: 0.85rem;
+		color: var(--text-secondary);
+		margin-bottom: 0.5rem;
+		line-height: 1.4;
+	}
+
+	.reset-triggers {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+	}
+
+	.reset-trigger {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 0.75rem 1rem;
+		background: var(--bg-tertiary);
+		border-radius: 8px;
+		font-size: 0.85rem;
+		flex-wrap: wrap;
+	}
+
+	.trigger-if,
+	.trigger-then {
+		font-weight: 700;
+		padding: 0.2rem 0.5rem;
+		border-radius: 4px;
+	}
+
+	.trigger-if {
+		background: rgba(239, 68, 68, 0.2);
+		color: #ef4444;
+	}
+
+	.trigger-then {
+		color: var(--text-secondary);
+	}
+
+	.trigger-condition {
+		color: var(--text-primary);
+		flex: 1;
+	}
+
+	.trigger-action {
+		color: var(--text-secondary);
+		font-style: italic;
+	}
+
+	/* GTM Slides */
+	.gtm-slides-card {
+		background: linear-gradient(135deg, rgba(30, 30, 40, 0.8), rgba(40, 40, 55, 0.8));
+	}
+
+	.gtm-slides {
+		display: grid;
+		grid-template-columns: repeat(3, 1fr);
+		gap: 1.25rem;
+		margin-top: 1.25rem;
+	}
+
+	.gtm-slide {
+		background: var(--bg-secondary);
+		border-radius: 12px;
+		padding: 1.5rem;
+		border: 1px solid var(--border-color);
+		position: relative;
+	}
+
+	.slide-number {
+		position: absolute;
+		top: 1rem;
+		right: 1rem;
+		font-size: 2rem;
+		font-weight: 700;
+		color: rgba(139, 92, 246, 0.2);
+	}
+
+	.slide-title {
+		font-size: 1rem;
+		font-weight: 700;
+		color: #8b5cf6;
+		margin: 0 0 1rem 0;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+	}
+
+	.slide-content {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+	}
+
+	.slide-point {
+		display: flex;
+		gap: 0.5rem;
+		font-size: 0.85rem;
+		color: var(--text-secondary);
+		line-height: 1.5;
+		margin: 0;
+	}
+
+	.point-marker {
+		color: #8b5cf6;
+		flex-shrink: 0;
+	}
+
+	.slide-point strong {
+		color: var(--text-primary);
+	}
+
+	/* GTM Metrics */
+	.gtm-metrics-card {
+		border-left: 4px solid #10b981;
+	}
+
+	.metrics-grid {
+		display: grid;
+		grid-template-columns: repeat(5, 1fr);
+		gap: 1rem;
+		margin-top: 1.25rem;
+	}
+
+	.metric-card {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		text-align: center;
+		padding: 1.25rem 1rem;
+		background: var(--bg-secondary);
+		border-radius: 12px;
+		border: 1px solid var(--border-color);
+	}
+
+	.metric-card .metric-icon {
+		font-size: 2rem;
+		color: #10b981;
+		margin-bottom: 0.75rem;
+	}
+
+	.metric-info {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+	}
+
+	.metric-info .metric-name {
+		font-size: 0.85rem;
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.metric-info .metric-desc {
+		font-size: 0.75rem;
+		color: var(--text-secondary);
+	}
+
+	.metric-info .metric-target {
+		font-size: 0.75rem;
+		font-weight: 600;
+		color: #10b981;
+		margin-top: 0.5rem;
+	}
+
+	/* ========================================
+	   GTM TO-DO LIST & RAG STATUS STYLES
+	   ======================================== */
+
+	.custom-todo-section {
+		margin-top: 2rem;
+		padding-top: 1.5rem;
+		border-top: 2px dashed var(--border-color);
+	}
+
+	.todo-section-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 1.25rem;
+		flex-wrap: wrap;
+		gap: 1rem;
+	}
+
+	.todo-title-area {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+	}
+
+	.todo-title-area .material-symbols-outlined {
+		font-size: 1.5rem;
+		color: #8b5cf6;
+	}
+
+	.todo-title-area h3 {
+		font-size: 1.1rem;
+		font-weight: 600;
+		color: var(--text-primary);
+		margin: 0;
+	}
+
+	.todo-count {
+		font-size: 0.75rem;
+		padding: 0.25rem 0.6rem;
+		background: rgba(139, 92, 246, 0.15);
+		color: #8b5cf6;
+		border-radius: 12px;
+		font-weight: 500;
+	}
+
+	.add-todo-btn {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.6rem 1.25rem;
+		background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+		color: white;
+		border: none;
+		border-radius: 8px;
+		font-size: 0.85rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.add-todo-btn:hover {
+		transform: translateY(-2px);
+		box-shadow: 0 4px 15px rgba(139, 92, 246, 0.3);
+	}
+
+	.add-todo-btn .material-symbols-outlined {
+		font-size: 1.1rem;
+	}
+
+	/* Add Todo Form */
+	.add-todo-form {
+		background: var(--bg-tertiary);
+		border: 1px solid var(--border-color);
+		border-radius: 12px;
+		padding: 1.5rem;
+		margin-bottom: 1.5rem;
+		animation: slideDown 0.3s ease;
+	}
+
+	@keyframes slideDown {
+		from {
+			opacity: 0;
+			transform: translateY(-10px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
+	}
+
+	.form-row {
+		display: flex;
+		gap: 1rem;
+		margin-bottom: 1rem;
+	}
+
+	.form-row.three-col {
+		display: grid;
+		grid-template-columns: repeat(3, 1fr);
+	}
+
+	.form-field {
+		display: flex;
+		flex-direction: column;
+		gap: 0.4rem;
+	}
+
+	.form-field.full-width {
+		flex: 1;
+	}
+
+	.form-field label {
+		font-size: 0.75rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		color: var(--text-secondary);
+	}
+
+	.form-field input,
+	.form-field select {
+		padding: 0.75rem 1rem;
+		background: var(--bg-secondary);
+		border: 1px solid var(--border-color);
+		border-radius: 8px;
+		font-size: 0.9rem;
+		color: var(--text-primary);
+		transition: all 0.2s ease;
+	}
+
+	.form-field input:focus,
+	.form-field select:focus {
+		outline: none;
+		border-color: #8b5cf6;
+		box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.15);
+	}
+
+	.form-field input::placeholder {
+		color: var(--text-tertiary);
+	}
+
+	.form-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: 0.75rem;
+		margin-top: 1rem;
+	}
+
+	.btn-cancel {
+		padding: 0.6rem 1.25rem;
+		background: transparent;
+		border: 1px solid var(--border-color);
+		border-radius: 8px;
+		color: var(--text-secondary);
+		font-size: 0.85rem;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.btn-cancel:hover {
+		background: var(--bg-tertiary);
+		border-color: var(--text-secondary);
+	}
+
+	.btn-add {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.6rem 1.25rem;
+		background: linear-gradient(135deg, #10b981, #059669);
+		color: white;
+		border: none;
+		border-radius: 8px;
+		font-size: 0.85rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.btn-add:hover:not(:disabled) {
+		transform: translateY(-2px);
+		box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);
+	}
+
+	.btn-add:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.btn-add .material-symbols-outlined {
+		font-size: 1rem;
+	}
+
+	/* Todo List */
+	.todo-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+	}
+
+	.todo-item {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 1rem 1.25rem;
+		background: var(--bg-secondary);
+		border-radius: 10px;
+		border: 2px solid var(--border-color);
+		transition: all 0.2s ease;
+		gap: 1rem;
+	}
+
+	.todo-item:hover {
+		box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+	}
+
+	/* RAG Status Borders */
+	.todo-item.rag-not-started {
+		border-left: 4px solid #6b7280;
+	}
+
+	.todo-item.rag-red {
+		border-left: 4px solid #ef4444;
+		background: rgba(239, 68, 68, 0.05);
+	}
+
+	.todo-item.rag-amber {
+		border-left: 4px solid #f59e0b;
+		background: rgba(245, 158, 11, 0.05);
+	}
+
+	.todo-item.rag-green {
+		border-left: 4px solid #10b981;
+		background: rgba(16, 185, 129, 0.05);
+	}
+
+	.todo-item-main {
+		display: flex;
+		align-items: flex-start;
+		gap: 1rem;
+		flex: 1;
+	}
+
+	.todo-number {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		min-width: 28px;
+		height: 28px;
+		background: var(--accent-primary);
+		color: white;
+		border-radius: 50%;
+		font-size: 0.8rem;
+		font-weight: 600;
+		flex-shrink: 0;
+	}
+
+	.todo-content {
+		flex: 1;
+	}
+
+	.todo-action-text {
+		font-size: 0.95rem;
+		color: var(--text-primary);
+		line-height: 1.4;
+	}
+
+	.todo-meta {
+		display: flex;
+		gap: 1.25rem;
+		margin-top: 0.5rem;
+		flex-wrap: wrap;
+	}
+
+	.todo-meta span {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+		font-size: 0.8rem;
+		color: var(--text-secondary);
+	}
+
+	.todo-meta .material-symbols-outlined {
+		font-size: 0.9rem;
+		color: var(--text-tertiary);
+	}
+
+	.todo-item-controls {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+	}
+
+	/* RAG Status Selector */
+	.rag-selector {
+		display: flex;
+		gap: 0.35rem;
+		padding: 0.35rem;
+		background: var(--bg-tertiary);
+		border-radius: 8px;
+	}
+
+	.rag-btn {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 32px;
+		height: 32px;
+		border: none;
+		border-radius: 6px;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		opacity: 0.4;
+	}
+
+	.rag-btn:hover {
+		opacity: 0.7;
+		transform: scale(1.1);
+	}
+
+	.rag-btn.active {
+		opacity: 1;
+		transform: scale(1.1);
+	}
+
+	.rag-btn .material-symbols-outlined {
+		font-size: 1.1rem;
+	}
+
+	.rag-btn.not-started {
+		background: rgba(107, 114, 128, 0.15);
+		color: #6b7280;
+	}
+
+	.rag-btn.not-started.active {
+		background: rgba(107, 114, 128, 0.25);
+		box-shadow: 0 0 0 2px #6b7280;
+	}
+
+	.rag-btn.red {
+		background: rgba(239, 68, 68, 0.15);
+		color: #ef4444;
+	}
+
+	.rag-btn.red.active {
+		background: rgba(239, 68, 68, 0.25);
+		box-shadow: 0 0 0 2px #ef4444;
+	}
+
+	.rag-btn.amber {
+		background: rgba(245, 158, 11, 0.15);
+		color: #f59e0b;
+	}
+
+	.rag-btn.amber.active {
+		background: rgba(245, 158, 11, 0.25);
+		box-shadow: 0 0 0 2px #f59e0b;
+	}
+
+	.rag-btn.green {
+		background: rgba(16, 185, 129, 0.15);
+		color: #10b981;
+	}
+
+	.rag-btn.green.active {
+		background: rgba(16, 185, 129, 0.25);
+		box-shadow: 0 0 0 2px #10b981;
+	}
+
+	.delete-todo-btn {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 32px;
+		height: 32px;
+		background: transparent;
+		border: 1px solid rgba(239, 68, 68, 0.3);
+		border-radius: 6px;
+		color: #ef4444;
+		cursor: pointer;
+		opacity: 0.5;
+		transition: all 0.2s ease;
+	}
+
+	.delete-todo-btn:hover {
+		opacity: 1;
+		background: rgba(239, 68, 68, 0.1);
+	}
+
+	.delete-todo-btn .material-symbols-outlined {
+		font-size: 1rem;
+	}
+
+	/* RAG Summary */
+	.rag-summary {
+		display: flex;
+		gap: 1rem;
+		margin-top: 1.25rem;
+		padding: 1rem;
+		background: var(--bg-tertiary);
+		border-radius: 10px;
+		flex-wrap: wrap;
+	}
+
+	.rag-summary-item {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.5rem 1rem;
+		border-radius: 8px;
+		flex: 1;
+		min-width: 120px;
+	}
+
+	.rag-summary-item .material-symbols-outlined {
+		font-size: 1.25rem;
+	}
+
+	.rag-summary-item.not-started {
+		background: rgba(107, 114, 128, 0.1);
+		color: #6b7280;
+	}
+
+	.rag-summary-item.red {
+		background: rgba(239, 68, 68, 0.1);
+		color: #ef4444;
+	}
+
+	.rag-summary-item.amber {
+		background: rgba(245, 158, 11, 0.1);
+		color: #f59e0b;
+	}
+
+	.rag-summary-item.green {
+		background: rgba(16, 185, 129, 0.1);
+		color: #10b981;
+	}
+
+	.rag-label {
+		font-size: 0.8rem;
+		font-weight: 500;
+		flex: 1;
+	}
+
+	.rag-count {
+		font-size: 1.1rem;
+		font-weight: 700;
+	}
+
+	/* Empty State */
+	.empty-todo-state {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		padding: 2.5rem;
+		background: var(--bg-tertiary);
+		border: 2px dashed var(--border-color);
+		border-radius: 12px;
+		text-align: center;
+	}
+
+	.empty-todo-state .material-symbols-outlined {
+		font-size: 3rem;
+		color: var(--text-tertiary);
+		margin-bottom: 1rem;
+	}
+
+	.empty-todo-state p {
+		color: var(--text-secondary);
+		font-size: 0.9rem;
+		margin: 0;
+		max-width: 300px;
+	}
+
+	/* Todo Responsive Styles */
+	@media (max-width: 992px) {
+		.form-row.three-col {
+			grid-template-columns: 1fr;
+		}
+
+		.todo-item {
+			flex-direction: column;
+			align-items: stretch;
+		}
+
+		.todo-item-controls {
+			justify-content: space-between;
+			padding-top: 0.75rem;
+			border-top: 1px solid var(--border-color);
+			margin-top: 0.75rem;
+		}
+
+		.rag-summary {
+			flex-direction: column;
+		}
+
+		.rag-summary-item {
+			min-width: auto;
+		}
+	}
+
+	@media (max-width: 768px) {
+		.todo-section-header {
+			flex-direction: column;
+			align-items: stretch;
+		}
+
+		.add-todo-btn {
+			justify-content: center;
+		}
+
+		.todo-meta {
+			flex-direction: column;
+			gap: 0.5rem;
+		}
+	}
+
+	/* GTM Responsive */
+	@media (max-width: 1200px) {
+		.gtm-state-grid {
+			grid-template-columns: repeat(2, 1fr);
+		}
+
+		.decisions-grid {
+			grid-template-columns: 1fr;
+		}
+
+		.gtm-slides {
+			grid-template-columns: 1fr;
+		}
+
+		.metrics-grid {
+			grid-template-columns: repeat(3, 1fr);
+		}
+	}
+
+	@media (max-width: 992px) {
+		.hypotheses-grid {
+			grid-template-columns: 1fr;
+		}
+
+		.action-row {
+			grid-template-columns: 1fr;
+			gap: 0.5rem;
+		}
+
+		.action-row.header {
+			display: none;
+		}
+
+		.action-col::before {
+			content: attr(data-label);
+			font-weight: 600;
+			font-size: 0.7rem;
+			text-transform: uppercase;
+			color: var(--text-secondary);
+			display: block;
+			margin-bottom: 0.25rem;
+		}
+
+		.risks-grid {
+			grid-template-columns: 1fr;
+		}
+
+		.metrics-grid {
+			grid-template-columns: repeat(2, 1fr);
+		}
+	}
+
+	@media (max-width: 768px) {
+		.gtm-header-content {
+			flex-direction: column;
+		}
+
+		.gtm-philosophy {
+			width: 100%;
+		}
+
+		.philosophy-item {
+			flex: 1;
+		}
+
+		.gtm-state-grid {
+			grid-template-columns: 1fr;
+		}
+
+		.metrics-grid {
+			grid-template-columns: 1fr;
+		}
+
+		.reset-trigger {
+			flex-direction: column;
+			align-items: flex-start;
 		}
 	}
 </style>
