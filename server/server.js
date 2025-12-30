@@ -845,57 +845,52 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
     );
 
     // ============================================
-    // CHECK INFINITY DB FOR USER BY EMAIL (Primary Identifier)
-    // Populate data from InFinity if user exists there
+    // INFINITY CHECK IS NOW ASYNC (NON-BLOCKING)
+    // Login returns immediately, InFinity data loads separately via /api/infinity/stats
+    // This prevents 30-60s delays when Render server is cold/sleeping
     // ============================================
-    let infinityData = null;
-    let infinityLinked = false;
     
-    try {
-      console.log(`🔍 Checking InFinity DB for email: ${user.email}`);
-      infinityData = await fetchInfinityUserByEmail(user.email);
-      
-      if (infinityData && (infinityData.success !== false || infinityData.data)) {
-        infinityLinked = true;
-        console.log('✅ User found in InFinity DB, populating data...');
-        
-        // Extract InFinity data
-        const infinityUserData = infinityData.data || infinityData;
-        
-        // Update local user record with InFinity data
-        const updateFields = {
-          infinityLinked: true,
-          infinityLastSync: new Date(),
-          infinityData: {
-            totalRevenue: infinityUserData.totalRevenue || 0,
-            totalInvestment: infinityUserData.totalInvestment || 0,
-            monthlyRevenue: infinityUserData.monthlyRevenue || 0,
-            monthlyBurn: infinityUserData.monthlyBurn || 0,
-            runway: infinityUserData.runway || 0,
-            revenueGrowth: infinityUserData.revenueGrowth || 0,
-            status: infinityUserData.status || 'Connected',
-            companyName: infinityUserData.companyName || user.companyName,
-            lastSynced: new Date()
+    // Check if user has cached InFinity data from previous sync
+    const infinityLinked = user.infinityLinked || false;
+    const cachedInfinityData = user.infinityData || null;
+    
+    // Fire-and-forget: Async background sync with InFinity (non-blocking)
+    // This updates the user record for future logins without blocking this request
+    if (process.env.INFINITY_API_KEY) {
+      setImmediate(async () => {
+        try {
+          console.log(`🔄 [Background] Syncing InFinity data for: ${user.email}`);
+          const infinityData = await fetchInfinityUserByEmail(user.email);
+          
+          if (infinityData && (infinityData.success !== false || infinityData.data)) {
+            const infinityUserData = infinityData.data || infinityData;
+            
+            await usersCollection.updateOne(
+              { _id: user._id },
+              { 
+                $set: {
+                  infinityLinked: true,
+                  infinityLastSync: new Date(),
+                  infinityData: {
+                    totalRevenue: infinityUserData.totalRevenue || 0,
+                    totalInvestment: infinityUserData.totalInvestment || 0,
+                    monthlyRevenue: infinityUserData.monthlyRevenue || 0,
+                    monthlyBurn: infinityUserData.monthlyBurn || 0,
+                    runway: infinityUserData.runway || 0,
+                    revenueGrowth: infinityUserData.revenueGrowth || 0,
+                    status: infinityUserData.status || 'Connected',
+                    companyName: infinityUserData.companyName || user.companyName,
+                    lastSynced: new Date()
+                  }
+                }
+              }
+            );
+            console.log(`✅ [Background] InFinity sync complete for: ${user.email}`);
           }
-        };
-        
-        // Only update companyName if InFinity has one and local is empty
-        if (infinityUserData.companyName && !user.companyName) {
-          updateFields.companyName = infinityUserData.companyName;
+        } catch (err) {
+          console.log(`⚠️ [Background] InFinity sync failed (non-critical): ${err.message}`);
         }
-        
-        await usersCollection.updateOne(
-          { _id: user._id },
-          { $set: updateFields }
-        );
-        
-        console.log('✅ Local user synced with InFinity data');
-      } else {
-        console.log('⚠️ User not found in InFinity DB');
-      }
-    } catch (infinityError) {
-      console.error('⚠️ Could not fetch InFinity data (non-blocking):', infinityError.message);
-      // Non-blocking - continue with login even if InFinity check fails
+      });
     }
 
     // Generate tokens
@@ -911,7 +906,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
       { expiresIn: '7d' }
     );
 
-    // Return user data with InFinity status
+    // Return user data with cached InFinity status (fresh data loads via dashboard)
     res.json({
       accessToken,
       refreshToken,
@@ -921,7 +916,8 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
         name: user.name, 
         companyName: user.companyName,
         infinityLinked: infinityLinked,
-        infinityData: infinityLinked ? (infinityData?.data || infinityData) : null
+        infinityData: cachedInfinityData, // Use cached data, dashboard will fetch fresh
+        infinityNote: infinityLinked ? 'Cached data - refreshing in background' : 'Not linked'
       }
     });
   } catch (error) {
