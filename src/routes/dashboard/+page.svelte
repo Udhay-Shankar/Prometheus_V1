@@ -2857,12 +2857,17 @@ What would you like to discuss?`,
 				}
 			};
 
+			// Add timeout controller for the fetch request
+			const controller = new AbortController();
+			const timeoutId = setTimeout(() => controller.abort(), 45000); // 45 second timeout
+
 			const response = await fetch(`${API_URL}/api/chat/grok`, {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json',
 					Authorization: `Bearer ${token}`
 				},
+				signal: controller.signal,
 				body: JSON.stringify({
 					message: userMessage,
 					context: context,
@@ -2870,8 +2875,11 @@ What would you like to discuss?`,
 				})
 			});
 
+			clearTimeout(timeoutId);
+
 			if (!response.ok) {
-				throw new Error('Failed to get AI response');
+				const errorData = await response.json().catch(() => ({}));
+				throw new Error(errorData.error || 'Failed to get AI response');
 			}
 
 			const data = await response.json();
@@ -2890,11 +2898,25 @@ What would you like to discuss?`,
 				}
 			}, 100);
 
-		} catch (error) {
+		} catch (error: any) {
 			console.error('Error sending chat message:', error);
+			
+			// Provide more specific error messages
+			let errorMessage = 'Sorry, I encountered an error. Please try again.';
+			
+			if (error.name === 'AbortError') {
+				errorMessage = 'The request timed out. The AI might be busy - please try again in a moment.';
+			} else if (error.message?.includes('Rate limit')) {
+				errorMessage = error.message;
+			} else if (error.message?.includes('timeout')) {
+				errorMessage = 'The AI is taking too long to respond. Please try a shorter question or try again.';
+			} else if (error.message?.includes('401') || error.message?.includes('403')) {
+				errorMessage = 'Your session has expired. Please refresh the page and log in again.';
+			}
+			
 			chatMessages = [...chatMessages, {
 				role: 'assistant',
-				content: 'Sorry, I encountered an error. Please try again.',
+				content: errorMessage,
 				timestamp: new Date()
 			}];
 		} finally {
