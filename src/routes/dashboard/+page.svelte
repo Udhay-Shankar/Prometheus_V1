@@ -274,6 +274,22 @@
 			infinityLoading = true;
 			infinityError = '';
 			
+			// First check if we have cached InFinity data from login (email-matched)
+			const cachedInfinityData = localStorage.getItem('infinityData');
+			const infinityLinkedFlag = localStorage.getItem('infinityLinked');
+			
+			if (infinityLinkedFlag === 'true' && cachedInfinityData) {
+				try {
+					const parsedData = JSON.parse(cachedInfinityData);
+					infinityStats = parsedData;
+					console.log('📊 Using cached InFinity data from login (email-matched)');
+					infinityLoading = false;
+					// Continue to fetch fresh data in background
+				} catch (e) {
+					console.log('⚠️ Could not parse cached InFinity data');
+				}
+			}
+			
 			const token = localStorage.getItem('accessToken');
 			if (!token) {
 				infinityError = 'Not authenticated';
@@ -293,8 +309,19 @@
 			const result = await response.json();
 			if (result.success && result.data) {
 				infinityStats = result.data;
+				// Update cached data
+				localStorage.setItem('infinityData', JSON.stringify(result.data));
+				if (result.linkedByEmail) {
+					localStorage.setItem('infinityLinked', 'true');
+					console.log(`✅ InFinity data synced for email: ${result.linkedByEmail}`);
+				}
 			} else if (result.data) {
 				infinityStats = result.data;
+			}
+			
+			// Show message if not connected
+			if (result.message && !result.linkedByEmail) {
+				console.log('ℹ️ ' + result.message);
 			}
 		} catch (error) {
 			console.error('Error fetching InFinity stats:', error);

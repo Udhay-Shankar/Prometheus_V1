@@ -210,21 +210,40 @@ app.get('/health', (req, res) => {
 // INFINITY STATS API
 // ============================================
 
-// Fetch InFinity stats for a user
-app.get('/api/infinity/stats/:userId', async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const INFINITY_API_URL = process.env.INFINITY_API_URL || 'https://strat-mu-finagent.onrender.com';
-    const INFINITY_API_KEY = process.env.INFINITY_API_KEY;
+// Helper function to fetch InFinity user data by email
+async function fetchInfinityUserByEmail(email) {
+  const INFINITY_API_URL = process.env.INFINITY_API_URL || 'https://strat-mu-finagent.onrender.com';
+  const INFINITY_API_KEY = process.env.INFINITY_API_KEY;
 
-    if (!INFINITY_API_KEY) {
-      return res.status(500).json({ error: 'InFinity API key not configured' });
+  if (!INFINITY_API_KEY) {
+    console.log('⚠️ InFinity API key not configured');
+    return null;
+  }
+
+  try {
+    const encodedEmail = encodeURIComponent(email);
+    console.log(`📊 Looking up InFinity user by email: ${email}`);
+
+    // Try to fetch stats using email as identifier
+    const response = await fetch(
+      `${INFINITY_API_URL}/api/stats/summary/by-email/${encodedEmail}`,
+      {
+        headers: {
+          'x-api-key': INFINITY_API_KEY,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    if (response.ok) {
+      const result = await response.json();
+      console.log('✅ InFinity user found by email');
+      return result;
     }
 
-    console.log(`📊 Fetching InFinity stats for user: ${userId}`);
-
-    const response = await fetch(
-      `${INFINITY_API_URL}/api/stats/summary/public/${userId}`,
+    // Fallback: try the public stats endpoint with email
+    const fallbackResponse = await fetch(
+      `${INFINITY_API_URL}/api/stats/summary/public/${encodedEmail}`,
       {
         headers: {
           'x-api-key': INFINITY_API_KEY
@@ -232,7 +251,67 @@ app.get('/api/infinity/stats/:userId', async (req, res) => {
       }
     );
 
+    if (fallbackResponse.ok) {
+      const result = await fallbackResponse.json();
+      console.log('✅ InFinity user found via public endpoint');
+      return result;
+    }
+
+    console.log('⚠️ User not found in InFinity DB');
+    return null;
+  } catch (error) {
+    console.error('❌ Error fetching InFinity user:', error);
+    return null;
+  }
+}
+
+// Fetch InFinity stats for a user by userId or email
+app.get('/api/infinity/stats/:identifier', async (req, res) => {
+  try {
+    const { identifier } = req.params;
+    const INFINITY_API_URL = process.env.INFINITY_API_URL || 'https://strat-mu-finagent.onrender.com';
+    const INFINITY_API_KEY = process.env.INFINITY_API_KEY;
+
+    if (!INFINITY_API_KEY) {
+      return res.status(500).json({ error: 'InFinity API key not configured' });
+    }
+
+    // Check if identifier looks like an email
+    const isEmail = identifier.includes('@') || identifier.includes('%40');
+    const decodedIdentifier = decodeURIComponent(identifier);
+    
+    console.log(`📊 Fetching InFinity stats for ${isEmail ? 'email' : 'userId'}: ${decodedIdentifier}`);
+
+    // Use email-based lookup if identifier is an email
+    const endpoint = isEmail 
+      ? `${INFINITY_API_URL}/api/stats/summary/by-email/${encodeURIComponent(decodedIdentifier)}`
+      : `${INFINITY_API_URL}/api/stats/summary/public/${identifier}`;
+
+    const response = await fetch(endpoint, {
+      headers: {
+        'x-api-key': INFINITY_API_KEY
+      }
+    });
+
     if (!response.ok) {
+      // If email lookup fails, try public endpoint as fallback
+      if (isEmail) {
+        const fallbackResponse = await fetch(
+          `${INFINITY_API_URL}/api/stats/summary/public/${encodeURIComponent(decodedIdentifier)}`,
+          {
+            headers: {
+              'x-api-key': INFINITY_API_KEY
+            }
+          }
+        );
+        
+        if (fallbackResponse.ok) {
+          const result = await fallbackResponse.json();
+          console.log('✅ InFinity stats fetched via fallback');
+          return res.json(result);
+        }
+      }
+      
       console.error(`❌ InFinity API error: ${response.status}`);
       return res.status(response.status).json({ 
         error: 'Failed to fetch InFinity stats',
@@ -250,52 +329,105 @@ app.get('/api/infinity/stats/:userId', async (req, res) => {
   }
 });
 
-// Get InFinity stats for authenticated user (uses their stored InFinity userId)
+// Lookup user in InFinity DB by email (for data population)
+app.post('/api/infinity/lookup', async (req, res) => {
+  try {
+    const { email } = req.body;
+    
+    if (!email) {
+      return res.status(400).json({ error: 'Email is required' });
+    }
+
+    const infinityData = await fetchInfinityUserByEmail(email);
+    
+    if (infinityData) {
+      res.json({
+        success: true,
+        found: true,
+        data: infinityData
+      });
+    } else {
+      res.json({
+        success: true,
+        found: false,
+        message: 'User not found in InFinity DB'
+      });
+    }
+  } catch (error) {
+    console.error('❌ InFinity lookup error:', error);
+    res.status(500).json({ error: 'Failed to lookup user in InFinity' });
+  }
+});
+
+// Get InFinity stats for authenticated user (uses email as primary identifier)
 app.get('/api/infinity/stats', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.userId;
-    const INFINITY_API_URL = process.env.INFINITY_API_URL || 'https://strat-mu-finagent.onrender.com';
     const INFINITY_API_KEY = process.env.INFINITY_API_KEY;
 
     if (!INFINITY_API_KEY) {
       return res.status(500).json({ error: 'InFinity API key not configured' });
     }
 
-    // Fetch user's InFinity ID from database
+    // Fetch user from database to get their email (EMAIL is the PRIMARY identifier for InFinity)
     const user = await usersCollection.findOne({ _id: new ObjectId(userId) });
-    const infinityUserId = user?.infinityUserId || userId;
+    if (!user || !user.email) {
+      return res.status(400).json({ error: 'User email not found' });
+    }
+    
+    // EMAIL is the primary identifier for InFinity DB lookup
+    const userEmail = user.email;
+    console.log(`📊 Fetching InFinity stats using email as primary identifier: ${userEmail}`);
 
-    console.log(`📊 Fetching InFinity stats for authenticated user: ${infinityUserId}`);
-
-    const response = await fetch(
-      `${INFINITY_API_URL}/api/stats/summary/public/${infinityUserId}`,
-      {
-        headers: {
-          'x-api-key': INFINITY_API_KEY
-        }
+    // Use the helper function to fetch by email
+    const infinityData = await fetchInfinityUserByEmail(userEmail);
+    
+    if (infinityData && infinityData.success !== false) {
+      console.log('✅ InFinity stats fetched successfully via email lookup');
+      
+      // If we got InFinity data and it has additional user info, sync it locally
+      if (infinityData.data && infinityData.data.companyName && !user.companyName) {
+        // Update local user record with InFinity data
+        await usersCollection.updateOne(
+          { _id: new ObjectId(userId) },
+          { 
+            $set: { 
+              infinityLinked: true,
+              infinityData: {
+                lastSynced: new Date(),
+                companyName: infinityData.data.companyName || user.companyName,
+                totalRevenue: infinityData.data.totalRevenue || 0,
+                totalInvestment: infinityData.data.totalInvestment || 0
+              }
+            }
+          }
+        );
+        console.log('✅ Local user synced with InFinity data');
       }
-    );
-
-    if (!response.ok) {
-      // Return mock data if InFinity API fails or user doesn't exist there
-      console.log('⚠️ InFinity API unavailable, returning default data');
+      
       return res.json({
         success: true,
-        data: {
-          totalRevenue: 0,
-          totalInvestment: 0,
-          monthlyRevenue: 0,
-          monthlyBurn: 0,
-          runway: 0,
-          status: 'Not Connected',
-          revenueGrowth: 0
-        }
+        data: infinityData.data || infinityData,
+        linkedByEmail: userEmail
       });
     }
 
-    const result = await response.json();
-    console.log('✅ InFinity stats fetched successfully');
-    res.json(result);
+    // Return default data if InFinity lookup fails or user doesn't exist there
+    console.log('⚠️ User not found in InFinity DB, returning default data');
+    return res.json({
+      success: true,
+      data: {
+        totalRevenue: 0,
+        totalInvestment: 0,
+        monthlyRevenue: 0,
+        monthlyBurn: 0,
+        runway: 0,
+        status: 'Not Connected',
+        revenueGrowth: 0
+      },
+      linkedByEmail: null,
+      message: 'User not found in InFinity - connect your InFinity account with same email'
+    });
 
   } catch (error) {
     console.error('❌ InFinity API error:', error);
@@ -541,21 +673,47 @@ app.post('/api/auth/signup', async (req, res) => {
     const sanitizedCompanyName = sanitizeInput(companyName);
     const sanitizedEmail = validator.normalizeEmail(email) || email.toLowerCase().trim();
 
-    // Check if user exists
+    // Check if user exists locally
     const existingUser = await usersCollection.findOne({ email: sanitizedEmail });
     if (existingUser) {
       return res.status(409).json({ error: 'Account already exists with this email' });
     }
 
+    // ============================================
+    // CHECK INFINITY DB FOR EXISTING USER BY EMAIL (Primary Identifier)
+    // If user exists in InFinity, pre-populate their data
+    // ============================================
+    let infinityData = null;
+    let infinityLinked = false;
+    let infinityCompanyName = sanitizedCompanyName;
+    
+    try {
+      console.log(`🔍 Checking InFinity DB for new signup email: ${sanitizedEmail}`);
+      infinityData = await fetchInfinityUserByEmail(sanitizedEmail);
+      
+      if (infinityData && (infinityData.success !== false || infinityData.data)) {
+        infinityLinked = true;
+        console.log('✅ Existing user found in InFinity DB, will link account');
+        
+        const infinityUserData = infinityData.data || infinityData;
+        // Use InFinity company name if user didn't provide one or it's different
+        if (infinityUserData.companyName) {
+          infinityCompanyName = infinityUserData.companyName;
+        }
+      }
+    } catch (infinityError) {
+      console.log('⚠️ Could not check InFinity DB (non-blocking):', infinityError.message);
+    }
+
     // Hash password with higher cost factor for security
     const hashedPassword = await bcrypt.hash(password, 12);
 
-    // Create user with sanitized inputs
+    // Create user with sanitized inputs and InFinity data if available
     const user = {
       email: sanitizedEmail,
       password: hashedPassword,
       name: sanitizedName,
-      companyName: sanitizedCompanyName,
+      companyName: infinityCompanyName,
       socials: {
         linkedIn: sanitizeInput(socials?.linkedIn || ''),
         website: sanitizeInput(socials?.website || ''),
@@ -565,28 +723,50 @@ app.post('/api/auth/signup', async (req, res) => {
       createdAt: new Date(),
       role: 'founder',
       loginAttempts: 0,
-      lockUntil: null
+      lockUntil: null,
+      // InFinity linking fields
+      infinityLinked: infinityLinked,
+      infinityLastSync: infinityLinked ? new Date() : null,
+      infinityData: infinityLinked ? {
+        totalRevenue: (infinityData?.data || infinityData)?.totalRevenue || 0,
+        totalInvestment: (infinityData?.data || infinityData)?.totalInvestment || 0,
+        monthlyRevenue: (infinityData?.data || infinityData)?.monthlyRevenue || 0,
+        monthlyBurn: (infinityData?.data || infinityData)?.monthlyBurn || 0,
+        runway: (infinityData?.data || infinityData)?.runway || 0,
+        revenueGrowth: (infinityData?.data || infinityData)?.revenueGrowth || 0,
+        status: (infinityData?.data || infinityData)?.status || 'Connected',
+        lastSynced: new Date()
+      } : null
     };
 
     const result = await usersCollection.insertOne(user);
 
     // Generate tokens
     const accessToken = jwt.sign(
-      { userId: result.insertedId, email },
+      { userId: result.insertedId, email: sanitizedEmail },
       JWT_SECRET,
       { expiresIn: '1h' }
     );
 
     const refreshToken = jwt.sign(
-      { userId: result.insertedId, email },
+      { userId: result.insertedId, email: sanitizedEmail },
       JWT_REFRESH_SECRET,
       { expiresIn: '7d' }
     );
 
+    // Return response with InFinity link status
     res.json({
       accessToken,
       refreshToken,
-      user: { id: result.insertedId, email: sanitizedEmail, name: sanitizedName, companyName: sanitizedCompanyName, socials: user.socials }
+      user: { 
+        id: result.insertedId, 
+        email: sanitizedEmail, 
+        name: sanitizedName, 
+        companyName: infinityCompanyName, 
+        socials: user.socials,
+        infinityLinked: infinityLinked,
+        infinityData: infinityLinked ? user.infinityData : null
+      }
     });
   } catch (error) {
     console.error('Signup error:', error);
@@ -655,6 +835,60 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
       { $set: { loginAttempts: 0, lockUntil: null, lastLogin: new Date() } }
     );
 
+    // ============================================
+    // CHECK INFINITY DB FOR USER BY EMAIL (Primary Identifier)
+    // Populate data from InFinity if user exists there
+    // ============================================
+    let infinityData = null;
+    let infinityLinked = false;
+    
+    try {
+      console.log(`🔍 Checking InFinity DB for email: ${user.email}`);
+      infinityData = await fetchInfinityUserByEmail(user.email);
+      
+      if (infinityData && (infinityData.success !== false || infinityData.data)) {
+        infinityLinked = true;
+        console.log('✅ User found in InFinity DB, populating data...');
+        
+        // Extract InFinity data
+        const infinityUserData = infinityData.data || infinityData;
+        
+        // Update local user record with InFinity data
+        const updateFields = {
+          infinityLinked: true,
+          infinityLastSync: new Date(),
+          infinityData: {
+            totalRevenue: infinityUserData.totalRevenue || 0,
+            totalInvestment: infinityUserData.totalInvestment || 0,
+            monthlyRevenue: infinityUserData.monthlyRevenue || 0,
+            monthlyBurn: infinityUserData.monthlyBurn || 0,
+            runway: infinityUserData.runway || 0,
+            revenueGrowth: infinityUserData.revenueGrowth || 0,
+            status: infinityUserData.status || 'Connected',
+            companyName: infinityUserData.companyName || user.companyName,
+            lastSynced: new Date()
+          }
+        };
+        
+        // Only update companyName if InFinity has one and local is empty
+        if (infinityUserData.companyName && !user.companyName) {
+          updateFields.companyName = infinityUserData.companyName;
+        }
+        
+        await usersCollection.updateOne(
+          { _id: user._id },
+          { $set: updateFields }
+        );
+        
+        console.log('✅ Local user synced with InFinity data');
+      } else {
+        console.log('⚠️ User not found in InFinity DB');
+      }
+    } catch (infinityError) {
+      console.error('⚠️ Could not fetch InFinity data (non-blocking):', infinityError.message);
+      // Non-blocking - continue with login even if InFinity check fails
+    }
+
     // Generate tokens
     const accessToken = jwt.sign(
       { userId: user._id, email: user.email },
@@ -668,10 +902,18 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
       { expiresIn: '7d' }
     );
 
+    // Return user data with InFinity status
     res.json({
       accessToken,
       refreshToken,
-      user: { id: user._id, email: user.email, name: user.name, companyName: user.companyName }
+      user: { 
+        id: user._id, 
+        email: user.email, 
+        name: user.name, 
+        companyName: user.companyName,
+        infinityLinked: infinityLinked,
+        infinityData: infinityLinked ? (infinityData?.data || infinityData) : null
+      }
     });
   } catch (error) {
     console.error('Login error:', error);

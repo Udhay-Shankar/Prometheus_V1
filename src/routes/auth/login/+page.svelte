@@ -133,6 +133,13 @@
 			localStorage.setItem('refreshToken', data.refreshToken);
 			localStorage.setItem('user', JSON.stringify(data.user));
 
+			// Store InFinity data if linked (email matched in InFinity DB)
+			if (data.user.infinityLinked && data.user.infinityData) {
+				localStorage.setItem('infinityData', JSON.stringify(data.user.infinityData));
+				localStorage.setItem('infinityLinked', 'true');
+				console.log('✅ InFinity data populated from login');
+			}
+
 			// Trigger confetti on successful signup
 			if (!isLogin) {
 				showToast('Account created successfully! 🎉', 'success');
@@ -141,7 +148,12 @@
 					goto('/dashboard');
 				}, 1500);
 			} else {
-				showToast('Welcome back! 👋', 'success');
+				// Show InFinity linked status on login
+				if (data.user.infinityLinked) {
+					showToast('Welcome back! InFinity data synced 📊', 'success');
+				} else {
+					showToast('Welcome back! 👋', 'success');
+				}
 				setTimeout(() => {
 					goto('/dashboard');
 				}, 800);
