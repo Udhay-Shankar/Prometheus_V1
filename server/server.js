@@ -6,6 +6,8 @@ import bcrypt from 'bcryptjs';
 import { MongoClient, ObjectId } from 'mongodb';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import cluster from 'node:cluster';
+import os from 'node:os';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import mongoSanitize from 'express-mongo-sanitize';
@@ -457,10 +459,17 @@ let ddqCollection;
 let notesCollection;
 let actionsCollection;
 
-// Connect to MongoDB
+// Connect to MongoDB with optimized connection pool
 async function connectDB() {
   try {
-    const client = new MongoClient(MONGO_URI);
+    const client = new MongoClient(MONGO_URI, {
+      maxPoolSize: 100,           // Increased from default 10
+      minPoolSize: 10,            // Keep minimum connections ready
+      maxIdleTimeMS: 30000,       // Close idle connections after 30s
+      serverSelectionTimeoutMS: 5000,
+      socketTimeoutMS: 45000,
+      compressors: ['zlib'],      // Enable compression
+    });
     await client.connect();
     db = client.db('ceo-insight-engine');
     usersCollection = db.collection('users');
@@ -3705,20 +3714,44 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
-// Start server
-connectDB().then(() => {
-  app.listen(PORT, () => {
-    console.log(`🚀 Server running on http://localhost:${PORT}`);
-    console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-    if (process.env.NODE_ENV === 'production') {
-      console.log(`✅ Static file serving enabled`);
-      console.log(`📂 Serving from: ${path.join(__dirname, '../build')}`);
-    }
+// Start server with optional clustering
+const numCPUs = os.cpus().length;
+const ENABLE_CLUSTERING = process.env.ENABLE_CLUSTERING === 'true' && process.env.NODE_ENV === 'production';
+
+if (ENABLE_CLUSTERING && cluster.isPrimary) {
+  console.log(`🔧 Primary process ${process.pid} starting ${numCPUs} workers...`);
+  
+  // Fork workers for each CPU core
+  for (let i = 0; i < numCPUs; i++) {
+    cluster.fork();
+  }
+  
+  cluster.on('exit', (worker, code, signal) => {
+    console.log(`⚠️ Worker ${worker.process.pid} died (${signal || code}). Restarting...`);
+    cluster.fork();
   });
-}).catch((error) => {
-  console.error('❌ Failed to start server:', error);
-  process.exit(1);
-});
+  
+  cluster.on('online', (worker) => {
+    console.log(`✅ Worker ${worker.process.pid} is online`);
+  });
+} else {
+  // Single process mode (development) or worker process (production)
+  connectDB().then(() => {
+    app.listen(PORT, () => {
+      const workerId = ENABLE_CLUSTERING ? `Worker ${process.pid}` : 'Server';
+      console.log(`🚀 ${workerId} running on http://localhost:${PORT}`);
+      console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`💪 CPU Cores: ${numCPUs} | Clustering: ${ENABLE_CLUSTERING ? 'ENABLED' : 'DISABLED'}`);
+      if (process.env.NODE_ENV === 'production') {
+        console.log(`✅ Static file serving enabled`);
+        console.log(`📂 Serving from: ${path.join(__dirname, '../build')}`);
+      }
+    });
+  }).catch((error) => {
+    console.error('❌ Failed to start server:', error);
+    process.exit(1);
+  });
+}
 
 // Handle unhandled promise rejections
 process.on('unhandledRejection', (reason, promise) => {
