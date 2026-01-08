@@ -4957,54 +4957,12 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 											</span>
 										</div>
 									</div>
-								{:else if valuation}
-									{@const hasRevenue = ddqResponses[12] === 'Yes'}
-									{@const monthlyRevenue = hasRevenue ? (Number(ddqResponses[13]) || 0) : 0}
-									{@const previousRevenue = hasRevenue ? (Number(ddqResponses[14]) || 0) : 0}
-									{@const estimatedBurn = hasRevenue ? Math.round(monthlyRevenue * 0.6) : (Number(ddqResponses[16]) || 0)}
-									{@const totalInvestment = Number(ddqResponses[11]) || 0}
-									{@const netProfit = monthlyRevenue - estimatedBurn}
-									{@const runway = estimatedBurn > 0 ? Math.floor((totalInvestment + (netProfit > 0 ? netProfit * 12 : 0)) / estimatedBurn) : 999}
-									{@const revenueGrowth = previousRevenue > 0 ? ((monthlyRevenue - previousRevenue) / previousRevenue * 100) : 0}
-									{@const isProfitable = hasRevenue && netProfit > 0}
-									<div class="financial-grid">
-										<div class="fin-metric">
-											<span class="fin-label">TOTAL REVENUE</span>
-											<span class="fin-value revenue">₹{(monthlyRevenue * 12 / 100000).toFixed(1)}L</span>
-										</div>
-										<div class="fin-metric">
-											<span class="fin-label">TOTAL INVESTMENT</span>
-											<span class="fin-value">₹{(totalInvestment / 100000).toFixed(1)}L</span>
-										</div>
-										<div class="fin-metric">
-											<span class="fin-label">MONTHLY REVENUE</span>
-											<span class="fin-value revenue">₹{(monthlyRevenue / 100000).toFixed(1)}L</span>
-										</div>
-										<div class="fin-metric">
-											<span class="fin-label">MONTHLY BURN</span>
-											<span class="fin-value burn">₹{(estimatedBurn / 100000).toFixed(1)}L</span>
-										</div>
-										<div class="fin-metric">
-											<span class="fin-label">RUNWAY</span>
-											<span class="fin-value">
-												{runway > 100 ? '100+ mo' : runway + ' mo'}
-											</span>
-										</div>
-										<div class="fin-metric">
-											<span class="fin-label">STATUS</span>
-											<span class="fin-value {isProfitable ? 'profitable' : 'burning'}">
-												{isProfitable ? 'Profitable' : (hasRevenue ? 'Growing' : 'Pre-Revenue')}
-											</span>
-										</div>
-										<div class="fin-metric full-width">
-											<span class="fin-label">REVENUE GROWTH</span>
-											<span class="fin-value {revenueGrowth >= 0 ? 'profitable' : 'burning'}">
-												{(revenueGrowth >= 0 ? '+' : '') + revenueGrowth.toFixed(1)}%
-											</span>
-										</div>
-									</div>
 								{:else}
-									<p class="dashboard-placeholder">Complete assessment for insights</p>
+									<div class="infinity-not-connected">
+										<span class="material-symbols-outlined">link_off</span>
+										<p>Connect InFinity to see your financial metrics</p>
+										<span class="infinity-hint">Link your InFinity account to sync live data</span>
+									</div>
 								{/if}
 							</div>
 
@@ -10208,6 +10166,35 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 	.infinity-loading .material-symbols-outlined {
 		font-size: 1.25rem;
 		color: #3b82f6;
+	}
+
+	.infinity-not-connected {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		padding: 2rem 1rem;
+		text-align: center;
+	}
+
+	.infinity-not-connected .material-symbols-outlined {
+		font-size: 2.5rem;
+		color: var(--text-secondary);
+		opacity: 0.5;
+	}
+
+	.infinity-not-connected p {
+		margin: 0;
+		font-size: 0.9rem;
+		color: var(--text-secondary);
+		font-weight: 500;
+	}
+
+	.infinity-not-connected .infinity-hint {
+		font-size: 0.75rem;
+		color: var(--text-secondary);
+		opacity: 0.7;
 	}
 
 	.financial-grid {
