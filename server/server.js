@@ -458,6 +458,8 @@ let usersCollection;
 let ddqCollection;
 let notesCollection;
 let actionsCollection;
+let gtmTasksCollection;
+let gtmFollowupsCollection;
 
 // Connect to MongoDB with optimized connection pool
 async function connectDB() {
@@ -476,6 +478,8 @@ async function connectDB() {
     ddqCollection = db.collection('ddq-responses');
     notesCollection = db.collection('saved-notes');
     actionsCollection = db.collection('daily-actions');
+    gtmTasksCollection = db.collection('gtm-tasks');
+    gtmFollowupsCollection = db.collection('gtm-followups');
     
     // Create unique index on email field to prevent duplicate signups
     await usersCollection.createIndex({ email: 1 }, { unique: true });
@@ -485,6 +489,11 @@ async function connectDB() {
     
     // Create index on userId for actions
     await actionsCollection.createIndex({ userId: 1 });
+    
+    // Create indexes for GTM tasks
+    await gtmTasksCollection.createIndex({ userId: 1 });
+    await gtmTasksCollection.createIndex({ userId: 1, status: 1 });
+    await gtmTasksCollection.createIndex({ nextFollowup: 1 });
     
     console.log('✅ Connected to MongoDB Atlas');
     console.log('✅ Email uniqueness index created');
@@ -2788,15 +2797,24 @@ Return ONLY valid JSON:
   }
 });
 
-// Chat endpoint with Grok
+// Chat endpoint with Grok - GUARANTEED RESPONSE
 app.post('/api/chat/grok', authenticateToken, async (req, res) => {
+  // Ensure we ALWAYS send a response - wrap everything in ultimate try-catch
+  const sendFallbackResponse = (msg = 'I apologize, but I encountered an issue. Please try again or rephrase your question.') => {
+    if (!res.headersSent) {
+      res.json({ response: msg });
+    }
+  };
+
   try {
-    const { message, context, conversationHistory } = req.body;
+    const { message, context = {}, conversationHistory } = req.body;
     const userId = req.user.userId;
 
     if (!message) {
       return res.status(400).json({ error: 'Message is required' });
     }
+
+    console.log(`💬 Chat request from user ${userId}: "${message.substring(0, 50)}..."`);
 
     // Check rate limit for Gemini API
     const rateLimitCheck = geminiRateLimiter.checkLimit(userId);
@@ -2811,44 +2829,92 @@ app.post('/api/chat/grok', authenticateToken, async (req, res) => {
     res.setHeader('X-RateLimit-Limit', geminiRateLimiter.maxRequests);
     res.setHeader('X-RateLimit-Remaining', rateLimitCheck.remaining);
 
+    // Safely extract context with defaults
+    const company = context.company || {};
+    const valuation = context.valuation || null;
+    const swot = context.swot || null;
+    const competitorAnalysis = context.competitorAnalysis || {};
+    const topActions = context.topActions || [];
+    const infinityStats = context.infinityStats || {};
+
     // Build system prompt with context
-    let systemPrompt = `You are Daddy, an AI Strategic Advisor for startups and entrepreneurs. You have analyzed the user's business data and help them with strategic planning, market analysis, financial projections, growth strategies, and funding guidance.
+    let systemPrompt = `You are Daddy, an AI Strategic Advisor for startups and entrepreneurs. You have COMPLETE ACCESS to the user's business data shown on their dashboard. When they ask about ANY section or data, you MUST reference the specific data below - never say "data not provided" if it's listed here.
+
+IMPORTANT: The user can see their dashboard. If they ask about "Daily Actions", "Top Actions", "Actions", or similar - they mean the Top Actions list below. Always use the actual data.
 
 Company Context:
-- Name: ${context.company?.name || 'Unknown'}
-- Description: ${context.company?.description || 'N/A'}
-- Category: ${context.company?.category || 'Unknown'}
-- Stage: ${context.company?.stage || 'Unknown'}
-- Monthly Revenue: ₹${context.company?.monthlyRevenue || 0}
-- Monthly Expenses: ₹${context.company?.expenses || 0}
-- Customers: ${context.company?.customers || 0}
-- Team Size: ${context.company?.teamSize || '1'}
-- Funding Raised: ₹${context.company?.funding || 0}
+- Name: ${company.name || 'Unknown'}
+- Description: ${company.description || 'N/A'}
+- Category: ${company.category || 'Unknown'}
+- Stage: ${company.stage || 'Unknown'}
+- Monthly Revenue: ₹${company.monthlyRevenue || 0}
+- Monthly Expenses: ₹${company.expenses || 0}
+- Customers: ${company.customers || 0}
+- Team Size: ${company.teamSize || '1'}
+- Funding Raised: ₹${company.funding || 0}
 
-${context.valuation ? `Valuation: ₹${(context.valuation.finalValuationINR / 10000000).toFixed(2)} Cr (${(context.valuation.finalValuationUSD / 1000000).toFixed(2)}M USD)` : ''}
+${valuation ? `Valuation: ₹${(valuation.finalValuationINR / 10000000).toFixed(2)} Cr (${(valuation.finalValuationUSD / 1000000).toFixed(2)}M USD)` : ''}
 
-${context.swot ? `SWOT Analysis:
-Strengths: ${context.swot.strengths?.join(', ') || 'None identified'}
-Weaknesses: ${context.swot.weaknesses?.join(', ') || 'None identified'}
-Opportunities: ${context.swot.opportunities?.join(', ') || 'None identified'}
-Threats: ${context.swot.threats?.join(', ') || 'None identified'}` : ''}
+${swot ? `SWOT Analysis:
+Strengths: ${swot.strengths?.join(', ') || 'None identified'}
+Weaknesses: ${swot.weaknesses?.join(', ') || 'None identified'}
+Opportunities: ${swot.opportunities?.join(', ') || 'None identified'}
+Threats: ${swot.threats?.join(', ') || 'None identified'}` : ''}
 
-${context.competitorAnalysis ? `
+${competitorAnalysis ? `
 Competitor Analysis:
-${context.competitorAnalysis.userMentionedCompetitors ? `User-Mentioned Competitors: ${context.competitorAnalysis.userMentionedCompetitors}` : ''}
-${context.competitorAnalysis.verifiedCompetitors?.length > 0 ? `Verified Competitors:
-${context.competitorAnalysis.verifiedCompetitors.map(c => `- ${c.name}: Stage=${c.stage || 'N/A'}, Valuation=₹${c.currentValuation ? (c.currentValuation/10000000).toFixed(1) + ' Cr' : 'N/A'}, Revenue=₹${c.revenue ? (c.revenue/10000000).toFixed(1) + ' Cr' : 'N/A'}, Customers=${c.customers || 'N/A'}, Funding=₹${c.fundingRaised ? (c.fundingRaised/10000000).toFixed(1) + ' Cr' : 'N/A'}, Product=${c.flagshipProduct || 'N/A'}, Region=${c.region || 'N/A'}`).join('\n')}` : ''}
-${context.competitorAnalysis.globalCompetitors?.length > 0 ? `Global Competitors:
-${context.competitorAnalysis.globalCompetitors.map(c => `- ${c.name}: Stage=${c.stage || 'N/A'}, Valuation=₹${c.currentValuation ? (c.currentValuation/10000000).toFixed(1) + ' Cr' : 'N/A'}, Product=${c.flagshipProduct || 'N/A'}`).join('\n')}` : ''}
-${context.competitorAnalysis.localCompetitors?.length > 0 ? `Local/Indian Competitors:
-${context.competitorAnalysis.localCompetitors.map(c => `- ${c.name}: Stage=${c.stage || 'N/A'}, Valuation=₹${c.currentValuation ? (c.currentValuation/10000000).toFixed(1) + ' Cr' : 'N/A'}, Product=${c.flagshipProduct || 'N/A'}`).join('\n')}` : ''}
-${context.competitorAnalysis.rivalCompetitors?.length > 0 ? `Direct Rivals:
-${context.competitorAnalysis.rivalCompetitors.map(c => `- ${c.name}: Stage=${c.stage || 'N/A'}, Valuation=₹${c.currentValuation ? (c.currentValuation/10000000).toFixed(1) + ' Cr' : 'N/A'}, Product=${c.flagshipProduct || 'N/A'}`).join('\n')}` : ''}
-${context.competitorAnalysis.potentialCompetitors?.length > 0 ? `Potential Competitors:
-${context.competitorAnalysis.potentialCompetitors.map(c => `- ${c.name}: Stage=${c.stage || 'N/A'}, Valuation=₹${c.currentValuation ? (c.currentValuation/10000000).toFixed(1) + ' Cr' : 'N/A'}, Product=${c.flagshipProduct || 'N/A'}`).join('\n')}` : ''}
-${context.competitorAnalysis.allCompetitors?.length > 0 && !context.competitorAnalysis.verifiedCompetitors?.length && !context.competitorAnalysis.globalCompetitors?.length ? `All Competitors:
-${context.competitorAnalysis.allCompetitors.slice(0, 5).map(c => `- ${c.name}: Stage=${c.stage || 'N/A'}, Valuation=₹${c.currentValuation ? (c.currentValuation/10000000).toFixed(1) + ' Cr' : 'N/A'}, Growth=${c.growthRate || 'N/A'}%`).join('\n')}` : ''}
-${context.competitorAnalysis.summary ? `Summary: ${context.competitorAnalysis.summary}` : ''}` : ''}
+${competitorAnalysis.userMentionedCompetitors ? `User-Mentioned Competitors: ${competitorAnalysis.userMentionedCompetitors}` : ''}
+${competitorAnalysis.verifiedCompetitors?.length > 0 ? `Verified Competitors:
+${competitorAnalysis.verifiedCompetitors.map(c => `- ${c.name}: Stage=${c.stage || 'N/A'}, Valuation=₹${c.currentValuation ? (c.currentValuation/10000000).toFixed(1) + ' Cr' : 'N/A'}, Revenue=₹${c.revenue ? (c.revenue/10000000).toFixed(1) + ' Cr' : 'N/A'}, Customers=${c.customers || 'N/A'}, Funding=₹${c.fundingRaised ? (c.fundingRaised/10000000).toFixed(1) + ' Cr' : 'N/A'}, Product=${c.flagshipProduct || 'N/A'}, Region=${c.region || 'N/A'}`).join('\n')}` : ''}
+${competitorAnalysis.globalCompetitors?.length > 0 ? `Global Competitors:
+${competitorAnalysis.globalCompetitors.map(c => `- ${c.name}: Stage=${c.stage || 'N/A'}, Valuation=₹${c.currentValuation ? (c.currentValuation/10000000).toFixed(1) + ' Cr' : 'N/A'}, Product=${c.flagshipProduct || 'N/A'}`).join('\n')}` : ''}
+${competitorAnalysis.localCompetitors?.length > 0 ? `Local/Indian Competitors:
+${competitorAnalysis.localCompetitors.map(c => `- ${c.name}: Stage=${c.stage || 'N/A'}, Valuation=₹${c.currentValuation ? (c.currentValuation/10000000).toFixed(1) + ' Cr' : 'N/A'}, Product=${c.flagshipProduct || 'N/A'}`).join('\n')}` : ''}
+${competitorAnalysis.rivalCompetitors?.length > 0 ? `Direct Rivals:
+${competitorAnalysis.rivalCompetitors.map(c => `- ${c.name}: Stage=${c.stage || 'N/A'}, Valuation=₹${c.currentValuation ? (c.currentValuation/10000000).toFixed(1) + ' Cr' : 'N/A'}, Product=${c.flagshipProduct || 'N/A'}`).join('\n')}` : ''}
+${competitorAnalysis.potentialCompetitors?.length > 0 ? `Potential Competitors:
+${competitorAnalysis.potentialCompetitors.map(c => `- ${c.name}: Stage=${c.stage || 'N/A'}, Valuation=₹${c.currentValuation ? (c.currentValuation/10000000).toFixed(1) + ' Cr' : 'N/A'}, Product=${c.flagshipProduct || 'N/A'}`).join('\n')}` : ''}
+${competitorAnalysis.allCompetitors?.length > 0 && !competitorAnalysis.verifiedCompetitors?.length && !competitorAnalysis.globalCompetitors?.length ? `All Competitors:
+${competitorAnalysis.allCompetitors.slice(0, 5).map(c => `- ${c.name}: Stage=${c.stage || 'N/A'}, Valuation=₹${c.currentValuation ? (c.currentValuation/10000000).toFixed(1) + ' Cr' : 'N/A'}, Growth=${c.growthRate || 'N/A'}%`).join('\n')}` : ''}
+${competitorAnalysis.summary ? `Summary: ${competitorAnalysis.summary}` : ''}
+` : ''}
+
+${topActions.length > 0 ? `
+TOP ACTIONS (Daily Strategic Recommendations):
+These are AI-generated strategic actions for the business. When user asks about "Daily Actions", "Top Actions", "Actions", or "what should I do" - refer to these:
+${topActions.map((action, i) => `${i + 1}. ${action.text} ${action.completed ? '✅ COMPLETED' : '⏳ PENDING'}`).join('\n')}
+` : ''}
+
+${infinityStats.totalRevenue ? `
+INFINITY STATS (Financial Data from InFinity Sync):
+- Total Revenue: ₹${(infinityStats.totalRevenue / 100000).toFixed(1)}L
+- Monthly Revenue: ₹${(infinityStats.monthlyRevenue / 100000).toFixed(1)}L
+- Runway: ${infinityStats.runway || 'N/A'}
+- Sync Status: ${infinityStats.status}
+` : ''}
+
+GTM CO-FOUNDER METRICS (Go-To-Market Dashboard):
+The GTM section helps founders with Go-To-Market execution. Here's how metrics are calculated:
+
+1. **Founder GTM Bandwidth** (hours/week the founder can dedicate to GTM activities):
+   - Team size ≤ 2 people: 15 hours/week (founders do everything)
+   - Team size 3-5 people: 10 hours/week (some delegation possible)
+   - Team size > 5 people: 5 hours/week (founders focus on strategy)
+   - Current team size: ${company.teamSize || 1} → Bandwidth: ${Number(company.teamSize) <= 2 ? '15' : Number(company.teamSize) <= 5 ? '10' : '5'} hrs/week
+
+2. **Runway** (months of operating cash remaining):
+   - Based on funding needed: <₹10L = 6 months, ₹10-50L = 12 months, >₹50L = 18 months
+   
+3. **GTM Stage**:
+   - Pre-Revenue: No revenue yet
+   - Early Traction: Has revenue but <20 customers
+   - Scaling: Has revenue and 20+ customers
+
+4. **Current Traction**: Combination of monthly revenue and customer count
+
+5. **Decision Cycle**: 14 days max - every GTM experiment must show signal within 14 days
+
+6. **Cost per Learning**: The key metric - how much money/time spent to learn if a channel works
 
 Your role:
 1. Provide strategic, data-driven insights based on the company's actual data
@@ -2858,7 +2924,7 @@ Your role:
 5. Explain SWOT analysis, market trends, and funding schemes
 6. When asked about competitors, use the Competitor Analysis data above to provide detailed insights about market positioning, competitive threats, and differentiation strategies
 
-Keep responses concise, actionable, and personalized to ${context.company?.name || 'this business'}.`;
+Keep responses concise, actionable, and personalized to ${company.name || 'this business'}.`;
 
     // Use Gemini API directly (Grok is deprecated)
     try {
@@ -2875,54 +2941,71 @@ Keep responses concise, actionable, and personalized to ${context.company?.name 
       
       const geminiResponse = await callGemini(conversationText, systemPrompt);
       
-      console.log('✅ Chat response from Gemini API for', context.company?.name || 'user');
+      console.log('✅ Chat response from Gemini API for', company.name || 'user');
       return res.json({ response: geminiResponse });
       
     } catch (geminiError) {
-      console.warn('Gemini failed for chatbot:', geminiError.message);
+      console.warn('⚠️ Gemini failed for chatbot:', geminiError.message);
       throw geminiError;
     }
 
   } catch (error) {
-    console.error('AI backend failed for chatbot:', error.message);
+    console.error('❌ AI backend failed for chatbot:', error.message);
     
     // Provide intelligent fallback response based on the question
-    const { message, context } = req.body;
+    const { message = '', context = {} } = req.body || {};
+    const company = context.company || {};
+    const valuation = context.valuation || null;
+    const swot = context.swot || {};
     const lowerMessage = message.toLowerCase();
     
     let fallbackResponse = '';
     
     // Detect question type and provide relevant fallback
     if (lowerMessage.includes('valuation') || lowerMessage.includes('worth')) {
-      const val = context.valuation ? `₹${(context.valuation.finalValuationINR / 10000000).toFixed(2)} Cr` : 'not yet calculated';
-      fallbackResponse = `Based on your assessment, ${context.company?.name || 'your company'} has an estimated valuation of ${val}. This uses the Berkus Method and Scorecard Method, considering factors like your team, product stage, market opportunity, and traction.`;
+      const val = valuation ? `₹${(valuation.finalValuationINR / 10000000).toFixed(2)} Cr` : 'not yet calculated';
+      fallbackResponse = `Based on your assessment, ${company.name || 'your company'} has an estimated valuation of ${val}. This uses the Berkus Method and Scorecard Method, considering factors like your team, product stage, market opportunity, and traction.`;
     } else if (lowerMessage.includes('competitive') || lowerMessage.includes('advantage')) {
-      fallbackResponse = `Your key competitive advantages include: ${context.company?.uniqueValue || 'your unique value proposition'}. Focus on deepening these strengths while addressing weaknesses in ${context.swot?.weaknesses?.[0] || 'your operations'}.`;
+      fallbackResponse = `Your key competitive advantages include: ${company.uniqueValue || 'your unique value proposition'}. Focus on deepening these strengths while addressing weaknesses in ${swot.weaknesses?.[0] || 'your operations'}.`;
     } else if (lowerMessage.includes('funding') || lowerMessage.includes('raise') || lowerMessage.includes('investment')) {
-      const needed = context.company?.fundingNeeded || 'the required amount';
-      const goal = context.company?.primaryGoal || 'your goals';
-      const stage = context.company?.stage || 'current stage';
-      const valDisplay = context.valuation ? '₹' + (context.valuation.finalValuationINR / 10000000).toFixed(2) + ' Cr' : 'TBD';
+      const needed = company.fundingNeeded || 'the required amount';
+      const goal = company.primaryGoal || 'your goals';
+      const stage = company.stage || 'current stage';
+      const valDisplay = valuation ? '₹' + (valuation.finalValuationINR / 10000000).toFixed(2) + ' Cr' : 'TBD';
       fallbackResponse = 'You\'re looking to raise ' + needed + ' for ' + goal + '. Based on your ' + stage + ', consider approaching angel investors or early-stage VCs. Your valuation of ' + valDisplay + ' will help determine equity dilution.';
     } else if (lowerMessage.includes('growth') || lowerMessage.includes('scale')) {
-      fallbackResponse = `To scale ${context.company?.name || 'your business'}, focus on: 1) Expanding your team strategically (current size: ${context.company?.teamSize || '1'}), 2) Optimizing ${context.company?.marketingType || 'customer acquisition'}, and 3) Addressing your main challenge: ${context.company?.challenge || 'market fit'}.`;
+      fallbackResponse = `To scale ${company.name || 'your business'}, focus on: 1) Expanding your team strategically (current size: ${company.teamSize || '1'}), 2) Optimizing ${company.marketingType || 'customer acquisition'}, and 3) Addressing your main challenge: ${company.challenge || 'market fit'}.`;
     } else if (lowerMessage.includes('customer') || lowerMessage.includes('acquisition')) {
-      const cust = context.company?.customers || 0;
-      fallbackResponse = `You currently have ${cust} customers. Your acquisition strategy using ${context.company?.acquisitionStrategy || 'various channels'} is key. Focus on improving retention and word-of-mouth referrals to reduce CAC.`;
+      const cust = company.customers || 0;
+      fallbackResponse = `You currently have ${cust} customers. Your acquisition strategy using ${company.acquisitionStrategy || 'various channels'} is key. Focus on improving retention and word-of-mouth referrals to reduce CAC.`;
     } else if (lowerMessage.includes('risk') || lowerMessage.includes('threat')) {
-      fallbackResponse = `Your primary business risk is: ${context.company?.primaryRisk || 'market uncertainty'}. Key threats from SWOT analysis include: ${context.swot?.threats?.join(', ') || 'competitive pressure'}. Mitigate these by leveraging your strengths in ${context.swot?.strengths?.[0] || 'your core competency'}.`;
+      fallbackResponse = `Your primary business risk is: ${company.primaryRisk || 'market uncertainty'}. Key threats from SWOT analysis include: ${swot.threats?.join(', ') || 'competitive pressure'}. Mitigate these by leveraging your strengths in ${swot.strengths?.[0] || 'your core competency'}.`;
+    } else if (lowerMessage.includes('hello') || lowerMessage.includes('hi') || lowerMessage.includes('hey')) {
+      fallbackResponse = `Hello! I'm Daddy, your AI Strategic Advisor. I can help you with:\n\n• **Valuation** - Understanding your company's worth\n• **Competitors** - Market analysis and positioning\n• **Funding** - Investment strategies and guidance\n• **Growth** - Scaling your business\n• **SWOT** - Strengths and weaknesses analysis\n\nWhat would you like to discuss about ${company.name || 'your business'}?`;
+    } else if (lowerMessage.includes('help') || lowerMessage.includes('what can you')) {
+      fallbackResponse = `I can help you with:\n\n• **Valuation** - How your company is valued\n• **Competitors** - Who you're up against\n• **Funding** - Investment and grants\n• **Growth** - Scaling strategies\n• **SWOT** - Strategic analysis\n\nTry asking: "What's my valuation?" or "How can I grow faster?"`;
     } else {
-      // Generic helpful response
-      fallbackResponse = `I'm currently experiencing technical difficulties with my AI backend. However, I can still help with basic questions about:
-
-• Your valuation (${context.valuation ? `₹${(context.valuation.finalValuationINR / 10000000).toFixed(2)} Cr` : 'Complete assessment first'})
-• Your ${context.company?.category || 'business'} metrics
-• Strategic recommendations based on your ${context.company?.stage || 'current stage'}
-
-Try asking about specific aspects like funding, growth strategy, or competitive positioning.`;
+      // Generic helpful response - ALWAYS provide value
+      fallbackResponse = `I understand you're asking about "${message.substring(0, 30)}${message.length > 30 ? '...' : ''}". Let me help you with what I know:\n\n`;
+      
+      if (valuation) {
+        fallbackResponse += `📊 **Your Valuation**: ₹${(valuation.finalValuationINR / 10000000).toFixed(2)} Cr\n`;
+      }
+      if (company.stage) {
+        fallbackResponse += `🚀 **Stage**: ${company.stage}\n`;
+      }
+      if (company.category) {
+        fallbackResponse += `🏢 **Category**: ${company.category}\n`;
+      }
+      
+      fallbackResponse += `\nTry asking more specific questions like:\n• "What's my valuation based on?"\n• "Who are my competitors?"\n• "How can I raise funding?"\n• "What are my growth opportunities?"`;
     }
     
-    res.json({ response: fallbackResponse });
+    // GUARANTEED: Always send a response
+    if (!res.headersSent) {
+      console.log('📤 Sending fallback response');
+      res.json({ response: fallbackResponse });
+    }
   }
 });
 
@@ -3129,14 +3212,31 @@ app.get('/api/notes/categories', authenticateToken, async (req, res) => {
 // Generate daily actions based on 6-month goal
 app.post('/api/actions/generate', authenticateToken, async (req, res) => {
   try {
-    const { sixMonthGoal, productName, category, stage, currentChallenge } = req.body;
+    const { sixMonthGoal, productName, category, stage, currentChallenge, gtmTasks, requestCount } = req.body;
     const userId = req.user.userId;
     
     if (!sixMonthGoal) {
       return res.status(400).json({ error: '6-month goal is required' });
     }
 
-    const prompt = `You are an expert startup advisor. Based on the following startup information, generate exactly 5 actionable daily tasks that will help the founder make progress towards their 6-month goal.
+    // Fetch user's rejection feedback to avoid similar tasks
+    const user = await usersCollection.findOne({ _id: new ObjectId(userId) });
+    const rejectionFeedback = user?.actionFeedback || [];
+    
+    // Build rejection context for AI
+    let rejectionContext = '';
+    if (rejectionFeedback.length > 0) {
+      const recentFeedback = rejectionFeedback.slice(-10); // Last 10 rejections
+      rejectionContext = `\n\nIMPORTANT - AVOID THESE TYPES OF TASKS (user has rejected similar tasks before):
+${recentFeedback.map(f => `- "${f.actionText}" - Reason: ${f.rejectionReason || 'Not specified'}`).join('\n')}
+
+Learn from these rejections and avoid suggesting similar tasks or tasks with similar patterns.`;
+    }
+
+    // Determine how many actions to generate (excluding GTM tasks that come from frontend)
+    const numActionsNeeded = requestCount || 5;
+
+    const prompt = `You are an expert startup advisor. Based on the following startup information, generate exactly ${numActionsNeeded} actionable daily tasks that will help the founder make progress towards their 6-month goal.
 
 STARTUP INFORMATION:
 - Product/Service: ${productName || 'Unknown'}
@@ -3144,22 +3244,22 @@ STARTUP INFORMATION:
 - Stage: ${stage || 'Unknown'}
 - Current Challenge: ${currentChallenge || 'General growth'}
 - 6-Month Goal: ${sixMonthGoal}
+${rejectionContext}
 
 REQUIREMENTS:
-1. Generate exactly 5 specific, actionable daily tasks
+1. Generate exactly ${numActionsNeeded} specific, actionable daily tasks
 2. Each task should be completable in one day
 3. Tasks should directly contribute to the 6-month goal
 4. Make tasks practical and measurable
 5. Order by priority (most important first)
+6. Focus on different ways to reach the 6-month goal (marketing, sales, product, partnerships, etc.)
 
 Return a JSON object with this EXACT structure:
 {
   "actions": [
-    {"id": 1, "text": "Task description here", "priority": "high"},
-    {"id": 2, "text": "Task description here", "priority": "high"},
-    {"id": 3, "text": "Task description here", "priority": "medium"},
-    {"id": 4, "text": "Task description here", "priority": "medium"},
-    {"id": 5, "text": "Task description here", "priority": "low"}
+    {"id": 1, "text": "Task description here", "priority": "high", "source": "goal"},
+    {"id": 2, "text": "Task description here", "priority": "high", "source": "goal"},
+    {"id": 3, "text": "Task description here", "priority": "medium", "source": "goal"}
   ]
 }
 
@@ -3724,6 +3824,2208 @@ Return ONLY valid JSON, no markdown.`;
   } catch (error) {
     console.error('Error fetching news:', error);
     res.status(500).json({ error: 'Failed to fetch news' });
+  }
+});
+
+// ============================================
+// DAILY MANTHANAM & FOUNDER REFLECTION ROUTES
+// ============================================
+
+// Save Manthanam Reflection
+app.post('/api/manthanam/save', authenticateToken, async (req, res) => {
+  try {
+    const { reflection, decisions, challenges, insights, mood, date } = req.body;
+    const userId = req.userId;
+    
+    // Generate AI-powered insights based on reflection
+    let aiInsights = null;
+    if (reflection && reflection.length > 50) {
+      try {
+        const insightPrompt = `As a founder coach, analyze this reflection and provide 3 actionable insights:
+        
+Reflection: "${reflection}"
+Decisions being considered: ${decisions?.join(', ') || 'None mentioned'}
+Current challenges: ${challenges?.join(', ') || 'None mentioned'}
+Founder mood: ${mood || 'Not specified'}
+
+Provide exactly 3 brief, actionable insights (1-2 sentences each) that can help this founder today. Format as JSON array of strings.`;
+
+        const result = await geminiModel.generateContent(insightPrompt);
+        const responseText = result.response.text();
+        
+        // Try to parse as JSON array
+        const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+          aiInsights = JSON.parse(jsonMatch[0]);
+        } else {
+          // Fallback: split by newlines/numbers
+          aiInsights = responseText.split(/\d\.\s*/).filter(s => s.trim().length > 10).slice(0, 3);
+        }
+      } catch (aiError) {
+        console.error('AI insight generation error:', aiError);
+        aiInsights = [
+          "Take time to reflect on your core mission today.",
+          "Consider which decision aligns most with your long-term vision.",
+          "Remember that challenges are opportunities for growth."
+        ];
+      }
+    }
+    
+    // Store in database or return for client-side storage
+    const manthanamEntry = {
+      userId,
+      date: date || new Date().toISOString().split('T')[0],
+      reflection,
+      decisions,
+      challenges,
+      insights,
+      mood,
+      aiInsights,
+      createdAt: new Date()
+    };
+    
+    // If using MongoDB, save to collection
+    if (db) {
+      const collection = db.collection('manthanam');
+      await collection.updateOne(
+        { userId, date: manthanamEntry.date },
+        { $set: manthanamEntry },
+        { upsert: true }
+      );
+    }
+    
+    res.json({ 
+      success: true, 
+      entry: manthanamEntry,
+      message: 'Manthanam reflection saved successfully'
+    });
+  } catch (error) {
+    console.error('Error saving manthanam:', error);
+    res.status(500).json({ error: 'Failed to save reflection' });
+  }
+});
+
+// Get Manthanam History
+app.get('/api/manthanam/history', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.userId;
+    const { limit = 30, startDate, endDate } = req.query;
+    
+    let history = [];
+    
+    if (db) {
+      const collection = db.collection('manthanam');
+      const query = { userId };
+      
+      if (startDate || endDate) {
+        query.date = {};
+        if (startDate) query.date.$gte = startDate;
+        if (endDate) query.date.$lte = endDate;
+      }
+      
+      history = await collection
+        .find(query)
+        .sort({ date: -1 })
+        .limit(parseInt(limit))
+        .toArray();
+    }
+    
+    // Calculate streak and insights
+    const streak = calculateManthanamStreak(history);
+    const moodTrend = analyzeMoodTrend(history);
+    
+    res.json({
+      success: true,
+      history,
+      stats: {
+        totalEntries: history.length,
+        streak,
+        moodTrend,
+        lastEntry: history[0]?.date || null
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching manthanam history:', error);
+    res.status(500).json({ error: 'Failed to fetch history' });
+  }
+});
+
+// Helper function to calculate streak
+function calculateManthanamStreak(history) {
+  if (!history || history.length === 0) return 0;
+  
+  let streak = 0;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  
+  for (let i = 0; i < history.length; i++) {
+    const entryDate = new Date(history[i].date);
+    entryDate.setHours(0, 0, 0, 0);
+    
+    const expectedDate = new Date(today);
+    expectedDate.setDate(expectedDate.getDate() - i);
+    
+    if (entryDate.getTime() === expectedDate.getTime()) {
+      streak++;
+    } else {
+      break;
+    }
+  }
+  
+  return streak;
+}
+
+// Helper function to analyze mood trend
+function analyzeMoodTrend(history) {
+  if (!history || history.length < 3) return 'neutral';
+  
+  const moodValues = { 
+    'energized': 5, 'confident': 4, 'focused': 4, 
+    'neutral': 3, 'uncertain': 2, 'stressed': 1 
+  };
+  
+  const recentMoods = history.slice(0, 7).map(h => moodValues[h.mood] || 3);
+  const avgMood = recentMoods.reduce((a, b) => a + b, 0) / recentMoods.length;
+  
+  if (avgMood >= 4) return 'positive';
+  if (avgMood >= 3) return 'stable';
+  return 'needs-attention';
+}
+
+// ============================================
+// DECISION SIMULATION ROUTES
+// ============================================
+
+// Run Decision Simulation - AI-Powered with Full User Context
+app.post('/api/simulation/run', authenticateToken, async (req, res) => {
+  try {
+    const { decision, context, companyData, timeframe = '6 months' } = req.body;
+    
+    if (!decision || decision.length < 10) {
+      return res.status(400).json({ error: 'Please provide a detailed decision to simulate' });
+    }
+    
+    // Fetch full DDQ data for rich context
+    let fullUserContext = '';
+    let ddq = {};
+    try {
+      const ddqData = await ddqCollection
+        .find({ userId: req.user.userId })
+        .sort({ createdAt: -1 })
+        .limit(1)
+        .toArray();
+      
+      if (ddqData && ddqData.length > 0) {
+        ddq = ddqData[0].responses || {};
+        
+        // Build comprehensive context from DDQ responses
+        fullUserContext = `
+DETAILED COMPANY PROFILE FROM QUESTIONNAIRE:
+- Company Name: ${ddq[0] || 'N/A'}
+- Founder Name: ${ddq[1] || 'N/A'}
+- Business Description: ${ddq[2] || 'N/A'}
+- Industry/Vertical: ${Array.isArray(ddq[3]) ? ddq[3].join(', ') : ddq[3] || 'N/A'}
+- Target Customer: ${ddq[4] || 'N/A'}
+- Company Stage: ${ddq[5] || 'N/A'}
+- Team Size: ${ddq[6] || 'N/A'}
+- Founded Year: ${ddq[7] || 'N/A'}
+- Location: ${ddq[8] || 'N/A'}
+- Monthly Revenue (DDQ): ${ddq[9] || 'Pre-revenue'}
+- Revenue Model: ${ddq[10] || 'N/A'}
+- Growth Rate: ${ddq[11] || 'N/A'}
+- Funding Raised: ${ddq[12] || 'N/A'}
+- Monthly Expenses (DDQ): ${ddq[13] || 'N/A'}
+- Runway (DDQ): ${ddq[14] || 'N/A'}
+- User/Customer Count: ${ddq[15] || 'N/A'}
+- Unique Value Proposition: ${ddq[16] || 'N/A'}
+- Competitors: ${ddq[17] || 'N/A'}
+- Competitive Advantage: ${ddq[18] || 'N/A'}
+- Biggest Challenge: ${Array.isArray(ddq[19]) ? ddq[19].join(', ') : ddq[19] || 'N/A'}
+- 12-Month Goal: ${ddq[20] || 'N/A'}
+- Current Priorities: ${ddq[21] || 'N/A'}
+- Team Strengths: ${ddq[22] || 'N/A'}
+- Team Gaps: ${ddq[23] || 'N/A'}
+- Tech Stack: ${ddq[24] || 'N/A'}
+- Target Market Size: ${ddq[25] || 'N/A'}
+- Customer Acquisition: ${ddq[26] || 'N/A'}
+- Customer Retention: ${ddq[27] || 'N/A'}
+- Key Metrics Tracked: ${ddq[28] || 'N/A'}
+- Board/Advisors: ${ddq[29] || 'N/A'}`;
+      }
+    } catch (ddqError) {
+      console.log('Could not fetch DDQ data:', ddqError.message);
+    }
+    
+    // Fetch REAL InFinity financial data for accurate simulation
+    let infinityContext = '';
+    try {
+      const user = await usersCollection.findOne({ _id: new ObjectId(req.user.userId) });
+      if (user?.email) {
+        const infinityData = await fetchInfinityUserByEmail(user.email);
+        if (infinityData && infinityData.data) {
+          const stats = infinityData.data;
+          const totalRevenue = stats.totalRevenue || 0;
+          const totalInvestment = stats.totalInvestment || 0;
+          const monthlyRevenue = stats.monthlyRevenue || 0;
+          const monthlyBurn = stats.monthlyBurn || stats.monthlyExpenses || 0;
+          const runway = monthlyBurn > 0 ? Math.round((totalInvestment - totalRevenue + monthlyRevenue) / monthlyBurn) : 'N/A';
+          
+          infinityContext = `
+=== REAL-TIME FINANCIAL DATA FROM INFINITY (USE THIS FOR CALCULATIONS) ===
+- Total Revenue to Date: ₹${(totalRevenue / 100000).toFixed(2)} Lakhs (₹${totalRevenue.toLocaleString()})
+- Total Investment Raised: ₹${(totalInvestment / 100000).toFixed(2)} Lakhs (₹${totalInvestment.toLocaleString()})
+- Current Monthly Revenue: ₹${(monthlyRevenue / 100000).toFixed(2)} Lakhs/month (₹${monthlyRevenue.toLocaleString()}/month)
+- Current Monthly Burn Rate: ₹${(monthlyBurn / 100000).toFixed(2)} Lakhs/month (₹${monthlyBurn.toLocaleString()}/month)
+- Calculated Runway: ${typeof runway === 'number' ? runway + ' months' : runway}
+- Net Monthly Cash Flow: ₹${((monthlyRevenue - monthlyBurn) / 100000).toFixed(2)} Lakhs/month
+- Available Cash (estimated): ₹${((totalInvestment + totalRevenue - (monthlyBurn * 6)) / 100000).toFixed(2)} Lakhs
+
+CRITICAL: Use these EXACT numbers when calculating financial impacts. If the decision involves:
+- Hiring: Calculate exact cost increase against their ₹${(monthlyBurn / 100000).toFixed(2)}L/month burn
+- Revenue targets: Base on their current ₹${(monthlyRevenue / 100000).toFixed(2)}L/month revenue
+- Runway impact: Calculate against their current ${typeof runway === 'number' ? runway : 'limited'} months runway`;
+          
+          console.log(`📊 InFinity data loaded for simulation: Revenue ₹${totalRevenue}, Burn ₹${monthlyBurn}/month`);
+        }
+      }
+    } catch (infinityError) {
+      console.log('Could not fetch InFinity data:', infinityError.message);
+    }
+    
+    // Detect business type for industry-specific simulation
+    const businessDesc = (companyData?.industry || '').toLowerCase() + ' ' + fullUserContext.toLowerCase();
+    const isFoodDelivery = businessDesc.includes('food') || businessDesc.includes('delivery') || businessDesc.includes('restaurant') || businessDesc.includes('meal') || businessDesc.includes('kitchen');
+    const isEcommerce = businessDesc.includes('ecommerce') || businessDesc.includes('e-commerce') || businessDesc.includes('online store') || businessDesc.includes('retail') || businessDesc.includes('marketplace');
+    const isFintech = businessDesc.includes('fintech') || businessDesc.includes('payment') || businessDesc.includes('banking') || businessDesc.includes('lending') || businessDesc.includes('insurance');
+    const isHealthtech = businessDesc.includes('health') || businessDesc.includes('medical') || businessDesc.includes('doctor') || businessDesc.includes('patient') || businessDesc.includes('wellness');
+    const isEdtech = businessDesc.includes('education') || businessDesc.includes('learning') || businessDesc.includes('course') || businessDesc.includes('student') || businessDesc.includes('school');
+    const isSaaS = businessDesc.includes('saas') || businessDesc.includes('software') || businessDesc.includes('platform') || businessDesc.includes('subscription');
+    
+    // Get industry-specific context for the simulation
+    let industryContext = '';
+    if (isFoodDelivery) {
+      industryContext = `
+INDUSTRY-SPECIFIC CONSIDERATIONS FOR FOOD DELIVERY:
+- Unit economics matter: CAC, AOV, delivery cost per order, kitchen utilization
+- Operational leverage: Fleet management, delivery zones, peak hour optimization
+- Key metrics: Orders per day, repeat rate, delivery time, restaurant partner count
+- Common challenges: Rider retention, food quality during delivery, restaurant onboarding
+- Typical decision tradeoffs: Geographic expansion vs. density, dark kitchens vs. restaurant partnerships`;
+    } else if (isEcommerce) {
+      industryContext = `
+INDUSTRY-SPECIFIC CONSIDERATIONS FOR E-COMMERCE:
+- Unit economics: CAC, LTV, AOV, return rate, inventory turnover
+- Key metrics: Conversion rate, cart abandonment, repeat purchase rate
+- Common challenges: Inventory management, logistics, customer acquisition cost
+- Typical decision tradeoffs: Private label vs. marketplace, fast delivery vs. margin`;
+    } else if (isFintech) {
+      industryContext = `
+INDUSTRY-SPECIFIC CONSIDERATIONS FOR FINTECH:
+- Regulatory compliance is critical: RBI guidelines, KYC requirements, data protection
+- Key metrics: AUM, transaction volume, default rates, user activation
+- Common challenges: Trust building, regulatory changes, fraud prevention
+- Typical decision tradeoffs: Growth vs. risk management, UX vs. compliance`;
+    } else if (isHealthtech) {
+      industryContext = `
+INDUSTRY-SPECIFIC CONSIDERATIONS FOR HEALTHTECH:
+- Regulatory compliance: CDSCO, telemedicine guidelines, data privacy
+- Key metrics: Patient outcomes, consultation completion, repeat visits
+- Common challenges: Doctor onboarding, trust building, insurance integration
+- Typical decision tradeoffs: Scale vs. quality of care, B2C vs. B2B2C`;
+    } else if (isEdtech) {
+      industryContext = `
+INDUSTRY-SPECIFIC CONSIDERATIONS FOR EDTECH:
+- Key metrics: Course completion rate, student outcomes, NPS, renewal rate
+- Common challenges: Engagement, outcome measurement, content quality
+- Typical decision tradeoffs: Live vs. recorded, B2C vs. B2B, breadth vs. depth`;
+    } else if (isSaaS) {
+      industryContext = `
+INDUSTRY-SPECIFIC CONSIDERATIONS FOR SAAS:
+- Key metrics: MRR/ARR, churn rate, NRR, CAC payback period, LTV:CAC
+- Common challenges: Product-market fit, enterprise sales cycles, feature bloat
+- Typical decision tradeoffs: Self-serve vs. sales-led, horizontal vs. vertical`;
+    }
+    
+    const simulationPrompt = `You are an expert startup strategist and decision simulator. You have deep knowledge of the Indian startup ecosystem, unit economics, and strategic decision-making.
+
+A founder is asking you to simulate the impact of a specific decision they're considering. Use ALL the context provided - especially the REAL FINANCIAL DATA - to give a highly personalized, data-informed simulation with ACTUAL NUMBERS.
+
+=== THE DECISION TO SIMULATE ===
+"${decision}"
+
+=== BASIC COMPANY DATA ===
+- Industry: ${companyData?.industry || 'Technology'}
+- Stage: ${companyData?.stage || 'Early-stage'}
+- Team Size: ${companyData?.teamSize || '1-5'}
+- Current Revenue: ${companyData?.revenue || 'Pre-revenue'}
+- Main Challenge: ${companyData?.challenge || 'Growth'}
+${context ? `- Founder's Additional Context: ${context}` : ''}
+
+${infinityContext}
+
+${fullUserContext}
+
+${industryContext}
+
+=== SIMULATION TIMEFRAME ===
+${timeframe}
+
+=== YOUR TASK ===
+Simulate this decision with EXTREME SPECIFICITY to this founder's actual situation. 
+
+IMPORTANT: 
+1. Use the REAL FINANCIAL DATA from InFinity above to calculate exact impacts
+2. Do NOT give generic advice - use their ACTUAL numbers
+3. If they have ₹X monthly burn and are hiring 2 people at ₹Y stipend, calculate: new burn = ₹X + (2 × ₹Y)
+4. Calculate runway impact using their real runway data
+5. Reference their specific industry, challenges, and context
+
+Respond in this exact JSON structure:
+{
+  "summary": "2-3 sentence summary that references their SPECIFIC situation and numbers",
+  "probability": {
+    "success": <number 0-100 - be realistic based on their stage/resources>,
+    "partial": <number>,
+    "failure": <number - these should sum to 100>
+  },
+  "impactAnalysis": {
+    "runway": {
+      "value": "e.g., '-2 to -4 months' or '+6 months' - be specific based on their expenses",
+      "direction": "positive" or "negative" or "neutral"
+    },
+    "growth": {
+      "value": "e.g., '+15-20% capacity' or '+25% revenue potential' - specific to their metrics",
+      "direction": "positive" or "negative" or "neutral"
+    },
+    "valuation": {
+      "value": "e.g., '+10-15%' or 'Neutral' - based on how this affects fundability/metrics",
+      "direction": "positive" or "negative" or "neutral"
+    },
+    "riskLevel": "low" or "medium" or "high"
+  },
+  "bestCase": {
+    "description": "Specific best case scenario with their actual numbers/metrics",
+    "metrics": ["Specific metric improvement 1", "Specific metric improvement 2", "Specific metric improvement 3"],
+    "timeline": "Realistic timeline for their stage"
+  },
+  "worstCase": {
+    "description": "Specific worst case scenario with their actual numbers/metrics",
+    "risks": ["Specific risk 1 for their situation", "Specific risk 2", "Specific risk 3"],
+    "mitigation": ["Specific mitigation 1", "Specific mitigation 2"]
+  },
+  "keyFactors": [
+    {"factor": "Critical factor for THIS decision in THEIR context", "impact": "high", "controllable": true/false},
+    {"factor": "Another factor", "impact": "medium", "controllable": true/false}
+  ],
+  "financialImpact": {
+    "costChange": "Specific cost impact (e.g., +₹16,000/month for 2 interns at ₹8000 each)",
+    "revenueChange": "Specific revenue impact based on their current revenue",
+    "runwayChange": "CALCULATE: if burn was X and increases by Y, new runway = (cash) / (X+Y)",
+    "breakeven": "Time to breakeven on this decision"
+  },
+  "recommendation": "Clear, specific recommendation with reasoning based on THEIR situation - not generic advice",
+  "alternativeApproaches": [
+    {"approach": "Alternative approach specific to their context", "tradeoff": "What they gain/lose"},
+    {"approach": "Another alternative", "tradeoff": "Tradeoff"}
+  ],
+  "nextSteps": ["Specific step 1 they should take", "Step 2", "Step 3"],
+  "redFlags": ["Warning sign to watch for", "Another red flag"],
+  "confidenceExplanation": "Why you have this confidence level based on their data completeness"
+}
+
+REMEMBER: Use the ACTUAL financial numbers provided above. Do not make up generic numbers.`;
+
+    // Call Gemini API using the helper function
+    console.log('🤖 Running decision simulation with Gemini...');
+    const responseText = await callGemini(simulationPrompt);
+    
+    // Parse JSON response
+    let simulation;
+    try {
+      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        simulation = JSON.parse(jsonMatch[0]);
+        console.log('✅ Simulation generated successfully');
+      } else {
+        throw new Error('No JSON found in response');
+      }
+    } catch (parseError) {
+      console.error('Parse error:', parseError);
+      // Create structured fallback with context-aware data
+      simulation = {
+        summary: `Based on the decision "${decision}" and available context, this requires careful financial analysis.`,
+        probability: { success: 55, partial: 30, failure: 15 },
+        impactAnalysis: {
+          runway: { value: "Requires calculation based on actual financials", direction: "neutral" },
+          growth: { value: "Potential for positive impact", direction: "neutral" },
+          valuation: { value: "Depends on execution", direction: "neutral" },
+          riskLevel: "medium"
+        },
+        bestCase: {
+          description: "The decision leads to positive outcomes with proper execution",
+          metrics: ["Revenue growth", "Market expansion", "Team capability"],
+          timeline: timeframe
+        },
+        worstCase: {
+          description: "Challenges arise that slow progress",
+          risks: ["Resource constraints", "Market timing", "Execution gaps"],
+          mitigation: ["Build contingency plans", "Maintain flexibility"]
+        },
+        keyFactors: [
+          { factor: "Execution capability", impact: "high", controllable: true },
+          { factor: "Market conditions", impact: "medium", controllable: false }
+        ],
+        recommendation: "Review the specific numbers and proceed with clear milestones.",
+        alternativeApproaches: [
+          { approach: "Phased implementation", tradeoff: "Slower progress but lower risk" }
+        ],
+        nextSteps: ["Define success metrics", "Set review checkpoints", "Prepare contingency plans"]
+      };
+    }
+    
+    // Store simulation for future reference
+    if (db) {
+      const collection = db.collection('simulations');
+      await collection.insertOne({
+        userId: req.userId,
+        decision,
+        context,
+        companyData,
+        timeframe,
+        result: simulation,
+        createdAt: new Date()
+      });
+    }
+    
+    res.json({
+      success: true,
+      simulation,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error running simulation:', error);
+    res.status(500).json({ error: 'Failed to run simulation' });
+  }
+});
+
+// Get Simulation History
+app.get('/api/simulation/history', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.userId;
+    const { limit = 10 } = req.query;
+    
+    let history = [];
+    
+    if (db) {
+      const collection = db.collection('simulations');
+      history = await collection
+        .find({ userId })
+        .sort({ createdAt: -1 })
+        .limit(parseInt(limit))
+        .toArray();
+    }
+    
+    res.json({
+      success: true,
+      history,
+      count: history.length
+    });
+  } catch (error) {
+    console.error('Error fetching simulation history:', error);
+    res.status(500).json({ error: 'Failed to fetch history' });
+  }
+});
+
+// ============================================
+// GTM STRATEGY ROUTE - COMPREHENSIVE DYNAMIC GENERATION
+// ============================================
+
+// Generate comprehensive GTM Strategy based on user's DDQ data
+app.post('/api/gtm/generate', authenticateToken, async (req, res) => {
+  try {
+    const { ddqResponses, valuation, swotAnalysis } = req.body;
+    const userId = req.user.userId;
+
+    // Check rate limit
+    const rateLimitCheck = geminiRateLimiter.checkLimit(userId);
+    if (!rateLimitCheck.allowed) {
+      return res.status(429).json({ 
+        error: `Rate limit exceeded. Please try again in ${rateLimitCheck.resetIn} minutes.`
+      });
+    }
+
+    // Extract all relevant data from DDQ responses
+    const productName = ddqResponses[1] || 'Your Product';
+    const productDescription = ddqResponses[2] || '';
+    const businessCategory = Array.isArray(ddqResponses[3]) ? ddqResponses[3].join(', ') : ddqResponses[3] || 'Technology';
+    const customCategory = ddqResponses['3_other'] || '';
+    const location = ddqResponses[4] || 'India';
+    const stage = ddqResponses[5] || 'Idea';
+    const competitors = ddqResponses[6] || 'None specified';
+    const differentiation = ddqResponses[7] || '';
+    const targetCustomer = ddqResponses[8] || 'Not specified';
+    const marketType = ddqResponses[9] || 'B2B';
+    const customerInterviews = ddqResponses[10] || '0';
+    const totalInvestment = Number(ddqResponses[11]) || 0;
+    const pricingModel = ddqResponses['11b'] || 'Monthly Recurring';
+    const hasRevenue = ddqResponses[12] === 'Yes';
+    const monthlyRevenue = hasRevenue ? Number(ddqResponses[13]) || 0 : 0;
+    const customerCount = Number(ddqResponses[15]) || 0;
+    const teamSize = Number(ddqResponses[17]) || 1;
+    const founderBackground = Array.isArray(ddqResponses[18]) ? ddqResponses[18].join(', ') : ddqResponses[18] || 'Technical';
+    const challenges = Array.isArray(ddqResponses[19]) ? ddqResponses[19] : [ddqResponses[19] || 'Customer Acquisition'];
+    const acquisitionChannels = Array.isArray(ddqResponses[20]) ? ddqResponses[20] : [ddqResponses[20] || 'Online marketing'];
+    const sixMonthGoal = ddqResponses[21] || 'Growth';
+    const fundingNeeded = ddqResponses[22] || 'Less than ₹10 Lakhs';
+    const risks = Array.isArray(ddqResponses[23]) ? ddqResponses[23] : [ddqResponses[23] || 'Competition'];
+
+    // Calculate derived values
+    const runwayMonths = fundingNeeded === 'Less than ₹10 Lakhs' ? 6 : 
+                         fundingNeeded === '₹10-25 Lakhs' ? 9 :
+                         fundingNeeded === '₹25-50 Lakhs' ? 12 :
+                         fundingNeeded === '₹50 Lakhs - ₹1 Crore' ? 15 : 18;
+    
+    const gtmStage = !hasRevenue ? 'Pre-Revenue' : 
+                     customerCount < 10 ? 'Early Traction' : 
+                     customerCount < 50 ? 'Growth' : 'Scaling';
+    
+    const founderBandwidth = teamSize <= 2 ? 15 : teamSize <= 5 ? 10 : 5;
+    const arpc = hasRevenue && customerCount > 0 ? Math.round(monthlyRevenue / customerCount) : 0;
+    const estimatedValuation = valuation?.estimatedValuation || 0;
+
+    // Build comprehensive prompt for Gemini
+    const gtmPrompt = `You are an elite GTM (Go-To-Market) Strategy Consultant creating an investor-grade, execution-ready GTM plan. Generate a COMPREHENSIVE and HIGHLY SPECIFIC GTM strategy.
+
+## COMPANY PROFILE:
+- Product: ${productName}
+- Description: ${productDescription}
+- Category: ${businessCategory}${customCategory ? ` (${customCategory})` : ''}
+- Location: ${location}, India
+- Stage: ${stage}
+- Competitors: ${competitors}
+- Differentiation: ${differentiation}
+- Target Customer: ${targetCustomer}
+- Market Type: ${marketType}
+- Customer Interviews Done: ${customerInterviews}
+- Total Investment: ₹${totalInvestment.toLocaleString('en-IN')}
+- Pricing Model: ${pricingModel}
+- Has Revenue: ${hasRevenue ? 'Yes' : 'No'}
+${hasRevenue ? `- Monthly Revenue: ₹${monthlyRevenue.toLocaleString('en-IN')}` : ''}
+- Customer Count: ${customerCount}
+- Team Size: ${teamSize}
+- Founder Background: ${founderBackground}
+- Current Challenges: ${challenges.join(', ')}
+- Acquisition Channels: ${acquisitionChannels.join(', ')}
+- 6-Month Goal: ${sixMonthGoal}
+- Funding Needed: ${fundingNeeded}
+- Key Risks: ${risks.join(', ')}
+- Estimated Valuation: ₹${estimatedValuation.toLocaleString('en-IN')}
+- GTM Stage: ${gtmStage}
+- Runway: ~${runwayMonths} months
+- Founder GTM Bandwidth: ${founderBandwidth} hrs/week
+
+## SWOT CONTEXT:
+${swotAnalysis ? JSON.stringify(swotAnalysis, null, 2) : 'Not available'}
+
+## GENERATE COMPREHENSIVE GTM STRATEGY:
+
+Return ONLY valid JSON with this exact structure:
+
+{
+  "productOverview": {
+    "oneLineDescription": "Concise value proposition for ${productName}",
+    "category": "${businessCategory}",
+    "primaryProblem": "The specific problem solved",
+    "whyNow": {
+      "marketShift": "What market change makes this urgent",
+      "timing": "Why this moment is right"
+    }
+  },
+  "targetMarket": {
+    "icp": {
+      "industry": "Target industry",
+      "companySize": "SMB/Mid-Market/Enterprise or consumer type",
+      "geography": "${location} and expansion targets",
+      "decisionMaker": "Who makes buying decision"
+    },
+    "personas": [
+      {
+        "name": "Primary Persona",
+        "role": "Job title/profile",
+        "painPoints": ["Pain 1", "Pain 2", "Pain 3"],
+        "buyingTrigger": "What event triggers purchase decision",
+        "objections": ["Common objection 1", "Common objection 2"]
+      },
+      {
+        "name": "Secondary Persona",
+        "role": "Job title/profile",
+        "painPoints": ["Pain 1", "Pain 2"],
+        "buyingTrigger": "What triggers them",
+        "objections": ["Objection 1"]
+      }
+    ],
+    "earlyAdopters": {
+      "who": "Description of early adopter segment",
+      "why": "Why they adopt first",
+      "whereToFind": "Specific places/channels to find them"
+    },
+    "massMarket": {
+      "who": "Description of mass market",
+      "timeline": "When to target them",
+      "requirements": "What's needed before mass market"
+    }
+  },
+  "valueProposition": {
+    "statement": "For [target user], who struggle with [problem], ${productName} [core benefit], unlike [alternatives].",
+    "keyBenefits": [
+      {"type": "functional", "benefit": "Specific functional benefit", "proof": "Evidence/metric"},
+      {"type": "emotional", "benefit": "Emotional benefit", "proof": "Evidence"},
+      {"type": "strategic", "benefit": "Strategic benefit", "proof": "Evidence"}
+    ],
+    "proofPoints": [
+      "Metric or case study 1",
+      "Metric or case study 2",
+      "Certification or benchmark"
+    ]
+  },
+  "positioning": {
+    "categoryPosition": "New category / Replacement / Alternative",
+    "positioningStatement": "We are the [category] that [unique benefit] for [specific user segment] by [how you do it differently].",
+    "whyUs": {
+      "headline": "One powerful sentence about what makes you different (NO competitor mentions)",
+      "subheadline": "Supporting statement that reinforces the main message",
+      "proofPoint": "One metric or fact that proves your claim"
+    },
+    "differentiationAxes": [
+      {"axis": "Speed", "yourPosition": "What you offer", "why": "Why this matters to customer"},
+      {"axis": "Ease of Use", "yourPosition": "Your UX advantage", "why": "Customer benefit"},
+      {"axis": "Price/Value", "yourPosition": "Your pricing position", "why": "Value delivered"},
+      {"axis": "Trust/Safety", "yourPosition": "Trust factors", "why": "Why customers feel safe"},
+      {"axis": "Unique Capability", "yourPosition": "What only you can do", "why": "Why this is valuable"}
+    ],
+    "competitorComparison": {
+      "disclaimer": "Use this ONLY when prospects ask about competitors, never proactively mention them",
+      "competitors": [
+        {"name": "Competitor 1", "theirStrength": "What they're good at", "yourAdvantage": "Where you win", "whenToUse": "Scenario when you're better choice"}
+      ],
+      "battleCards": [
+        {"scenario": "When prospect mentions competitor X", "response": "How to respond without badmouthing"}
+      ]
+    }
+  },
+  "pricing": {
+    "model": "${pricingModel}",
+    "tiers": [
+      {"name": "Starter/Free", "price": "Price or Free", "features": ["Feature 1", "Feature 2"], "targetUser": "Who this is for"},
+      {"name": "Pro/Core", "price": "Price point", "features": ["Feature 1", "Feature 2", "Feature 3"], "targetUser": "Primary target"},
+      {"name": "Enterprise", "price": "Custom/Quote", "features": ["All Pro features", "Enterprise feature 1"], "targetUser": "Large organizations"}
+    ],
+    "pricingLogic": {
+      "approach": "Value-based / Cost-plus / Competitive",
+      "rationale": "Why this pricing makes sense",
+      "expansionPath": "How to upsell/cross-sell"
+    },
+    "recommendations": [
+      "Specific pricing recommendation 1",
+      "Specific pricing recommendation 2"
+    ]
+  },
+  "distribution": {
+    "primaryChannels": [
+      {"channel": "Channel 1", "priority": 1, "rationale": "Why this channel", "expectedCac": "Estimated CAC"},
+      {"channel": "Channel 2", "priority": 2, "rationale": "Why this channel", "expectedCac": "Estimated CAC"},
+      {"channel": "Channel 3", "priority": 3, "rationale": "Why this channel", "expectedCac": "Estimated CAC"}
+    ],
+    "salesMotion": {
+      "type": "${customerCount < 20 ? 'Founder-led' : 'Inside sales'} / Self-serve / Field sales / Hybrid",
+      "rationale": "Why this motion for your stage",
+      "transitionPlan": "How to evolve sales motion as you scale"
+    },
+    "channelOwnership": {
+      "leadGeneration": "Who owns lead gen",
+      "qualification": "Who qualifies leads",
+      "closing": "Who closes deals",
+      "onboarding": "Who handles onboarding"
+    }
+  },
+  "marketing": {
+    "demandGeneration": {
+      "content": ["Specific content strategy 1", "Strategy 2"],
+      "paidAds": ["Platform 1 strategy", "Platform 2 strategy"],
+      "community": ["Community tactic 1", "Tactic 2"],
+      "events": ["Event type 1", "Event type 2"]
+    },
+    "brandMessaging": {
+      "coreNarrative": "The story you tell",
+      "channelMessages": [
+        {"channel": "LinkedIn", "message": "LinkedIn-specific message"},
+        {"channel": "Website", "message": "Website hero message"},
+        {"channel": "Email", "message": "Email pitch"}
+      ],
+      "objectionHandling": [
+        {"objection": "Common objection 1", "response": "How to handle"},
+        {"objection": "Common objection 2", "response": "How to handle"}
+      ]
+    },
+    "growthLoops": [
+      {"type": "Referral", "mechanism": "How referral works", "incentive": "What's the incentive"},
+      {"type": "Virality", "mechanism": "How product spreads", "kFactor": "Expected viral coefficient"},
+      {"type": "Integration", "mechanism": "Partner/integration growth", "partners": "Target partners"}
+    ]
+  },
+  "launchPlan": {
+    "preLaunch": {
+      "timeline": "X weeks before launch",
+      "activities": [
+        {"activity": "Beta program", "goal": "Target number of beta users", "timeline": "When"},
+        {"activity": "Feedback collection", "goal": "What feedback to gather", "timeline": "When"},
+        {"activity": "Waitlist building", "goal": "Target waitlist size", "timeline": "When"}
+      ]
+    },
+    "launch": {
+      "day1Channels": ["Channel 1", "Channel 2", "Channel 3"],
+      "prAnnouncements": ["PR activity 1", "PR activity 2"],
+      "promotions": ["Launch offer 1", "Launch offer 2"]
+    },
+    "postLaunch": {
+      "iterationCycles": "How often to iterate",
+      "featureRollouts": ["Feature 1 timeline", "Feature 2 timeline"],
+      "expansionPlan": ["Segment expansion 1", "Geographic expansion"]
+    }
+  },
+  "customerSuccess": {
+    "firstValueMoment": {
+      "definition": "What user experiences in first 5-10 minutes",
+      "metric": "How to measure first value",
+      "timeline": "Target time to first value"
+    },
+    "onboarding": {
+      "tools": ["Onboarding tool 1", "Tool 2"],
+      "milestones": ["Milestone 1", "Milestone 2", "Milestone 3"],
+      "supportLevel": "Self-serve / Assisted / High-touch"
+    },
+    "retention": {
+      "nudges": ["Nudge strategy 1", "Strategy 2"],
+      "checkpoints": ["30-day checkpoint", "60-day checkpoint", "90-day checkpoint"],
+      "expansionTriggers": ["When to upsell", "Cross-sell opportunity"]
+    }
+  },
+  "metrics": {
+    "northStar": {
+      "metric": "The ONE metric that defines success",
+      "target": "30/60/90 day targets",
+      "rationale": "Why this metric"
+    },
+    "acquisition": {
+      "cac": {"current": "Current or estimated CAC", "target": "Target CAC"},
+      "conversionRate": {"current": "Current rate", "target": "Target rate"},
+      "cpl": {"current": "Cost per lead", "target": "Target CPL"}
+    },
+    "activation": {
+      "timeToFirstValue": {"current": "Current", "target": "Target"},
+      "activationRate": {"current": "Current", "target": "Target"},
+      "featureAdoption": {"key features": ["Feature 1", "Feature 2"]}
+    },
+    "revenue": {
+      "arpu": {"current": "₹${arpc || 'TBD'}", "target": "Target ARPU"},
+      "ltv": {"current": "Current LTV", "target": "Target LTV"},
+      "churn": {"current": "Current churn", "target": "Target churn"},
+      "expansionRevenue": {"current": "Current", "target": "Target"}
+    }
+  },
+  "risks": [
+    {"risk": "Adoption risk", "impact": "High/Medium/Low", "mitigation": "Specific mitigation strategy"},
+    {"risk": "Pricing risk", "impact": "High/Medium/Low", "mitigation": "Specific mitigation"},
+    {"risk": "Channel risk", "impact": "High/Medium/Low", "mitigation": "Specific mitigation"},
+    {"risk": "Operational risk", "impact": "High/Medium/Low", "mitigation": "Specific mitigation"},
+    {"risk": "Competitive risk", "impact": "High/Medium/Low", "mitigation": "Specific mitigation"}
+  ],
+  "executionPlan": {
+    "month1": {
+      "theme": "Validation & Readiness",
+      "objectives": ["Objective 1", "Objective 2", "Objective 3"],
+      "keyActions": [
+        {"action": "Action 1", "owner": "Founder/Team", "deliverable": "Output", "timeline": "Week X"},
+        {"action": "Action 2", "owner": "Founder/Team", "deliverable": "Output", "timeline": "Week X"}
+      ],
+      "successMetrics": ["Metric 1", "Metric 2"]
+    },
+    "month2": {
+      "theme": "Launch & Optimization",
+      "objectives": ["Objective 1", "Objective 2", "Objective 3"],
+      "keyActions": [
+        {"action": "Action 1", "owner": "Founder/Team", "deliverable": "Output", "timeline": "Week X"},
+        {"action": "Action 2", "owner": "Founder/Team", "deliverable": "Output", "timeline": "Week X"}
+      ],
+      "successMetrics": ["Metric 1", "Metric 2"]
+    },
+    "month3": {
+      "theme": "Scale & Expansion",
+      "objectives": ["Objective 1", "Objective 2", "Objective 3"],
+      "keyActions": [
+        {"action": "Action 1", "owner": "Founder/Team", "deliverable": "Output", "timeline": "Week X"},
+        {"action": "Action 2", "owner": "Founder/Team", "deliverable": "Output", "timeline": "Week X"}
+      ],
+      "successMetrics": ["Metric 1", "Metric 2"]
+    }
+  },
+  "hypotheses": [
+    {
+      "id": "H1",
+      "hypothesis": "Specific testable hypothesis about ${targetCustomer}",
+      "channel": "Channel to test",
+      "message": "Core message to test",
+      "successSignal": "What success looks like",
+      "timebox": "14 days",
+      "cost": "₹0 + X hours",
+      "confidence": "High/Medium/Low",
+      "status": "Active"
+    },
+    {
+      "id": "H2",
+      "hypothesis": "Second hypothesis to test",
+      "channel": "Channel",
+      "message": "Message",
+      "successSignal": "Success metric",
+      "timebox": "21 days",
+      "cost": "Cost estimate",
+      "confidence": "Medium",
+      "status": "Queued"
+    }
+  ],
+  "decisions": {
+    "H1_doubleDown": {
+      "title": "What to double down on based on ${gtmStage} stage",
+      "description": "Detailed explanation of why this deserves more resources",
+      "currentState": "Where you are now with this",
+      "targetState": "Where you should be in 30 days",
+      "targetMetric": "Specific metric to track",
+      "targetValue": "Specific number to hit",
+      "weeklyMilestones": ["Week 1 goal", "Week 2 goal", "Week 3 goal", "Week 4 goal"],
+      "actions": [
+        {"action": "Specific action 1", "timeline": "This week", "owner": "Founder"},
+        {"action": "Specific action 2", "timeline": "Week 2", "owner": "Founder"}
+      ],
+      "successSignals": ["Signal 1 that indicates it's working", "Signal 2"],
+      "pivotTrigger": "If you see this, reconsider the approach"
+    },
+    "H2_pause": {
+      "title": "What to pause for now",
+      "description": "Why pausing this makes sense at your stage",
+      "currentEffort": "How much time/money you're spending on this",
+      "opportunityCost": "What you could do instead with those resources",
+      "reviewDate": "When to reconsider (specific date or trigger)",
+      "resumeTrigger": "What needs to happen before resuming this",
+      "actions": [
+        {"action": "How to gracefully pause", "timeline": "This week"}
+      ]
+    },
+    "H3_kill": {
+      "placeholder": true,
+      "instruction": "This section is for YOU to add things that aren't working. Be honest with yourself about what to stop.",
+      "examples": ["Feature nobody uses", "Channel with high CAC and low conversion", "Partnership that's draining resources"],
+      "userItems": []
+    }
+  },
+  "launchPlan": {
+    "warmLeads": {
+      "definition": "People who already know about ${productName} or have shown interest",
+      "sources": ["Source 1 of warm leads", "Source 2"],
+      "outreachSequence": [
+        {"day": 1, "action": "Initial personalized reach out", "channel": "Email/WhatsApp/LinkedIn"},
+        {"day": 3, "action": "Follow up with value add", "channel": "Same channel"},
+        {"day": 7, "action": "Soft close or ask for referral", "channel": "Call preferred"}
+      ],
+      "targetCount": "Number of warm leads to contact",
+      "expectedConversion": "Expected conversion rate"
+    },
+    "geoMarketing": {
+      "primaryArea": "${location} - specific neighborhoods/areas to focus",
+      "targetDensity": "How concentrated your initial marketing should be",
+      "localChannels": [
+        {"channel": "Local channel 1", "how": "How to use it", "budget": "Budget allocation"},
+        {"channel": "Local channel 2", "how": "How to use it", "budget": "Budget allocation"}
+      ],
+      "offlineActivities": ["Local activity 1", "Local activity 2"],
+      "onlineGeoTargeting": {
+        "platforms": ["Instagram", "Google Ads"],
+        "radius": "X km around target area",
+        "budget": "Daily budget"
+      }
+    },
+    "preLaunch": {
+      "timeline": "X weeks before launch",
+      "activities": [
+        {"activity": "Beta program", "goal": "Target number of beta users", "timeline": "When", "trackingMetric": "What to measure"},
+        {"activity": "Feedback collection", "goal": "What feedback to gather", "timeline": "When", "trackingMetric": "What to measure"},
+        {"activity": "Waitlist building", "goal": "Target waitlist size", "timeline": "When", "trackingMetric": "What to measure"}
+      ]
+    },
+    "launch": {
+      "day1Channels": ["Channel 1", "Channel 2", "Channel 3"],
+      "prAnnouncements": ["PR activity 1", "PR activity 2"],
+      "promotions": ["Launch offer 1", "Launch offer 2"]
+    },
+    "postLaunch": {
+      "iterationCycles": "How often to iterate",
+      "featureRollouts": ["Feature 1 timeline", "Feature 2 timeline"],
+      "expansionPlan": ["Segment expansion 1", "Geographic expansion"]
+    }
+  },
+  "partners": {
+    "targetCount": ${customerCount < 10 ? 20 : 50},
+    "partnerTypes": [
+      {"type": "Primary partner type", "count": "How many", "value": "What they bring"},
+      {"type": "Secondary partner type", "count": "How many", "value": "What they bring"}
+    ],
+    "specificTargets": [
+      {"name": "Specific partner/type to pursue in ${location}", "why": "Why good fit", "approach": "How to approach them"},
+      {"name": "Another specific target", "why": "Why good fit", "approach": "How to approach them"}
+    ],
+    "partnerValue": {
+      "whatYouOffer": "Value proposition for partners",
+      "whatTheyGet": ["Benefit 1", "Benefit 2", "Benefit 3"],
+      "revenueShare": "If applicable, suggested revenue share model"
+    },
+    "outreachPlan": {
+      "week1": {"target": "X partners", "actions": ["Action 1", "Action 2"]},
+      "week2": {"target": "X partners", "actions": ["Action 1", "Action 2"]},
+      "week3": {"target": "X partners", "actions": ["Action 1", "Action 2"]},
+      "week4": {"target": "X partners", "actions": ["Action 1", "Action 2"]}
+    },
+    "qualificationCriteria": ["Criterion 1", "Criterion 2", "Criterion 3"]
+  },
+  "cac": {
+    "currentEstimate": "₹X per customer (estimate if pre-revenue)",
+    "targetCAC": "₹X (what it should be for unit economics to work)",
+    "channels": [
+      {
+        "channel": "Channel name",
+        "estimatedCAC": "₹X",
+        "volume": "Customers per month",
+        "tactics": ["Specific tactic 1", "Specific tactic 2"],
+        "budget": "₹X per month",
+        "trackingMethod": "How to track attribution"
+      }
+    ],
+    "optimizationPlan": [
+      {"week": 1, "focus": "Test channels", "budget": "₹X", "target": "Learn which channel works"},
+      {"week": 2, "focus": "Double down on winner", "budget": "₹X", "target": "Reduce CAC by X%"},
+      {"week": 3, "focus": "Optimize creatives/copy", "budget": "₹X", "target": "Improve conversion by X%"},
+      {"week": 4, "focus": "Scale what works", "budget": "₹X", "target": "Reach X customers"}
+    ],
+    "unitEconomics": {
+      "ltv": "Estimated LTV",
+      "ltvCacRatio": "Target ratio (should be > 3:1)",
+      "paybackPeriod": "Months to recover CAC"
+    }
+  },
+  "vcSlides": {
+    "slide1": {
+      "title": "GTM Philosophy",
+      "points": [
+        "How ${productName} decides on GTM investments",
+        "The decision framework used",
+        "Cost per learning benchmark"
+      ]
+    },
+    "slide2": {
+      "title": "Current GTM Focus",
+      "points": [
+        "Primary channel and why",
+        "Current traction metrics",
+        "What's working and what's not"
+      ]
+    },
+    "slide3": {
+      "title": "GTM Roadmap",
+      "points": [
+        "30-day milestones",
+        "Channel evolution plan",
+        "Scale triggers"
+      ]
+    }
+  }
+}`;
+
+    try {
+      const systemContext = `You are an elite GTM Strategy Consultant. Generate a HIGHLY SPECIFIC, ACTIONABLE GTM strategy for ${productName}. 
+Every recommendation must be tailored to their specific:
+- Stage: ${stage}
+- Market: ${marketType}
+- Category: ${businessCategory}
+- Team size: ${teamSize}
+- Runway: ${runwayMonths} months
+- Current traction: ${hasRevenue ? `₹${monthlyRevenue}/mo, ${customerCount} customers` : 'Pre-revenue'}
+
+DO NOT use generic advice. Every point must be specific to this company.
+Return ONLY valid JSON.`;
+
+      const geminiResponse = await callGemini(gtmPrompt, systemContext);
+      
+      // Clean and parse JSON
+      let content = geminiResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      const firstBrace = content.indexOf('{');
+      const lastBrace = content.lastIndexOf('}');
+      if (firstBrace !== -1 && lastBrace !== -1) {
+        content = content.substring(firstBrace, lastBrace + 1);
+      }
+      
+      const gtmStrategy = JSON.parse(content);
+      
+      // Store GTM strategy in database
+      if (db) {
+        const collection = db.collection('gtm_strategies');
+        await collection.updateOne(
+          { userId },
+          { 
+            $set: { 
+              userId,
+              strategy: gtmStrategy,
+              ddqSnapshot: ddqResponses,
+              updatedAt: new Date()
+            },
+            $setOnInsert: { createdAt: new Date() }
+          },
+          { upsert: true }
+        );
+      }
+      
+      console.log('✅ GTM Strategy generated for:', productName);
+      res.json({
+        success: true,
+        strategy: gtmStrategy,
+        metadata: {
+          productName,
+          stage,
+          gtmStage,
+          generatedAt: new Date().toISOString()
+        }
+      });
+      
+    } catch (parseError) {
+      console.error('GTM generation parse error:', parseError);
+      // Return structured fallback based on user data
+      res.json({
+        success: true,
+        strategy: generateFallbackGTM(ddqResponses, gtmStage, runwayMonths, hasRevenue, monthlyRevenue, customerCount, targetCustomer, productName, businessCategory, pricingModel, competitors, marketType, founderBandwidth, teamSize),
+        metadata: {
+          productName,
+          stage,
+          gtmStage,
+          generatedAt: new Date().toISOString(),
+          fallback: true
+        }
+      });
+    }
+    
+  } catch (error) {
+    console.error('GTM Strategy generation error:', error);
+    res.status(500).json({ error: 'Failed to generate GTM strategy', details: error.message });
+  }
+});
+
+// Fallback GTM generator when AI fails - Context-aware version
+function generateFallbackGTM(ddqResponses, gtmStage, runwayMonths, hasRevenue, monthlyRevenue, customerCount, targetCustomer, productName, businessCategory, pricingModel, competitors, marketType, founderBandwidth, teamSize) {
+  
+  // Detect business type from category and product description
+  const productDesc = (ddqResponses[2] || '').toLowerCase();
+  const categoryLower = businessCategory.toLowerCase();
+  const differentiation = ddqResponses[7] || '';
+  const location = ddqResponses[4] || 'India';
+  
+  // Context detection for intelligent responses
+  const isFoodDelivery = categoryLower.includes('food') || categoryLower.includes('restaurant') || productDesc.includes('food') || productDesc.includes('delivery') || productDesc.includes('restaurant');
+  const isEcommerce = categoryLower.includes('e-commerce') || categoryLower.includes('ecommerce') || categoryLower.includes('retail') || productDesc.includes('shop') || productDesc.includes('store');
+  const isFintech = categoryLower.includes('fintech') || categoryLower.includes('finance') || categoryLower.includes('payment') || productDesc.includes('payment') || productDesc.includes('loan');
+  const isHealthtech = categoryLower.includes('health') || categoryLower.includes('medical') || productDesc.includes('health') || productDesc.includes('doctor');
+  const isEdtech = categoryLower.includes('education') || categoryLower.includes('edtech') || productDesc.includes('learn') || productDesc.includes('course');
+  const isSaaS = categoryLower.includes('saas') || categoryLower.includes('software') || marketType === 'B2B';
+  
+  // Generate context-specific content
+  const getContextualPainPoints = () => {
+    if (isFoodDelivery) return ["Long wait times for food delivery", "Limited restaurant options in their area", "Inconsistent food quality and delivery experience", "High delivery fees eating into their budget"];
+    if (isEcommerce) return ["Finding quality products at good prices", "Trust issues with online sellers", "Slow or unreliable delivery", "Complicated return processes"];
+    if (isFintech) return ["Complex loan/payment processes", "High transaction fees", "Lack of transparency in financial products", "Poor customer support from traditional banks"];
+    if (isHealthtech) return ["Long wait times for appointments", "Difficulty finding the right specialist", "Managing health records across providers", "High cost of quality healthcare"];
+    if (isEdtech) return ["Boring or outdated learning content", "Lack of personalized learning paths", "No practical skill application", "Expensive courses with uncertain outcomes"];
+    return ["Time-consuming manual processes", "Lack of visibility and control", "Scaling challenges as they grow", "Integration with existing tools"];
+  };
+
+  const getContextualChannels = () => {
+    if (isFoodDelivery) return ["App Store optimization", "Local food blogger partnerships", "Restaurant partner referrals", "Social media food content"];
+    if (isEcommerce) return ["Instagram/Facebook shops", "Influencer marketing", "Google Shopping ads", "WhatsApp commerce"];
+    if (isFintech) return ["Referral programs", "Content marketing on financial literacy", "Partnerships with employers/businesses", "App store presence"];
+    if (isHealthtech) return ["Doctor/clinic partnerships", "Health insurance tie-ups", "Corporate wellness programs", "Pharmacy channel"];
+    if (isEdtech) return ["SEO for learning queries", "YouTube educational content", "School/college partnerships", "LinkedIn for professional courses"];
+    return ["LinkedIn for B2B", "Content marketing", "Referral programs", "Direct outreach"];
+  };
+
+  const getContextualValueProp = () => {
+    if (isFoodDelivery) return `For ${targetCustomer || 'food lovers'} who want delicious meals delivered fast, ${productName} provides quick, reliable food delivery with great restaurant choices, unlike ${competitors || 'traditional food ordering'} where wait times are unpredictable and options limited.`;
+    if (isEcommerce) return `For ${targetCustomer || 'online shoppers'} tired of unreliable e-commerce experiences, ${productName} delivers quality products with fast shipping and easy returns, unlike ${competitors || 'typical online stores'} where trust and delivery are concerns.`;
+    if (isFintech) return `For ${targetCustomer || 'users seeking financial solutions'} frustrated with complex traditional finance, ${productName} makes ${productDesc.includes('payment') ? 'payments' : 'financial services'} simple and transparent, unlike ${competitors || 'traditional banks'} with hidden fees and paperwork.`;
+    if (isHealthtech) return `For ${targetCustomer || 'patients'} struggling to access quality healthcare, ${productName} provides convenient, affordable health solutions, unlike ${competitors || 'traditional healthcare'} with long waits and high costs.`;
+    if (isEdtech) return `For ${targetCustomer || 'learners'} seeking practical skills that matter, ${productName} delivers engaging, outcome-focused education, unlike ${competitors || 'traditional courses'} that are boring and theoretical.`;
+    return `For ${targetCustomer} seeking better solutions, ${productName} provides ${differentiation || 'a modern, efficient approach'}, unlike ${competitors || 'traditional alternatives'} that fail to meet evolving needs.`;
+  };
+
+  const getContextualMetrics = () => {
+    if (isFoodDelivery) return { northStar: "Orders per Day", secondary: ["Avg Delivery Time", "Customer Repeat Rate", "Restaurant Partner NPS"] };
+    if (isEcommerce) return { northStar: "Gross Merchandise Value (GMV)", secondary: ["Conversion Rate", "Repeat Purchase Rate", "Customer Acquisition Cost"] };
+    if (isFintech) return { northStar: "Transaction Volume", secondary: ["User Activation Rate", "Default Rate", "Customer LTV"] };
+    if (isHealthtech) return { northStar: "Consultations/Appointments Booked", secondary: ["Patient Satisfaction", "Doctor Utilization", "Repeat Visits"] };
+    if (isEdtech) return { northStar: "Course Completion Rate", secondary: ["Student Enrollment", "Learning Outcomes", "NPS Score"] };
+    return { northStar: hasRevenue ? "Monthly Recurring Revenue" : "Weekly Active Users", secondary: ["Activation Rate", "Retention", "Referral Rate"] };
+  };
+
+  const getContextualRisks = () => {
+    if (isFoodDelivery) return [
+      { risk: "Restaurant supply - not enough quality partners", impact: "High", mitigation: "Build strong restaurant relations team; offer favorable commission initially" },
+      { risk: "Delivery logistics - poor delivery experience", impact: "High", mitigation: "Invest in delivery fleet management; implement real-time tracking" },
+      { risk: "Unit economics - high CAC and delivery costs", impact: "Critical", mitigation: "Focus on dense areas first; optimize delivery routes; increase order frequency" },
+      { risk: "Competition from " + (competitors || "Swiggy/Zomato"), impact: "High", mitigation: differentiation ? `Leverage: ${differentiation}` : "Focus on niche cuisine or underserved areas" }
+    ];
+    if (isEcommerce) return [
+      { risk: "Inventory and fulfillment challenges", impact: "High", mitigation: "Start with marketplace model or dropship; add inventory strategically" },
+      { risk: "Customer trust and returns", impact: "Medium", mitigation: "Easy returns policy; customer reviews; quality checks" },
+      { risk: "Competition on price", impact: "High", mitigation: "Focus on unique products or superior service; avoid pure price war" }
+    ];
+    return [
+      { risk: "Product-market fit uncertainty", impact: "High", mitigation: "Rapid iteration based on user feedback; kill features that don't work" },
+      { risk: "Customer acquisition cost too high", impact: "Medium", mitigation: "Focus on organic channels first; optimize conversion before scaling paid" },
+      { risk: "Competition from " + competitors, impact: "Medium", mitigation: differentiation ? `Differentiate on: ${differentiation}` : "Find underserved niche" }
+    ];
+  };
+
+  const contextMetrics = getContextualMetrics();
+  const contextChannels = getContextualChannels();
+  
+  return {
+    productOverview: {
+      oneLineDescription: ddqResponses[2] || `${productName} - ${isFoodDelivery ? 'Food delivery platform' : isEcommerce ? 'E-commerce platform' : isFintech ? 'Fintech solution' : 'Technology solution'} for ${location}`,
+      category: businessCategory,
+      primaryProblem: isFoodDelivery ? "Getting delicious food delivered quickly and reliably" : isEcommerce ? "Finding and buying quality products online with trust" : `Solving ${targetCustomer}'s core challenges`,
+      whyNow: {
+        marketShift: isFoodDelivery ? "Post-pandemic food delivery habits are permanent; convenience is the new normal" : isEcommerce ? "Digital-first shopping behavior accelerating across India" : "Market conditions creating demand for better solutions",
+        timing: isFoodDelivery ? "Food delivery market in India growing 25%+ annually" : isEcommerce ? "E-commerce penetration still low in India - huge headroom" : "Early movers in this segment can capture market share"
+      }
+    },
+    targetMarket: {
+      icp: {
+        industry: businessCategory,
+        companySize: marketType === 'B2B' ? 'SMB to Mid-Market' : 'Individual consumers',
+        geography: location,
+        decisionMaker: isFoodDelivery ? "Urban consumers aged 18-45" : isEcommerce ? "Online-savvy shoppers" : marketType === 'B2B' ? "Department head or founder" : "End user"
+      },
+      personas: [
+        {
+          name: isFoodDelivery ? "Busy Professional" : isEcommerce ? "Value-Conscious Shopper" : "Primary User",
+          role: targetCustomer || (isFoodDelivery ? "Working professionals, students, families" : "Target customer segment"),
+          painPoints: getContextualPainPoints(),
+          buyingTrigger: isFoodDelivery ? "Hungry, short on time, or craving variety" : isEcommerce ? "Need for product, good deal found" : "Acute need or frustration with current solution",
+          objections: isFoodDelivery ? ["Delivery fees too high", "Will food arrive fresh?", "Limited healthy options"] : ["Is this trustworthy?", "What's the return policy?", "Will this work for me?"]
+        }
+      ],
+      earlyAdopters: {
+        who: isFoodDelivery ? "Food enthusiasts, busy professionals in urban areas" : isEcommerce ? "Tech-savvy early adopters, deal hunters" : "Innovation-focused " + targetCustomer,
+        why: isFoodDelivery ? "They order food frequently and try new apps" : isEcommerce ? "They actively seek new platforms for better deals" : "They actively seek better solutions",
+        whereToFind: isFoodDelivery ? "Food Instagram/YouTube, office complexes, college areas" : isEcommerce ? "Deal forums, social media, tech communities" : "LinkedIn, industry forums, conferences"
+      },
+      massMarket: {
+        who: isFoodDelivery ? "General urban population who occasionally order food" : isEcommerce ? "Mainstream online shoppers" : "Mainstream " + targetCustomer,
+        timeline: "After 1000+ orders/transactions and strong reviews",
+        requirements: isFoodDelivery ? "Fast delivery, good prices, quality food, wide selection" : isEcommerce ? "Trust signals, competitive prices, reliable delivery" : "Proven ROI, smooth onboarding, customer success stories"
+      }
+    },
+    valueProposition: {
+      statement: getContextualValueProp(),
+      keyBenefits: isFoodDelivery ? [
+        {type: "functional", benefit: "Get food delivered in under 30 minutes", proof: "Real-time tracking, optimized delivery routes"},
+        {type: "emotional", benefit: "Never worry about what to eat - variety at your fingertips", proof: "Wide restaurant selection"},
+        {type: "economic", benefit: "Better prices through exclusive deals and no minimum order", proof: "Daily offers and loyalty rewards"}
+      ] : isEcommerce ? [
+        {type: "functional", benefit: "Find exactly what you need, delivered fast", proof: "Smart search and quick delivery"},
+        {type: "emotional", benefit: "Shop with confidence - quality guaranteed", proof: "Verified sellers and easy returns"},
+        {type: "economic", benefit: "Best prices with price match guarantee", proof: "Competitive pricing algorithms"}
+      ] : [
+        {type: "functional", benefit: differentiation || "Solve your core problem efficiently", proof: "Based on user feedback"},
+        {type: "emotional", benefit: "Feel confident and in control", proof: "Customer testimonials"},
+        {type: "strategic", benefit: "Scale and grow without friction", proof: "Platform capabilities"}
+      ],
+      proofPoints: hasRevenue ? [`${customerCount} active users`, `₹${monthlyRevenue.toLocaleString('en-IN')} monthly revenue`] : ["Beta users actively using the product", "Strong engagement and repeat usage"]
+    },
+    positioning: {
+      categoryPosition: isFoodDelivery ? `The ${differentiation || 'faster, more reliable'} food delivery app for ${location}` : isEcommerce ? `The ${differentiation || 'trusted'} shopping destination` : `Modern ${businessCategory} solution`,
+      positioningStatement: getContextualValueProp(),
+      differentiationAxes: [
+        {axis: isFoodDelivery ? "Delivery Speed" : "Core Value", position: differentiation || "Better than alternatives", vsCompetitors: competitors ? `Faster/better than ${competitors}` : "Superior experience"},
+        {axis: isFoodDelivery ? "Restaurant Quality" : "Reliability", position: "Curated and verified", vsCompetitors: "Higher quality standards"},
+        {axis: "Price Value", position: "Competitive with added value", vsCompetitors: "Better value proposition"}
+      ],
+      competitiveResponse: {
+        vsMainCompetitor: differentiation || `Focus on what ${competitors || 'competitors'} can't match`,
+        keyTalkingPoints: isFoodDelivery ? ["Faster delivery", "Better restaurant partners", "Lower fees"] : ["Better experience", "More trustworthy", "Better value"]
+      }
+    },
+    pricing: {
+      model: pricingModel || (isFoodDelivery ? "Transaction fee per order" : isEcommerce ? "Marketplace commission" : "Subscription"),
+      tiers: isFoodDelivery ? [
+        {name: "Standard", price: "Free to download", features: ["Access to all restaurants", "Standard delivery"], targetUser: "All users"},
+        {name: "Pro/Premium", price: "₹99-199/month", features: ["Free delivery", "Priority support", "Exclusive deals"], targetUser: "Frequent orderers"}
+      ] : [
+        {name: "Starter", price: "Free to try", features: ["Core features", "Standard support"], targetUser: "New users"},
+        {name: "Pro", price: "Based on usage/value", features: ["Full features", "Priority support"], targetUser: "Power users"},
+        {name: "Enterprise", price: "Custom", features: ["Custom integrations", "Dedicated support"], targetUser: "Large organizations"}
+      ],
+      pricingLogic: {
+        approach: isFoodDelivery ? "Transaction-based with subscription upsell" : "Value-based",
+        rationale: isFoodDelivery ? "Low barrier to first order; make money on volume and subscriptions" : "Priced based on value delivered",
+        expansionPath: isFoodDelivery ? "Increase order frequency, add grocery/essentials" : "Upsell to premium tiers, add adjacent services"
+      },
+      recommendations: isFoodDelivery ? ["Keep first order friction low", "Build subscription for retention", "Add delivery fee only after trust is built"] : ["Start simple, add complexity later", "Test price elasticity with different segments"]
+    },
+    distribution: {
+      primaryChannels: isFoodDelivery ? [
+        {channel: "App Store Optimization (ASO)", priority: 1, rationale: "Food apps are searched directly in app stores", expectedCac: "Low - organic discovery"},
+        {channel: "Local food influencer partnerships", priority: 2, rationale: "Food content performs well on Instagram/YouTube", expectedCac: "₹500-2000 per influencer post"},
+        {channel: "Restaurant partner co-marketing", priority: 3, rationale: "Restaurants promote to their existing customers", expectedCac: "Revenue share model"}
+      ] : isEcommerce ? [
+        {channel: "Instagram/Facebook Shopping", priority: 1, rationale: "Visual product discovery", expectedCac: "₹50-200 per customer"},
+        {channel: "Google Shopping Ads", priority: 2, rationale: "High intent searches", expectedCac: "₹100-300 per customer"},
+        {channel: "Influencer marketing", priority: 3, rationale: "Trust-building for new brands", expectedCac: "Variable - performance based"}
+      ] : [
+        {channel: hasRevenue ? "Customer referrals" : "Direct outreach", priority: 1, rationale: gtmStage === 'Pre-Revenue' ? "Fastest feedback loop" : "Highest conversion rate", expectedCac: "Low (time-based)"},
+        {channel: "Content marketing", priority: 2, rationale: "Builds trust and authority", expectedCac: "Medium (time investment)"},
+        {channel: "Partnerships", priority: 3, rationale: "Leverage existing trust", expectedCac: "Variable"}
+      ],
+      salesMotion: {
+        type: isFoodDelivery ? "Product-led growth (app-first)" : isEcommerce ? "Self-serve with chat support" : customerCount < 20 ? "Founder-led sales" : "Inside sales with founder involvement",
+        rationale: isFoodDelivery ? "Users download app and order without sales touch" : `At ${gtmStage} stage, ${isFoodDelivery ? 'focus on product experience' : 'founder involvement ensures product feedback loop'}`,
+        transitionPlan: isFoodDelivery ? "Add corporate sales for office catering once B2C proven" : "Hire first sales rep after consistent 10+ demos/month"
+      },
+      channelOwnership: {
+        leadGeneration: isFoodDelivery ? "Performance marketing + ASO team" : "Founder + Content",
+        qualification: isFoodDelivery ? "Automated (app onboarding)" : "Founder",
+        closing: isFoodDelivery ? "Self-serve (first order)" : "Founder",
+        onboarding: isFoodDelivery ? "In-app experience" : teamSize > 2 ? "Team member" : "Founder"
+      }
+    },
+    marketing: {
+      demandGeneration: {
+        content: isFoodDelivery ? ["Food photography and videos", "Restaurant spotlight stories", "Local food guides and recommendations"] : isEcommerce ? ["Product showcases", "User reviews and unboxing", "Deal alerts and guides"] : ["LinkedIn posts on industry problems", "Case studies from early customers"],
+        paidAds: isFoodDelivery ? ["App install campaigns on Facebook/Instagram", "Google App campaigns", "YouTube pre-roll for food content"] : isEcommerce ? ["Google Shopping", "Facebook/Instagram product ads", "Retargeting campaigns"] : gtmStage === 'Pre-Revenue' ? ["Not recommended yet - validate organically first"] : ["LinkedIn ads for B2B", "Google search ads for intent"],
+        community: isFoodDelivery ? ["Food blogger WhatsApp groups", "Local foodie communities", "Office lunch groups"] : isEcommerce ? ["Deal hunting forums", "Product review communities", "Social shopping groups"] : ["Industry Slack groups", "Reddit communities", "WhatsApp groups"],
+        events: isFoodDelivery ? ["Food festivals and pop-ups", "Restaurant launch events", "Corporate lunch partnerships"] : isEcommerce ? ["Flash sales events", "Festival shopping campaigns", "Influencer live sessions"] : ["Webinars on industry topics", "Local meetups"]
+      },
+      brandMessaging: {
+        coreNarrative: isFoodDelivery ? `${productName}: Your favorite food, delivered fast. Because hunger can't wait.` : isEcommerce ? `${productName}: Shop smart. Get more.` : `Empowering ${targetCustomer} to achieve more with less effort`,
+        channelMessages: isFoodDelivery ? [
+          {channel: "Instagram", message: "Drool-worthy food content and quick delivery proofs"},
+          {channel: "Push notifications", message: "Personalized meal suggestions and exclusive deals"},
+          {channel: "In-app", message: "Seamless ordering with real-time tracking"}
+        ] : [
+          {channel: "LinkedIn", message: "Problem-focused thought leadership"},
+          {channel: "Website", message: "Clear value proposition with social proof"},
+          {channel: "Email", message: "Personalized outreach showing understanding of their challenges"}
+        ],
+        objectionHandling: isFoodDelivery ? [
+          {objection: "Delivery fee is too high", response: "Subscribe to Pro for free unlimited delivery - pays for itself in 3-4 orders"},
+          {objection: "Food arrives cold", response: "Our insulated bags and fast delivery ensure your food arrives fresh. Plus, we have a freshness guarantee."},
+          {objection: "Why not order from Swiggy/Zomato?", response: differentiation || "We focus on [niche] with faster delivery and exclusive restaurants they don't have"}
+        ] : [
+          {objection: "We already have a solution", response: "What's the one thing you wish it did better?"},
+          {objection: "Budget is tight", response: "Let's calculate the ROI together - most customers see payback in X months"}
+        ]
+      },
+      growthLoops: isFoodDelivery ? [
+        {type: "Referral", mechanism: "Give ₹100, Get ₹100 on referral's first order", incentive: "Double-sided referral credits", kFactor: "0.3-0.5 for food apps"},
+        {type: "Frequency", mechanism: "Rewards program - earn points on every order", incentive: "Free delivery, discounts on milestone orders"},
+        {type: "Social", mechanism: "Share your order/review to earn credits", incentive: "₹25 credit for reviews with photos"}
+      ] : [
+        {type: "Referral", mechanism: "Happy customers refer peers", incentive: "Extended trial or discount for referrer", kFactor: "0.3-0.5 expected"},
+        {type: "Content", mechanism: "Users share insights from product", incentive: "Feature in case study", kFactor: "0.2-0.3 expected"}
+      ]
+    },
+    launchPlan: {
+      preLaunch: {
+        timeline: "2-4 weeks",
+        activities: [
+          {activity: "Beta program", goal: "10-20 beta users", timeline: "Week 1-2"},
+          {activity: "Feedback collection", goal: "Identify top 3 improvements", timeline: "Week 2-3"},
+          {activity: "Case study creation", goal: "1-2 detailed case studies", timeline: "Week 3-4"}
+        ]
+      },
+      launch: {
+        day1Channels: ["LinkedIn announcement", "Email to waitlist", "Direct outreach to warm leads"],
+        prAnnouncements: ["Product Hunt if applicable", "Industry newsletter features"],
+        promotions: ["Early adopter pricing", "Extended trial for first 50 customers"]
+      },
+      postLaunch: {
+        iterationCycles: "Weekly based on user feedback",
+        featureRollouts: ["Priority features from beta feedback", "Integration requests"],
+        expansionPlan: ["Adjacent customer segments", "Geographic expansion within India"]
+      }
+    },
+    customerSuccess: {
+      firstValueMoment: {
+        definition: "User completes core action and sees immediate benefit",
+        metric: "Time to first core action completion",
+        timeline: "Under 10 minutes ideal"
+      },
+      onboarding: {
+        tools: ["In-app tooltips", "Video tutorials", "Onboarding call for Pro/Enterprise"],
+        milestones: ["Account setup", "First core action", "First valuable output"],
+        supportLevel: customerCount < 20 ? "High-touch (founder involvement)" : "Guided self-serve"
+      },
+      retention: {
+        nudges: ["Usage tips via email", "Feature discovery prompts", "Success milestone celebrations"],
+        checkpoints: ["Day 7: Check engagement", "Day 30: NPS survey", "Day 60: Expansion conversation"],
+        expansionTriggers: ["Usage hitting tier limits", "New team members joining", "Positive NPS score"]
+      }
+    },
+    metrics: {
+      northStar: {
+        metric: hasRevenue ? "Monthly Recurring Revenue (MRR)" : "Weekly Active Users completing core action",
+        target: hasRevenue ? `3x MRR in 6 months` : "50+ active users in 90 days",
+        rationale: "Best indicator of product-market fit and growth trajectory"
+      },
+      acquisition: {
+        cac: {current: isFoodDelivery ? "₹100-300 per install" : "Founder time-based", target: isFoodDelivery ? "Under ₹150 per ordering user" : "Under ₹5,000 for SMB"},
+        conversionRate: {current: gtmStage === 'Pre-Revenue' ? "TBD" : isFoodDelivery ? "~15-25% install-to-order" : "~5-10%", target: isFoodDelivery ? "30%+ install-to-first-order" : "15-20%"},
+        cpl: {current: "Organic focus", target: isFoodDelivery ? "Under ₹50 per install" : "Under ₹500"}
+      },
+      activation: {
+        timeToFirstValue: {current: "TBD", target: isFoodDelivery ? "Under 3 minutes to first order" : "Under 10 minutes"},
+        activationRate: {current: gtmStage === 'Pre-Revenue' ? "Measuring" : "~40%", target: isFoodDelivery ? "25%+ D7 retention" : "60%+"},
+        featureAdoption: {keyFeatures: isFoodDelivery ? ["Browse restaurants", "Complete first order", "Track delivery"] : ["Core feature 1", "Core feature 2"]}
+      },
+      revenue: {
+        arpu: {current: hasRevenue && customerCount > 0 ? `₹${Math.round(monthlyRevenue/customerCount).toLocaleString('en-IN')}` : "TBD", target: isFoodDelivery ? "₹300-500 per ordering user/month" : "20% increase"},
+        ltv: {current: "Calculating", target: isFoodDelivery ? "₹3000+ per user (12-month)" : "3x CAC minimum"},
+        churn: {current: "Early to measure", target: isFoodDelivery ? "Under 20% monthly inactive" : "Under 5% monthly"},
+        expansionRevenue: {current: "Not yet", target: isFoodDelivery ? "Grocery/essentials add-on" : "20% of MRR"}
+      }
+    },
+    risks: getContextualRisks(),
+    executionPlan: {
+      month1: {
+        theme: isFoodDelivery ? "Supply & Product Validation" : "Validation & Readiness",
+        objectives: isFoodDelivery ? ["Onboard 20+ quality restaurants", "Launch app in one locality", "Get first 100 orders"] : ["Validate core value proposition", "Establish baseline metrics", "Build initial pipeline"],
+        keyActions: isFoodDelivery ? [
+          {action: "Sign up 20 restaurant partners in target area", owner: "Founder", deliverable: "Restaurant contracts signed", timeline: "Week 1-2"},
+          {action: "Onboard 5 delivery partners", owner: "Founder/Ops", deliverable: "Delivery fleet ready", timeline: "Week 2"},
+          {action: "Soft launch with friends/family + local marketing", owner: "Founder", deliverable: "100+ orders completed", timeline: "Week 3-4"}
+        ] : [
+          {action: "Complete 10 customer interviews", owner: "Founder", deliverable: "ICP validation doc", timeline: "Week 1-2"},
+          {action: "Set up analytics and tracking", owner: "Founder", deliverable: "Dashboard live", timeline: "Week 1"},
+          {action: "Launch outreach to first 30 prospects", owner: "Founder", deliverable: "5+ demos booked", timeline: "Week 2-4"}
+        ],
+        successMetrics: isFoodDelivery ? ["20+ restaurant partners live", "100+ completed orders", "Avg delivery time <35 min"] : ["10+ customer conversations", "Clear ICP definition", "First demo feedback"]
+      },
+      month2: {
+        theme: isFoodDelivery ? "Optimize Unit Economics" : "Launch & Optimization",
+        objectives: isFoodDelivery ? ["Improve delivery times", "Increase order frequency", "Achieve positive unit economics"] : ["Convert first paying customers", "Iterate based on feedback", "Establish repeatable process"],
+        keyActions: isFoodDelivery ? [
+          {action: "Analyze and optimize delivery routes", owner: "Ops", deliverable: "<30 min avg delivery", timeline: "Week 5-6"},
+          {action: "Launch referral program", owner: "Marketing", deliverable: "20% orders from referrals", timeline: "Week 6-7"},
+          {action: "Negotiate better restaurant commissions", owner: "Founder", deliverable: "Positive unit economics", timeline: "Week 7-8"}
+        ] : [
+          {action: "Close first 5 paying customers", owner: "Founder", deliverable: "Revenue start", timeline: "Week 5-6"},
+          {action: "Document sales playbook", owner: "Founder", deliverable: "Playbook v1", timeline: "Week 6-7"},
+          {action: "Create first case study", owner: "Founder", deliverable: "Published case study", timeline: "Week 7-8"}
+        ],
+        successMetrics: isFoodDelivery ? ["500+ orders", "20%+ repeat customers", "Positive contribution margin"] : ["5+ paying customers", "Clear objection handling", "Repeatable demo process"]
+      },
+      month3: {
+        theme: isFoodDelivery ? "Scale to New Areas" : "Scale & Expansion",
+        objectives: isFoodDelivery ? ["Expand to 2-3 more localities", "Launch marketing campaigns", "Build team for scale"] : ["Double customer count", "Test second channel", "Prepare for growth hire"],
+        keyActions: isFoodDelivery ? [
+          {action: "Expand to 2 new high-density areas", owner: "Founder/Ops", deliverable: "3x coverage area", timeline: "Week 9-10"},
+          {action: "Launch paid acquisition campaigns", owner: "Marketing", deliverable: "1000+ new installs", timeline: "Week 10-11"},
+          {action: "Hire ops manager and 2 support staff", owner: "Founder", deliverable: "Core team in place", timeline: "Week 12"}
+        ] : [
+          {action: "Scale winning channel", owner: "Founder", deliverable: "2x pipeline", timeline: "Week 9-10"},
+          {action: "Test secondary channel", owner: "Founder", deliverable: "Channel validation", timeline: "Week 10-11"},
+          {action: "Define first hire requirements", owner: "Founder", deliverable: "Job description", timeline: "Week 12"}
+        ],
+        successMetrics: ["10+ customers", "Second channel showing signal", "Ready for first hire"]
+      }
+    },
+    hypotheses: [
+      {
+        id: "H1",
+        hypothesis: `${targetCustomer} will respond to direct outreach highlighting their specific pain point`,
+        channel: gtmStage === 'Pre-Revenue' ? "LinkedIn DM / Cold Email" : "Customer referrals",
+        message: gtmStage === 'Pre-Revenue' ? "I'm building X for people like you. Can I get 15 min of feedback?" : "Your peer [Customer] thought you'd find this valuable",
+        successSignal: gtmStage === 'Pre-Revenue' ? "≥10% response rate, ≥3 demos from 30 outreach" : "≥40% referral acceptance rate",
+        timebox: "14 days",
+        cost: `₹0 + ${founderBandwidth}h founder time`,
+        confidence: "Medium",
+        status: "Active"
+      },
+      {
+        id: "H2",
+        hypothesis: `Content about ${businessCategory} problems will attract inbound leads`,
+        channel: "LinkedIn posts + Blog",
+        message: "Educational content on problems, not product pitches",
+        successSignal: "≥5 inbound inquiries from content in 30 days",
+        timebox: "30 days",
+        cost: "₹0 + 5h/week",
+        confidence: "Low",
+        status: "Queued"
+      }
+    ],
+    decisions: {
+      doubleDown: {
+        what: hasRevenue && customerCount > 0 ? "Customer referral program" : "Direct founder outreach",
+        evidence: hasRevenue ? "If ≥2 referrals convert in 14 days" : "If ≥10% response rate on first 30 outreach",
+        impact: "Lowest CAC, highest conversion quality"
+      },
+      pause: {
+        what: "Paid advertising and SEO",
+        reason: `At ${gtmStage} with ${runwayMonths} months runway, need faster signal. Paid ads amplify what works, but you need to know what works first.`,
+        reviewIn: "After 20+ paying customers"
+      },
+      kill: {
+        what: "Generic content marketing without distribution strategy",
+        reason: "Content without promotion is invisible. Kill unless you have distribution figured out.",
+        reversibility: "High - can restart with proper distribution"
+      }
+    },
+    vcSlides: {
+      slide1: {
+        title: "GTM Philosophy",
+        points: [
+          `Every GTM experiment must show signal in 14 days or gets killed`,
+          `Cost per learning < ₹${Math.round(500000/runwayMonths).toLocaleString('en-IN')}/month`,
+          `Run max 2 hypotheses at once - winners get doubled, losers get cut`
+        ]
+      },
+      slide2: {
+        title: "Current GTM Focus",
+        points: [
+          `Primary: ${hasRevenue ? 'Customer referrals' : 'Founder-led outreach'}`,
+          `Traction: ${hasRevenue ? `₹${monthlyRevenue.toLocaleString('en-IN')}/mo, ${customerCount} customers` : 'Pre-revenue, validating'}`,
+          `Learning: What messaging resonates with ${targetCustomer}`
+        ]
+      },
+      slide3: {
+        title: "GTM Roadmap",
+        points: [
+          `30 days: ${hasRevenue ? '2x customer count' : 'First 5 paying customers'}`,
+          `60 days: Repeatable playbook documented`,
+          `90 days: Ready for first GTM hire`
+        ]
+      }
+    }
+  };
+}
+
+// Get saved GTM strategy
+app.get('/api/gtm/latest', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    
+    if (!db) {
+      return res.status(503).json({ error: 'Database not available' });
+    }
+    
+    const collection = db.collection('gtm_strategies');
+    const gtmData = await collection.findOne({ userId });
+    
+    if (!gtmData) {
+      return res.status(404).json({ error: 'No GTM strategy found. Generate one first.' });
+    }
+    
+    res.json({
+      success: true,
+      strategy: gtmData.strategy,
+      metadata: {
+        createdAt: gtmData.createdAt,
+        updatedAt: gtmData.updatedAt
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching GTM strategy:', error);
+    res.status(500).json({ error: 'Failed to fetch GTM strategy' });
+  }
+});
+
+// ============================================
+// GTM TASK TRACKING SYSTEM - Your AI Co-founder
+// ============================================
+
+// Start tracking a GTM action (Accept an H1/H2 recommendation)
+app.post('/api/gtm/tasks/start', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { 
+      taskType, // 'H1', 'H2', 'H3', 'launch', 'partner', 'cac'
+      category, // 'double-down', 'pause', 'kill', 'positioning', 'launch-plan', 'partners', 'cac'
+      title,
+      description,
+      targetMetric,
+      targetValue,
+      deadline, // 30 days default
+      isUserCreated, // true for H3
+      originalRecommendation // AI's original recommendation
+    } = req.body;
+    
+    const taskId = `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const startDate = new Date();
+    const deadlineDate = deadline ? new Date(deadline) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    
+    const task = {
+      taskId,
+      userId,
+      taskType,
+      category,
+      title,
+      description,
+      targetMetric,
+      targetValue,
+      status: 'active', // active, completed, paused, abandoned
+      progress: 0,
+      startDate,
+      deadline: deadlineDate,
+      isUserCreated: isUserCreated || false,
+      originalRecommendation,
+      updates: [], // Track progress updates
+      aiFollowups: [], // AI check-in messages
+      nextFollowup: new Date(Date.now() + 24 * 60 * 60 * 1000), // Tomorrow
+      completedDate: null,
+      outcome: null,
+      learnings: null,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+    
+    await gtmTasksCollection.insertOne(task);
+    
+    // Generate AI welcome message for this task
+    const welcomePrompt = `You are an AI co-founder. The founder just started working on this task:
+
+TASK: ${title}
+DESCRIPTION: ${description}
+TYPE: ${taskType} (${category})
+TARGET: ${targetMetric ? `${targetMetric}: ${targetValue}` : 'Not specified'}
+DEADLINE: ${deadlineDate.toLocaleDateString()}
+
+Generate a short, encouraging message (2-3 sentences) that:
+1. Acknowledges their commitment
+2. Gives ONE specific tip for getting started TODAY
+3. Sounds like a supportive co-founder, not a bot
+
+Be casual, warm, and specific to their task.`;
+
+    let welcomeMessage = "Great decision to start this! Focus on the first small win today - momentum matters more than perfection.";
+    try {
+      const aiResponse = await callGemini(welcomePrompt, "You are a supportive AI co-founder.");
+      welcomeMessage = aiResponse.trim().replace(/"/g, '');
+    } catch (e) {
+      console.log('Using fallback welcome message');
+    }
+    
+    res.json({
+      success: true,
+      task,
+      welcomeMessage
+    });
+    
+  } catch (error) {
+    console.error('Error starting GTM task:', error);
+    res.status(500).json({ error: 'Failed to start task' });
+  }
+});
+
+// Get all active GTM tasks for user
+app.get('/api/gtm/tasks', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { status } = req.query; // 'active', 'completed', 'all'
+    
+    let query = { userId };
+    if (status && status !== 'all') {
+      query.status = status;
+    }
+    
+    const tasks = await gtmTasksCollection
+      .find(query)
+      .sort({ startDate: -1 })
+      .toArray();
+    
+    res.json({ success: true, tasks });
+    
+  } catch (error) {
+    console.error('Error fetching GTM tasks:', error);
+    res.status(500).json({ error: 'Failed to fetch tasks' });
+  }
+});
+
+// Update task progress
+app.post('/api/gtm/tasks/:taskId/update', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { taskId } = req.params;
+    const { progress, note, currentValue, blockers } = req.body;
+    
+    const update = {
+      date: new Date(),
+      progress,
+      note,
+      currentValue,
+      blockers
+    };
+    
+    // Get task to generate AI response
+    const task = await gtmTasksCollection.findOne({ taskId, userId });
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    
+    // Generate AI follow-up based on progress
+    const progressPercent = progress || task.progress;
+    const daysRemaining = Math.ceil((new Date(task.deadline) - new Date()) / (1000 * 60 * 60 * 24));
+    
+    const followupPrompt = `You are an AI co-founder checking in on progress. Here's the situation:
+
+TASK: ${task.title}
+DESCRIPTION: ${task.description}
+STARTED: ${new Date(task.startDate).toLocaleDateString()}
+DEADLINE: ${new Date(task.deadline).toLocaleDateString()} (${daysRemaining} days remaining)
+PROGRESS: ${progressPercent}%
+${note ? `FOUNDER'S UPDATE: "${note}"` : ''}
+${blockers ? `BLOCKERS MENTIONED: ${blockers}` : ''}
+${currentValue ? `CURRENT VALUE: ${currentValue}` : ''}
+TARGET: ${task.targetMetric ? `${task.targetMetric}: ${task.targetValue}` : 'Not specified'}
+
+Generate a brief, helpful response (2-4 sentences) that:
+1. Acknowledges their progress (be specific)
+2. If behind: Suggest ONE concrete next step to get back on track
+3. If on track: Encourage and suggest how to accelerate
+4. If blockers: Offer specific advice to overcome them
+
+Sound like a supportive co-founder who's invested in their success. Be direct and actionable.`;
+
+    let aiResponse = "Keep pushing! Every step counts. What's the ONE thing you can do today to move this forward?";
+    try {
+      aiResponse = await callGemini(followupPrompt, "You are a supportive, direct AI co-founder.");
+      aiResponse = aiResponse.trim().replace(/^["']|["']$/g, '');
+    } catch (e) {
+      console.log('Using fallback follow-up message');
+    }
+    
+    // Update the task
+    await gtmTasksCollection.updateOne(
+      { taskId, userId },
+      {
+        $set: {
+          progress: progressPercent,
+          nextFollowup: new Date(Date.now() + 24 * 60 * 60 * 1000), // Next day
+          updatedAt: new Date()
+        },
+        $push: {
+          updates: update,
+          aiFollowups: {
+            date: new Date(),
+            message: aiResponse,
+            progressAtTime: progressPercent
+          }
+        }
+      }
+    );
+    
+    res.json({
+      success: true,
+      aiResponse,
+      daysRemaining,
+      onTrack: progressPercent >= ((30 - daysRemaining) / 30) * 100
+    });
+    
+  } catch (error) {
+    console.error('Error updating GTM task:', error);
+    res.status(500).json({ error: 'Failed to update task' });
+  }
+});
+
+// Complete a task
+app.post('/api/gtm/tasks/:taskId/complete', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { taskId } = req.params;
+    const { outcome, learnings, finalValue, success } = req.body;
+    
+    const task = await gtmTasksCollection.findOne({ taskId, userId });
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    
+    // Generate AI summary and next steps
+    const summaryPrompt = `As an AI co-founder, summarize this completed task and suggest next steps:
+
+TASK: ${task.title}
+DESCRIPTION: ${task.description}
+STARTED: ${new Date(task.startDate).toLocaleDateString()}
+COMPLETED: ${new Date().toLocaleDateString()}
+TARGET: ${task.targetMetric}: ${task.targetValue}
+ACHIEVED: ${finalValue || 'Not specified'}
+SUCCESS: ${success ? 'Yes' : 'Partially/No'}
+OUTCOME: ${outcome || 'Not specified'}
+LEARNINGS: ${learnings || 'Not specified'}
+
+Generate a JSON response:
+{
+  "celebration": "One sentence celebrating their effort (be specific and warm)",
+  "keyInsight": "One key learning or insight from this task",
+  "nextAction": "One specific next action they should take based on this outcome",
+  "recommendation": "Should they SCALE this (do more), ITERATE (adjust and retry), or PIVOT (try something different)?"
+}`;
+
+    let aiSummary = {
+      celebration: "Great job completing this task! Your consistency is building momentum.",
+      keyInsight: "Every completed task teaches you something about your market.",
+      nextAction: "Review what worked and double down on it.",
+      recommendation: "ITERATE"
+    };
+    
+    try {
+      const aiResponse = await callGemini(summaryPrompt, "You are a supportive AI co-founder.");
+      const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        aiSummary = JSON.parse(jsonMatch[0]);
+      }
+    } catch (e) {
+      console.log('Using fallback summary');
+    }
+    
+    await gtmTasksCollection.updateOne(
+      { taskId, userId },
+      {
+        $set: {
+          status: 'completed',
+          progress: 100,
+          completedDate: new Date(),
+          outcome,
+          learnings,
+          finalValue,
+          success,
+          aiSummary,
+          updatedAt: new Date()
+        }
+      }
+    );
+    
+    res.json({
+      success: true,
+      aiSummary
+    });
+    
+  } catch (error) {
+    console.error('Error completing GTM task:', error);
+    res.status(500).json({ error: 'Failed to complete task' });
+  }
+});
+
+// Get AI follow-up check-ins (called when user opens dashboard)
+app.get('/api/gtm/tasks/followups', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    
+    // Find tasks that need follow-up (nextFollowup <= now)
+    const tasksNeedingFollowup = await gtmTasksCollection
+      .find({
+        userId,
+        status: 'active',
+        nextFollowup: { $lte: new Date() }
+      })
+      .toArray();
+    
+    if (tasksNeedingFollowup.length === 0) {
+      return res.json({ success: true, followups: [] });
+    }
+    
+    const followups = [];
+    
+    for (const task of tasksNeedingFollowup) {
+      const daysActive = Math.ceil((new Date() - new Date(task.startDate)) / (1000 * 60 * 60 * 24));
+      const daysRemaining = Math.ceil((new Date(task.deadline) - new Date()) / (1000 * 60 * 60 * 24));
+      const lastUpdate = task.updates?.length > 0 ? task.updates[task.updates.length - 1] : null;
+      
+      const checkInPrompt = `You are an AI co-founder doing a daily check-in. Be brief and action-oriented.
+
+TASK: ${task.title}
+DAYS ACTIVE: ${daysActive}
+DAYS REMAINING: ${daysRemaining}
+CURRENT PROGRESS: ${task.progress}%
+LAST UPDATE: ${lastUpdate ? `${lastUpdate.note || 'No note'} (${new Date(lastUpdate.date).toLocaleDateString()})` : 'No updates yet'}
+
+Generate a short check-in message (1-2 sentences) that:
+- If no updates: Gently ask how things are going
+- If behind schedule: Offer quick help or suggest simplifying
+- If on track: Encourage and ask about blockers
+- If close to deadline: Create urgency but be supportive
+
+Sound like a friend who's invested in their success, not a nagging reminder.`;
+
+      let checkInMessage = `Hey, how's "${task.title}" going? Any blockers I can help think through?`;
+      try {
+        checkInMessage = await callGemini(checkInPrompt, "You are a friendly AI co-founder.");
+        checkInMessage = checkInMessage.trim().replace(/^["']|["']$/g, '');
+      } catch (e) {
+        console.log('Using fallback check-in');
+      }
+      
+      followups.push({
+        taskId: task.taskId,
+        taskTitle: task.title,
+        category: task.category,
+        progress: task.progress,
+        daysRemaining,
+        message: checkInMessage,
+        isOverdue: daysRemaining < 0,
+        isCritical: daysRemaining <= 3 && task.progress < 70
+      });
+      
+      // Update nextFollowup to tomorrow
+      await gtmTasksCollection.updateOne(
+        { taskId: task.taskId },
+        { $set: { nextFollowup: new Date(Date.now() + 24 * 60 * 60 * 1000) } }
+      );
+    }
+    
+    res.json({ success: true, followups });
+    
+  } catch (error) {
+    console.error('Error getting followups:', error);
+    res.status(500).json({ error: 'Failed to get followups' });
+  }
+});
+
+// Add user-created H3 (Kill) task
+app.post('/api/gtm/tasks/h3', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { title, description, reason, reversibility } = req.body;
+    
+    const taskId = `h3_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    const task = {
+      taskId,
+      userId,
+      taskType: 'H3',
+      category: 'kill',
+      title,
+      description,
+      reason,
+      reversibility,
+      status: 'active',
+      isUserCreated: true,
+      startDate: new Date(),
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+    
+    await gtmTasksCollection.insertOne(task);
+    
+    res.json({
+      success: true,
+      task,
+      message: `Added "${title}" to your Kill list. Remember: Killing the right things is just as important as doing the right things.`
+    });
+    
+  } catch (error) {
+    console.error('Error adding H3 task:', error);
+    res.status(500).json({ error: 'Failed to add task' });
+  }
+});
+
+// Get partner suggestions based on location and business type
+app.post('/api/gtm/partners/suggest', authenticateToken, async (req, res) => {
+  try {
+    const { location, businessType, targetPartnerCount, currentPartners } = req.body;
+    
+    const partnerPrompt = `You are a GTM strategist for Indian startups. Suggest specific partners for this business:
+
+BUSINESS TYPE: ${businessType}
+LOCATION: ${location}
+TARGET: Sign up ${targetPartnerCount || 20} partners
+CURRENT PARTNERS: ${currentPartners || 'None yet'}
+
+For a ${businessType} business in ${location}, provide:
+
+1. TOP 10 SPECIFIC PARTNER SUGGESTIONS:
+   - For restaurants: Suggest actual restaurant types/cuisines popular in ${location}
+   - For e-commerce: Suggest supplier/brand categories
+   - For services: Suggest complementary service providers
+
+2. WHERE TO FIND THEM:
+   - Specific online platforms
+   - Offline locations in ${location}
+   - Community groups/associations
+
+3. OUTREACH STRATEGY:
+   - Best approach for first contact
+   - Value proposition for partners
+   - Common objections and how to handle
+
+Return as JSON:
+{
+  "partnerSuggestions": [
+    {"type": "Partner type", "examples": ["Example 1", "Example 2"], "why": "Why good fit", "whereToFind": "Where to find them"}
+  ],
+  "outreachPlatforms": [
+    {"platform": "Platform name", "approach": "How to use it"}
+  ],
+  "outreachStrategy": {
+    "firstContact": "How to approach",
+    "valueProposition": "What you offer them",
+    "objectionsHandling": [{"objection": "Common objection", "response": "How to handle"}]
+  },
+  "weeklyTargets": {
+    "week1": "Target and focus",
+    "week2": "Target and focus",
+    "week3": "Target and focus",
+    "week4": "Target and focus"
+  }
+}`;
+
+    let suggestions = null;
+    try {
+      const aiResponse = await callGemini(partnerPrompt, "You are an expert in Indian B2B partnerships.");
+      const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        suggestions = JSON.parse(jsonMatch[0]);
+      }
+    } catch (e) {
+      console.log('Partner suggestion AI error:', e.message);
+    }
+    
+    if (!suggestions) {
+      suggestions = {
+        partnerSuggestions: [
+          { type: "Local popular restaurants", examples: ["Biryani places", "South Indian restaurants"], why: "High volume, regular customers", whereToFind: "Google Maps, Zomato" },
+          { type: "Cloud kitchens", examples: ["Rebel Foods brands", "Local cloud kitchens"], why: "Delivery-focused, tech-savvy", whereToFind: "LinkedIn, direct outreach" }
+        ],
+        outreachPlatforms: [
+          { platform: "LinkedIn", approach: "Connect with restaurant owners/managers" },
+          { platform: "In-person visits", approach: "Visit during off-peak hours with a one-pager" }
+        ],
+        outreachStrategy: {
+          firstContact: "Lead with how you'll bring them more orders, not your app features",
+          valueProposition: "More orders with zero additional marketing cost",
+          objectionsHandling: [
+            { objection: "Already on Zomato/Swiggy", response: "We complement, not compete - different customer segment" }
+          ]
+        },
+        weeklyTargets: {
+          week1: "Identify 30 potential partners, contact 15",
+          week2: "Follow up, aim for 5 signed",
+          week3: "Onboard first 5, identify next 20",
+          week4: "Scale to 15-20 total partners"
+        }
+      };
+    }
+    
+    res.json({ success: true, suggestions });
+    
+  } catch (error) {
+    console.error('Error getting partner suggestions:', error);
+    res.status(500).json({ error: 'Failed to get suggestions' });
+  }
+});
+
+// Get CAC (Customer Acquisition Cost) strategy
+app.post('/api/gtm/cac/strategy', authenticateToken, async (req, res) => {
+  try {
+    const { businessType, location, budget, targetCustomers, currentChannels } = req.body;
+    
+    const cacPrompt = `You are a growth marketing expert for Indian startups. Create a detailed CAC strategy:
+
+BUSINESS: ${businessType}
+LOCATION: ${location}
+MONTHLY BUDGET: ₹${budget || '50000'}
+TARGET CUSTOMERS: ${targetCustomers || '100'} per month
+CURRENT CHANNELS: ${currentChannels || 'None specified'}
+
+Create a specific, actionable CAC strategy for the Indian market:
+
+Return as JSON:
+{
+  "channelBreakdown": [
+    {
+      "channel": "Channel name",
+      "budgetPercent": 30,
+      "budgetAmount": "₹15,000",
+      "expectedLeads": 50,
+      "expectedCustomers": 15,
+      "cac": "₹1,000",
+      "tactics": ["Specific tactic 1", "Specific tactic 2"],
+      "toolsNeeded": ["Tool 1", "Tool 2"],
+      "weeklyActions": ["Action 1", "Action 2"]
+    }
+  ],
+  "overallMetrics": {
+    "blendedCAC": "₹X",
+    "bestChannel": "Channel name",
+    "worstChannel": "Channel name",
+    "ltv_cac_ratio": "X:1"
+  },
+  "optimizationTips": [
+    "Tip 1",
+    "Tip 2"
+  ],
+  "weeklyCalendar": {
+    "monday": "Focus area",
+    "tuesday": "Focus area",
+    "wednesday": "Focus area",
+    "thursday": "Focus area",
+    "friday": "Focus area"
+  },
+  "redFlags": [
+    "Warning sign to watch for"
+  ]
+}`;
+
+    let cacStrategy = null;
+    try {
+      const aiResponse = await callGemini(cacPrompt, "You are an expert in Indian digital marketing and growth.");
+      const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        cacStrategy = JSON.parse(jsonMatch[0]);
+      }
+    } catch (e) {
+      console.log('CAC strategy AI error:', e.message);
+    }
+    
+    if (!cacStrategy) {
+      cacStrategy = {
+        channelBreakdown: [
+          {
+            channel: "Instagram/Facebook Ads",
+            budgetPercent: 40,
+            budgetAmount: "₹20,000",
+            expectedLeads: 200,
+            expectedCustomers: 40,
+            cac: "₹500",
+            tactics: ["Retargeting website visitors", "Lookalike audiences from best customers"],
+            toolsNeeded: ["Meta Business Suite", "Pixel installed"],
+            weeklyActions: ["Create 3 ad creatives", "Test 2 audiences", "Optimize daily"]
+          },
+          {
+            channel: "WhatsApp Marketing",
+            budgetPercent: 20,
+            budgetAmount: "₹10,000",
+            expectedLeads: 100,
+            expectedCustomers: 25,
+            cac: "₹400",
+            tactics: ["Broadcast lists for offers", "Click-to-WhatsApp ads"],
+            toolsNeeded: ["WhatsApp Business API", "Wati or similar"],
+            weeklyActions: ["Send 2 broadcasts", "Respond within 5 mins"]
+          }
+        ],
+        overallMetrics: {
+          blendedCAC: "₹500",
+          bestChannel: "WhatsApp Marketing",
+          worstChannel: "Google Ads (initially)",
+          ltv_cac_ratio: "3:1 target"
+        },
+        optimizationTips: [
+          "Start with lowest CAC channel, scale what works",
+          "Track every channel separately with UTM parameters"
+        ],
+        weeklyCalendar: {
+          monday: "Review last week metrics, plan creatives",
+          tuesday: "Launch new campaigns",
+          wednesday: "Optimize bids and audiences",
+          thursday: "Content creation for next week",
+          friday: "Analysis and reporting"
+        },
+        redFlags: [
+          "CAC > 50% of first order value",
+          "Conversion rate dropping below 2%"
+        ]
+      };
+    }
+    
+    res.json({ success: true, strategy: cacStrategy });
+    
+  } catch (error) {
+    console.error('Error getting CAC strategy:', error);
+    res.status(500).json({ error: 'Failed to get CAC strategy' });
+  }
+});
+
+// ============================================
+// FOUNDER SYNOPSIS ROUTE
+// ============================================
+
+// Generate Founder Synopsis
+app.post('/api/founder/synopsis', authenticateToken, async (req, res) => {
+  try {
+    const { ddqResponses, companyData, recentActivity } = req.body;
+    
+    const synopsisPrompt = `As a strategic advisor, create a comprehensive founder synopsis based on this data:
+
+COMPANY: ${companyData?.name || 'Startup'}
+INDUSTRY: ${companyData?.industry || 'Technology'}
+STAGE: ${companyData?.stage || 'Early-stage'}
+
+FOUNDER DATA FROM DDQ:
+${JSON.stringify(ddqResponses || {}, null, 2)}
+
+RECENT ACTIVITY:
+${JSON.stringify(recentActivity || {}, null, 2)}
+
+Generate a founder synopsis with:
+1. Current State Summary (2-3 sentences)
+2. Key Strengths (3 points)
+3. Growth Areas (3 points)
+4. Immediate Focus (what to prioritize this week)
+5. 30-Day Vision (what success looks like)
+
+Format as JSON:
+{
+  "currentState": "Summary text",
+  "strengths": ["strength1", "strength2", "strength3"],
+  "growthAreas": ["area1", "area2", "area3"],
+  "immediateFocus": "What to focus on",
+  "thirtyDayVision": "Vision statement",
+  "founderType": "Visionary/Executor/Builder/Strategist",
+  "confidenceScore": 75
+}`;
+
+    const result = await geminiModel.generateContent(synopsisPrompt);
+    const responseText = result.response.text();
+    
+    let synopsis;
+    try {
+      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        synopsis = JSON.parse(jsonMatch[0]);
+      } else {
+        throw new Error('No JSON found');
+      }
+    } catch (parseError) {
+      synopsis = {
+        currentState: "Building a promising venture with strong foundations.",
+        strengths: ["Clear vision", "Domain expertise", "Adaptability"],
+        growthAreas: ["Team building", "Market expansion", "Process optimization"],
+        immediateFocus: "Focus on your most impactful metric this week.",
+        thirtyDayVision: "Achieve meaningful progress on your core objectives.",
+        founderType: "Builder",
+        confidenceScore: 70
+      };
+    }
+    
+    res.json({
+      success: true,
+      synopsis,
+      generatedAt: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error generating synopsis:', error);
+    res.status(500).json({ error: 'Failed to generate synopsis' });
   }
 });
 

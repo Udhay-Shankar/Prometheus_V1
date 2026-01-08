@@ -3,12 +3,11 @@
 	import { goto } from '$app/navigation';
 	import { writable } from 'svelte/store';
 	import confetti from 'canvas-confetti';
-	import { env } from '$env/dynamic/public';
 
 	// API Configuration - use relative URLs in production (same domain)
 	const API_URL = typeof window !== 'undefined' && window.location.hostname !== 'localhost' 
 		? '' // Use relative URLs in production
-		: (env.PUBLIC_VITE_API_URL || import.meta.env.VITE_API_URL || 'http://localhost:3001');
+		: (import.meta.env.VITE_API_URL || 'http://localhost:3001');
 
 	let user: any = null;
 	let activeTab = 'overview';
@@ -116,6 +115,231 @@
 		gtmTodoItems = gtmTodoItems.filter(item => item.id !== id);
 	}
 	
+	// Dynamic GTM Strategy state
+	let gtmStrategy: any = null;
+	let gtmLoading = false;
+	let gtmError = '';
+	let activeGtmSection = 'overview'; // 'overview' | 'market' | 'positioning' | 'pricing' | 'distribution' | 'marketing' | 'launch' | 'metrics' | 'execution'
+	let gtmHypothesisStatuses: Record<string, string> = {}; // Track hypothesis status locally
+	
+	// GTM Task Tracking State
+	let gtmTasks: any[] = [];
+	let gtmTasksLoading = false;
+	let gtmFollowups: any[] = [];
+	let showFollowupModal = false;
+	let activeFollowup: any = null;
+	let taskProgressInput = 0;
+	let taskNoteInput = '';
+	let showH3Modal = false;
+	let h3Input = { title: '', description: '', reason: '', reversibility: '' };
+	let showTaskStartModal = false;
+	let taskToStart: any = null;
+	
+	// Load GTM Tasks
+	async function loadGTMTasks() {
+		try {
+			const token = localStorage.getItem('accessToken');
+			if (!token) return;
+			
+			const response = await fetch(`${API_URL}/api/gtm/tasks?status=active`, {
+				headers: { 'Authorization': `Bearer ${token}` }
+			});
+			
+			if (response.ok) {
+				const data = await response.json();
+				gtmTasks = data.tasks || [];
+			}
+		} catch (e) {
+			console.error('Failed to load GTM tasks:', e);
+		}
+	}
+	
+	// Load AI Follow-ups
+	async function loadGTMFollowups() {
+		try {
+			const token = localStorage.getItem('accessToken');
+			if (!token) return;
+			
+			const response = await fetch(`${API_URL}/api/gtm/tasks/followups`, {
+				headers: { 'Authorization': `Bearer ${token}` }
+			});
+			
+			if (response.ok) {
+				const data = await response.json();
+				gtmFollowups = data.followups || [];
+				if (gtmFollowups.length > 0) {
+					showFollowupModal = true;
+					activeFollowup = gtmFollowups[0];
+				}
+			}
+		} catch (e) {
+			console.error('Failed to load followups:', e);
+		}
+	}
+	
+	// Start tracking a task
+	async function startGTMTask(taskType: string, category: string, recommendation: any) {
+		try {
+			const token = localStorage.getItem('accessToken');
+			if (!token) return;
+			
+			const response = await fetch(`${API_URL}/api/gtm/tasks/start`, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					'Authorization': `Bearer ${token}`
+				},
+				body: JSON.stringify({
+					taskType,
+					category,
+					title: recommendation.title || recommendation.what,
+					description: recommendation.description || recommendation.evidence,
+					targetMetric: recommendation.targetMetric,
+					targetValue: recommendation.targetValue,
+					originalRecommendation: recommendation
+				})
+			});
+			
+			if (response.ok) {
+				const data = await response.json();
+				gtmTasks = [...gtmTasks, data.task];
+				alert(data.welcomeMessage || 'Task started! Check back tomorrow for AI follow-up.');
+				showTaskStartModal = false;
+			}
+		} catch (e) {
+			console.error('Failed to start task:', e);
+			alert('Failed to start task. Please try again.');
+		}
+	}
+	
+	// Update task progress
+	async function updateTaskProgress(taskId: string, progress: number, note: string) {
+		try {
+			const token = localStorage.getItem('accessToken');
+			if (!token) return;
+			
+			const response = await fetch(`${API_URL}/api/gtm/tasks/${taskId}/update`, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					'Authorization': `Bearer ${token}`
+				},
+				body: JSON.stringify({ progress, note })
+			});
+			
+			if (response.ok) {
+				const data = await response.json();
+				// Update local task
+				gtmTasks = gtmTasks.map(t => t.taskId === taskId ? { ...t, progress } : t);
+				// Show AI response
+				if (data.aiResponse) {
+					alert(`AI Co-founder: ${data.aiResponse}`);
+				}
+				// Close modal
+				showFollowupModal = false;
+				activeFollowup = null;
+				taskProgressInput = 0;
+				taskNoteInput = '';
+			}
+		} catch (e) {
+			console.error('Failed to update task:', e);
+		}
+	}
+	
+	// Add H3 (Kill) task
+	async function addH3Task() {
+		try {
+			const token = localStorage.getItem('accessToken');
+			if (!token) return;
+			
+			const response = await fetch(`${API_URL}/api/gtm/tasks/h3`, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					'Authorization': `Bearer ${token}`
+				},
+				body: JSON.stringify(h3Input)
+			});
+			
+			if (response.ok) {
+				const data = await response.json();
+				gtmTasks = [...gtmTasks, data.task];
+				showH3Modal = false;
+				h3Input = { title: '', description: '', reason: '', reversibility: '' };
+				alert(data.message || 'Added to your Kill list!');
+			}
+		} catch (e) {
+			console.error('Failed to add H3:', e);
+		}
+	}
+	
+	// Generate GTM Strategy
+	async function generateGTMStrategy() {
+		gtmLoading = true;
+		gtmError = '';
+		
+		try {
+			const token = localStorage.getItem('accessToken');
+			if (!token) throw new Error('Not authenticated');
+			
+			const response = await fetch(`${API_URL}/api/gtm/generate`, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					'Authorization': `Bearer ${token}`
+				},
+				body: JSON.stringify({
+					ddqResponses,
+					valuation,
+					swotAnalysis
+				})
+			});
+			
+			if (!response.ok) {
+				const errorData = await response.json();
+				throw new Error(errorData.error || 'Failed to generate GTM strategy');
+			}
+			
+			const data = await response.json();
+			gtmStrategy = data.strategy;
+			console.log('✅ GTM Strategy generated:', gtmStrategy);
+			
+		} catch (error: any) {
+			console.error('GTM generation error:', error);
+			gtmError = error.message || 'Failed to generate GTM strategy';
+		} finally {
+			gtmLoading = false;
+		}
+	}
+	
+	// Load saved GTM Strategy
+	async function loadGTMStrategy() {
+		try {
+			const token = localStorage.getItem('accessToken');
+			if (!token) return;
+			
+			const response = await fetch(`${API_URL}/api/gtm/latest`, {
+				headers: {
+					'Authorization': `Bearer ${token}`
+				}
+			});
+			
+			if (response.ok) {
+				const data = await response.json();
+				gtmStrategy = data.strategy;
+				console.log('✅ GTM Strategy loaded from cache');
+			}
+		} catch (error) {
+			console.log('No cached GTM strategy found');
+		}
+	}
+	
+	// Update hypothesis status locally
+	function updateHypothesisStatus(hypothesisId: string, newStatus: string) {
+		gtmHypothesisStatuses[hypothesisId] = newStatus;
+		gtmHypothesisStatuses = { ...gtmHypothesisStatuses };
+	}
+	
 	// Frame Info Modal state
 	let showFrameInfo = false;
 	let activeFrameInfo: { title: string; description: string; calculation?: string } | null = null;
@@ -201,8 +425,31 @@
 			title: 'Industry News',
 			description: 'Curated news and updates relevant to your business category and market. Stay informed about industry trends and developments.',
 			calculation: 'Aggregated from various news sources and filtered based on your business category keywords. Includes startup ecosystem news, funding announcements, and market trends.'
+		},
+		'simulation': {
+			title: 'Decision Simulation',
+			description: 'Simulate the impact of a decision BEFORE you make it. Input a scenario and see projected outcomes across multiple dimensions.',
+			calculation: 'Uses your current metrics as baseline, then models the decision impact on: runway, growth rate, valuation perception, team capacity, and market position. Shows confidence intervals, not false precision.'
 		}
 	};
+	
+	// Decision Simulation state
+	let simulationInput = '';
+	let simulationResult: {
+		scenario: string;
+		runwayImpact: { value: string; direction: 'positive' | 'negative' | 'neutral' };
+		growthImpact: { value: string; direction: 'positive' | 'negative' | 'neutral' };
+		valuationImpact: { value: string; direction: 'positive' | 'negative' | 'neutral' };
+		riskLevel: 'low' | 'medium' | 'high';
+		recommendation: string;
+		confidence: number;
+		summary?: string;
+		bestCase?: { description: string; metrics: string[]; timeline: string };
+		worstCase?: { description: string; risks: string[]; mitigation: string[] };
+		nextSteps?: string[];
+		alternativeApproaches?: { approach: string; tradeoff: string }[];
+	} | null = null;
+	let simulationLoading = false;
 	
 	// Function to show frame info modal
 	function showInfo(frameKey: string) {
@@ -331,17 +578,61 @@
 		}
 	}
 
-	// Get persona-based suggested questions
+	// Get persona-based suggested questions - ENHANCED for founder objectives
 	function getAdvisorQuestions(): Array<{question: string, icon: string, category: string}> {
 		const stage = ddqResponses[5] || 'Idea';
 		const hasRevenue = ddqResponses[12] === 'Yes';
-		const challenge = ddqResponses[19] || 'Customer Acquisition';
+		const challenges = ddqResponses[19] || [];
 		const productName = ddqResponses[1] || 'your product';
+		const sixMonthGoal = ddqResponses[21] || '';
+		const customerCount = Number(ddqResponses[15] || 0);
+		const monthlyRevenue = Number(ddqResponses[13] || 0);
 		
-		// Pre-Revenue / Idea Stage Questions
+		// Challenge-specific questions (highest priority)
+		const primaryChallenge = Array.isArray(challenges) ? challenges[0] : challenges;
+		
+		const challengeQuestions: Record<string, Array<{question: string, icon: string, category: string}>> = {
+			'Customers': [
+				{ question: `My biggest challenge is getting customers. What's the fastest path to my first 10 paying customers for ${productName}?`, icon: 'group_add', category: 'Acquisition' },
+				{ question: 'Should I focus on inbound marketing or outbound sales given my stage?', icon: 'campaign', category: 'Strategy' },
+				{ question: 'How do I identify my ideal customer profile (ICP) with limited data?', icon: 'person_search', category: 'Discovery' },
+				{ question: 'What customer acquisition channel should I double down on RIGHT NOW?', icon: 'trending_up', category: 'Growth' }
+			],
+			'Funding': [
+				{ question: 'I need funding but investors want traction. How do I break this chicken-and-egg problem?', icon: 'account_balance', category: 'Funding' },
+				{ question: 'What metrics do I need before approaching VCs vs Angels?', icon: 'analytics', category: 'Metrics' },
+				{ question: 'Should I bootstrap more or raise now? What are the tradeoffs?', icon: 'balance', category: 'Strategy' },
+				{ question: 'How do I extend runway while waiting for the right funding opportunity?', icon: 'savings', category: 'Operations' }
+			],
+			'Product': [
+				{ question: `Users aren't engaging with ${productName}. How do I diagnose the real problem?`, icon: 'bug_report', category: 'Product' },
+				{ question: 'Should I build more features or fix what I have? How do I decide?', icon: 'build', category: 'Development' },
+				{ question: 'How do I know if I have product-market fit or just early adopters?', icon: 'science', category: 'Validation' },
+				{ question: "What's the MVP I should have launched vs what I actually built?", icon: 'rocket_launch', category: 'Strategy' }
+			],
+			'Team': [
+				{ question: 'I\'m overwhelmed doing everything. What should I hire for first?', icon: 'groups', category: 'Hiring' },
+				{ question: 'How do I attract good talent when I can\'t compete on salary?', icon: 'person_add', category: 'Recruitment' },
+				{ question: 'Should I hire generalists or specialists at my stage?', icon: 'diversity_3', category: 'Team' },
+				{ question: 'How do I manage a team while also doing founder work?', icon: 'manage_accounts', category: 'Leadership' }
+			],
+			'Competition': [
+				{ question: 'A well-funded competitor just launched. How should I respond?', icon: 'sports_martial_arts', category: 'Competition' },
+				{ question: 'How do I differentiate when my product looks similar to others?', icon: 'star', category: 'Positioning' },
+				{ question: 'Should I compete head-on or find a niche? What\'s my unfair advantage?', icon: 'strategy', category: 'Strategy' },
+				{ question: 'How do I win customers away from established players?', icon: 'emoji_events', category: 'Sales' }
+			]
+		};
+		
+		// Return challenge-specific questions if available
+		if (primaryChallenge && challengeQuestions[primaryChallenge]) {
+			return challengeQuestions[primaryChallenge];
+		}
+		
+		// Pre-Revenue / Idea Stage Questions (fallback)
 		if (!hasRevenue || stage === 'Idea' || stage === 'MVP') {
 			return [
-				{ question: `How do I validate if ${productName} has product-market fit?`, icon: 'science', category: 'Validation' },
+				{ question: `I'm pre-revenue with ${productName}. What should I focus on this week?`, icon: 'science', category: 'Validation' },
 				{ question: 'What metrics should I track before my first paying customer?', icon: 'analytics', category: 'Metrics' },
 				{ question: 'How should I price my product for early adopters?', icon: 'payments', category: 'Pricing' },
 				{ question: 'What are the biggest mistakes founders make at my stage?', icon: 'warning', category: 'Strategy' }
@@ -349,9 +640,9 @@
 		}
 		
 		// Early Traction (< 20 customers)
-		if (Number(ddqResponses[15] || 0) < 20) {
+		if (customerCount < 20) {
 			return [
-				{ question: 'How do I convert beta users to paying customers?', icon: 'group_add', category: 'Conversion' },
+				{ question: `I have ${customerCount} customers. How do I get to 20 in the next 30 days?`, icon: 'group_add', category: 'Conversion' },
 				{ question: 'What should my customer acquisition strategy be right now?', icon: 'campaign', category: 'Growth' },
 				{ question: 'When is the right time to start fundraising?', icon: 'account_balance', category: 'Funding' },
 				{ question: 'How do I build a repeatable sales process?', icon: 'trending_up', category: 'Sales' }
@@ -360,7 +651,7 @@
 		
 		// Scaling Stage
 		return [
-			{ question: 'How do I maintain growth while improving unit economics?', icon: 'balance', category: 'Growth' },
+			{ question: `Revenue is ₹${(monthlyRevenue/1000).toFixed(0)}K/mo. How do I 3x in 6 months?`, icon: 'balance', category: 'Growth' },
 			{ question: 'What hiring decisions should I prioritize next?', icon: 'groups', category: 'Team' },
 			{ question: 'How should I structure my next funding round?', icon: 'payments', category: 'Funding' },
 			{ question: 'What expansion opportunities should I explore?', icon: 'explore', category: 'Strategy' }
@@ -528,17 +819,50 @@ What would you like to discuss?`,
 		progress: 'red' | 'amber' | 'green' | null;
 		createdAt: Date;
 		rejectionReason?: string;
+		source?: 'gtm' | 'goal' | 'custom'; // Track where action came from
 	}> = [];
 	let backlogItems: Array<{
 		id: string;
 		text: string;
 		progress: 'red' | 'amber' | 'green';
 		movedToBacklogAt: Date;
+		source?: 'gtm' | 'goal' | 'custom';
 	}> = [];
 	let actionsLoading = false;
 	let showAddActionForm = false;
 	let newActionText = '';
 	let addingAction = false;
+	
+	// Carousel state for Top Actions
+	let actionCarouselTab: 'pending' | 'bucket' | 'backlog' = 'pending';
+	let currentPendingIndex = 0;
+	let currentBucketIndex = 0;
+	let currentBacklogIndex = 0;
+	
+	// Computed action lists
+	$: pendingActions = dailyActions.filter(a => a.status === 'pending');
+	$: bucketActions = dailyActions.filter(a => a.status === 'accepted');
+	
+	// Carousel navigation functions
+	function nextAction(tab: string) {
+		if (tab === 'pending' && pendingActions.length > 0) {
+			currentPendingIndex = (currentPendingIndex + 1) % pendingActions.length;
+		} else if (tab === 'bucket' && bucketActions.length > 0) {
+			currentBucketIndex = (currentBucketIndex + 1) % bucketActions.length;
+		} else if (tab === 'backlog' && backlogItems.length > 0) {
+			currentBacklogIndex = (currentBacklogIndex + 1) % backlogItems.length;
+		}
+	}
+	
+	function prevAction(tab: string) {
+		if (tab === 'pending' && pendingActions.length > 0) {
+			currentPendingIndex = currentPendingIndex === 0 ? pendingActions.length - 1 : currentPendingIndex - 1;
+		} else if (tab === 'bucket' && bucketActions.length > 0) {
+			currentBucketIndex = currentBucketIndex === 0 ? bucketActions.length - 1 : currentBucketIndex - 1;
+		} else if (tab === 'backlog' && backlogItems.length > 0) {
+			currentBacklogIndex = currentBacklogIndex === 0 ? backlogItems.length - 1 : currentBacklogIndex - 1;
+		}
+	}
 
 	// Function to add custom action to dailyActions via API
 	async function addCustomAction() {
@@ -2753,7 +3077,7 @@ What would you like to discuss?`,
 			return;
 		}
 		
-		// Add user message
+		// Add user message immediately so user sees it
 		chatMessages = [...chatMessages, {
 			role: 'user',
 			content: userMessage,
@@ -2761,12 +3085,19 @@ What would you like to discuss?`,
 		}];
 
 		chatLoading = true;
+		
+		// Scroll to show user message
+		setTimeout(() => {
+			if (chatContainer) {
+				chatContainer.scrollTop = chatContainer.scrollHeight;
+			}
+		}, 50);
 
 		try {
 			const token = localStorage.getItem('accessToken');
 			if (!token) {
 				console.error('No access token found');
-				return;
+				throw new Error('Not authenticated - please log in again');
 			}
 
 			// Build context from DDQ responses and analyses
@@ -2854,6 +3185,18 @@ What would you like to discuss?`,
 						growthRate: c.growthRate
 					})),
 					summary: competitorDataSummary
+				},
+				// Top Actions (Daily Actions) - strategic recommendations for the business
+				topActions: dailyActions.map(action => ({
+					text: action.text,
+					completed: action.completed || false
+				})),
+				// InFinity sync data if available
+				infinityStats: {
+					totalRevenue: window.infinityData?.totalRevenue || null,
+					monthlyRevenue: window.infinityData?.monthlyRevenue || null,
+					runway: window.infinityData?.runway || null,
+					status: window.infinityData?.status || 'not synced'
 				}
 			};
 
@@ -2901,24 +3244,43 @@ What would you like to discuss?`,
 		} catch (error: any) {
 			console.error('Error sending chat message:', error);
 			
-			// Provide more specific error messages
-			let errorMessage = 'Sorry, I encountered an error. Please try again.';
+			// Generate a helpful fallback response based on the question
+			const userMsg = chatMessages[chatMessages.length - 1]?.content?.toLowerCase() || '';
+			let fallbackResponse = '';
 			
-			if (error.name === 'AbortError') {
-				errorMessage = 'The request timed out. The AI might be busy - please try again in a moment.';
-			} else if (error.message?.includes('Rate limit')) {
-				errorMessage = error.message;
-			} else if (error.message?.includes('timeout')) {
-				errorMessage = 'The AI is taking too long to respond. Please try a shorter question or try again.';
-			} else if (error.message?.includes('401') || error.message?.includes('403')) {
-				errorMessage = 'Your session has expired. Please refresh the page and log in again.';
+			// Detect question type and provide contextual fallback
+			if (userMsg.includes('valuation') || userMsg.includes('worth') || userMsg.includes('value')) {
+				const val = valuation ? `₹${(valuation.finalValuationINR / 10000000).toFixed(2)} Cr` : 'not yet calculated (complete the assessment first)';
+				fallbackResponse = `Based on your assessment, your company has an estimated valuation of ${val}. This uses the Berkus Method (30%) and Scorecard Method (70%), considering factors like team strength, product stage, market opportunity, and traction. Would you like me to explain any specific factor?`;
+			} else if (userMsg.includes('competitor') || userMsg.includes('competition')) {
+				const compCount = (competitors?.length || 0) + (verifiedCompetitors?.length || 0);
+				fallbackResponse = `I've identified ${compCount} competitors in your space. Check the "Marketing Trends" tab for detailed competitor analysis including their valuations, funding, and market positioning. What specific competitor insight would you like?`;
+			} else if (userMsg.includes('funding') || userMsg.includes('raise') || userMsg.includes('investor')) {
+				fallbackResponse = `For funding advice, check the "Government Schemes" tab for grants and programs matching your profile. Key considerations: 1) Your stage determines investor type (Angels for early, VCs for growth), 2) Your valuation helps determine equity dilution, 3) Have clear use-of-funds and milestones ready.`;
+			} else if (userMsg.includes('growth') || userMsg.includes('scale') || userMsg.includes('expand')) {
+				const stage = ddqResponses[5] || 'current stage';
+				fallbackResponse = `For growth at your ${stage}, focus on: 1) Customer acquisition cost optimization, 2) Retention and reducing churn, 3) Strategic partnerships, 4) Team expansion in key areas. Check the "GTM" tab for actionable growth tasks.`;
+			} else if (userMsg.includes('strength') || userMsg.includes('weakness') || userMsg.includes('swot')) {
+				fallbackResponse = `Check the "Introspection" tab for your full SWOT analysis. It includes: Strengths (your competitive advantages), Weaknesses (areas to improve), Opportunities (market gaps), and Threats (risks to address). Each comes with actionable recommendations.`;
+			} else if (userMsg.includes('help') || userMsg.includes('what can you')) {
+				fallbackResponse = `I can help you with:\n\n• **Valuation** - Understanding your company worth\n• **Competitors** - Market positioning analysis\n• **Funding** - Investment and grants guidance\n• **Growth** - Scaling strategies\n• **SWOT** - Strengths, weaknesses, opportunities\n\nTry asking: "What's my valuation?" or "Who are my main competitors?"`;
+			} else {
+				// Generic fallback
+				fallbackResponse = `I'm having trouble connecting to my AI backend right now. In the meantime, you can:\n\n• Check the **Introspection** tab for SWOT analysis\n• View **Marketing Trends** for competitor data\n• Explore **Government Schemes** for funding options\n• Use **GTM** for action items\n\nPlease try your question again in a moment!`;
 			}
 			
 			chatMessages = [...chatMessages, {
 				role: 'assistant',
-				content: errorMessage,
+				content: fallbackResponse,
 				timestamp: new Date()
 			}];
+			
+			// Scroll to show response
+			setTimeout(() => {
+				if (chatContainer) {
+					chatContainer.scrollTop = chatContainer.scrollHeight;
+				}
+			}, 100);
 		} finally {
 			chatLoading = false;
 		}
@@ -3154,12 +3516,30 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 	// DAILY ACTIONS FUNCTIONS
 	// =====================================================
 
-	// Generate daily actions based on 6-month goal
+	// Generate daily actions based on 6-month goal + GTM strategy
 	async function generateDailyActions() {
 		actionsLoading = true;
 		try {
 			const token = localStorage.getItem('accessToken');
 			if (!token) return;
+
+			// Extract GTM-specific tasks if available
+			const gtmTasks = [];
+			if (gtmStrategy) {
+				// Get tasks from GTM strategy
+				if (gtmStrategy.ninetyDayPlan?.weeks) {
+					const currentWeekTasks = gtmStrategy.ninetyDayPlan.weeks[0]?.tasks || [];
+					gtmTasks.push(...currentWeekTasks.slice(0, 2).map((task: string) => ({
+						text: task,
+						source: 'gtm'
+					})));
+				} else if (gtmStrategy.marketingStrategy?.tactics) {
+					gtmTasks.push(...gtmStrategy.marketingStrategy.tactics.slice(0, 2).map((t: any) => ({
+						text: t.action || t.tactic || t,
+						source: 'gtm'
+					})));
+				}
+			}
 
 			const response = await fetch(`${API_URL}/api/actions/generate`, {
 				method: 'POST',
@@ -3172,17 +3552,34 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 					productName: ddqResponses[1] || 'Unknown Product',
 					category: ddqResponses[3] || 'Other',
 					stage: ddqResponses[5] || 'Unknown',
-					currentChallenge: ddqResponses[19] || 'General'
+					currentChallenge: ddqResponses[19] || 'General',
+					gtmTasks: gtmTasks, // Pass GTM tasks to include
+					requestCount: 5 - gtmTasks.length // Request remaining goal tasks
 				})
 			});
 
 			if (response.ok) {
 				const data = await response.json();
-				dailyActions = data.actions.map((action: any) => ({
+				// Combine GTM tasks (first 2) + Goal tasks (remaining 3)
+				const goalActions = data.actions.map((action: any) => ({
 					...action,
 					status: action.status || 'pending',
-					progress: action.progress || null
+					progress: action.progress || null,
+					source: action.source || 'goal'
 				}));
+				
+				// Add GTM tasks at the beginning if we have them locally
+				const gtmActions = gtmTasks.map((task: any, i: number) => ({
+					id: `gtm-${Date.now()}-${i}`,
+					text: task.text,
+					status: 'pending' as const,
+					progress: null,
+					source: 'gtm' as const,
+					createdAt: new Date()
+				}));
+				
+				// Combine: 2 GTM + up to 3 goal tasks
+				dailyActions = [...gtmActions.slice(0, 2), ...goalActions.slice(0, 3)];
 			}
 		} catch (error) {
 			console.error('Error generating actions:', error);
@@ -3882,12 +4279,12 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 			<button
 				class="nav-item"
 				class:active={activeTab === 'gtm'}
-				on:click={() => (activeTab = 'gtm')}
-				title="GTM Co-Founder"
+				on:click={() => { activeTab = 'gtm'; loadGTMTasks(); loadGTMFollowups(); }}
+				title="GTM"
 			>
 				<span class="material-symbols-outlined nav-icon">rocket_launch</span>
 				{#if !sidebarMinimized}
-					<span class="nav-text">GTM Co-Founder</span>
+					<span class="nav-text">GTM</span>
 				{/if}
 			</button>
 			<button
@@ -4161,10 +4558,41 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 							{/if}
 						</div>
 
-						<!-- Middle Column: Top Actions -->
-						<div class="home-card actions-card">
-							<div class="home-card-header-row">
-								<h3 class="home-card-title">Top Actions</h3>
+						<!-- Middle + Right: Top Actions Carousel (Merged) -->
+						<div class="home-card actions-carousel-card">
+							<!-- Carousel Tabs -->
+							<div class="carousel-tabs">
+								<button 
+									class="carousel-tab" 
+									class:active={actionCarouselTab === 'pending'}
+									on:click={() => actionCarouselTab = 'pending'}
+								>
+									Top Action
+									{#if pendingActions.length > 0}
+										<span class="tab-count">{pendingActions.length}</span>
+									{/if}
+								</button>
+								<button 
+									class="carousel-tab" 
+									class:active={actionCarouselTab === 'bucket'}
+									on:click={() => actionCarouselTab = 'bucket'}
+								>
+									Action in your bucket
+									{#if bucketActions.length > 0}
+										<span class="tab-count">{bucketActions.length}</span>
+									{/if}
+								</button>
+								<button 
+									class="carousel-tab" 
+									class:active={actionCarouselTab === 'backlog'}
+									on:click={() => actionCarouselTab = 'backlog'}
+								>
+									Backlog
+									{#if backlogItems.length > 0}
+										<span class="tab-count">{backlogItems.length}</span>
+									{/if}
+								</button>
+								<div class="carousel-tab-spacer"></div>
 								<div class="card-header-actions">
 									<button class="add-action-btn" on:click={() => showAddActionForm = !showAddActionForm} title="Add Action">
 										<span class="material-symbols-outlined">{showAddActionForm ? 'close' : 'add'}</span>
@@ -4177,6 +4605,9 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 									</button>
 								</div>
 							</div>
+							
+							<!-- Progress bar under tabs -->
+							<div class="carousel-progress-bar"></div>
 							
 							<!-- Add Action Form -->
 							{#if showAddActionForm}
@@ -4194,68 +4625,173 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 							{/if}
 							
 							{#if actionsLoading}
-								<div class="loading-spinner-small">Loading...</div>
-							{:else if dailyActions.length === 0}
-								<p class="no-actions-text">Click + to add your action items, or complete the assessment for AI-generated actions.</p>
-							{:else}
-								<div class="actions-list">
-									{#each dailyActions as action, index}
-										<div class="action-item" class:rejected={action.status === 'rejected'} class:accepted={action.status === 'accepted'}>
-											<span class="action-letter">{String.fromCharCode(97 + index)}.</span>
-											<span class="action-text" class:strikethrough={action.status === 'rejected'}>
-												{action.text}
-											</span>
-											
-											{#if action.status === 'pending'}
-												<div class="action-buttons">
-													<button class="action-btn accept" on:click={() => acceptAction(action.id)} title="Accept">
-														<span class="material-symbols-outlined">check</span>
-													</button>
-													<button class="action-btn reject" on:click={() => rejectAction(action.id, action.text)} title="Reject">
-														<span class="material-symbols-outlined">close</span>
-													</button>
-												</div>
-											{:else if action.status === 'accepted'}
-												<div class="rag-buttons">
-													<button class="rag-btn red" class:active={action.progress === 'red'} on:click={() => updateActionProgress(action.id, 'red')} title="Not Started"></button>
-													<button class="rag-btn amber" class:active={action.progress === 'amber'} on:click={() => updateActionProgress(action.id, 'amber')} title="In Progress"></button>
-													<button class="rag-btn green" class:active={action.progress === 'green'} on:click={() => updateActionProgress(action.id, 'green')} title="Completed"></button>
-												</div>
-											{/if}
-										</div>
-									{/each}
+								<div class="carousel-loading">
+									<span class="material-symbols-outlined spinning">progress_activity</span>
+									Loading actions...
 								</div>
-							{/if}
-						</div>
-
-						<!-- Right Column: Backlog -->
-						<div class="home-card backlog-card">
-							<div class="home-card-header-row">
-								<h3 class="home-card-title">Backlog</h3>
-								<div class="card-header-actions">
-									<button class="info-btn" on:click={() => showInfo('daily-actions')} title="What is this?">
-										<span class="info-icon">i</span>
-									</button>
-									<button class="daddy-btn" on:click={() => askDaddy('daily-actions')} title="Ask Daddy">
-										<span class="daddy-icon">D</span>
-									</button>
-								</div>
-							</div>
-							{#if backlogItems.length === 0}
-								<p class="no-backlog-text">No pending tasks</p>
 							{:else}
-								<div class="backlog-list">
-									{#each backlogItems.slice(0, 5) as item, index}
-										<div class="backlog-item" title={item.text}>
-											<span class="backlog-letter">{index + 1}.</span>
-											<span class="backlog-text">{item.text.length > 15 ? item.text.substring(0, 15) + '...' : item.text}</span>
-											<div class="rag-buttons small">
-												<button class="rag-btn red" class:active={item.progress === 'red'} on:click={() => updateActionProgress(item.id, 'red')} title="Not Started"></button>
-												<button class="rag-btn amber" class:active={item.progress === 'amber'} on:click={() => updateActionProgress(item.id, 'amber')} title="In Progress"></button>
-												<button class="rag-btn green" class:active={item.progress === 'green'} on:click={() => updateActionProgress(item.id, 'green')} title="Completed"></button>
+								<!-- Carousel Content -->
+								<div class="carousel-content">
+									{#if actionCarouselTab === 'pending'}
+										<!-- Pending Actions (Swipe to Accept/Reject) -->
+										{#if pendingActions.length === 0}
+											<div class="carousel-empty">
+												<span class="material-symbols-outlined">task_alt</span>
+												<p>No pending actions</p>
+												<span class="empty-hint">Complete the assessment or add custom actions</span>
 											</div>
-										</div>
-									{/each}
+										{:else}
+											<div class="carousel-card-container">
+												<button class="carousel-nav prev" on:click={() => prevAction('pending')} disabled={pendingActions.length <= 1}>
+													<span class="nav-arrow">&lt;</span>
+												</button>
+												
+												<div class="carousel-action-card">
+													{#if pendingActions[currentPendingIndex]?.source === 'gtm'}
+														<span class="action-source-badge gtm">GTM</span>
+													{:else if pendingActions[currentPendingIndex]?.source === 'goal'}
+														<span class="action-source-badge goal">6M Goal</span>
+													{/if}
+													<p class="carousel-action-text">{pendingActions[currentPendingIndex]?.text || ''}</p>
+													<span class="carousel-action-index">{currentPendingIndex + 1} of {pendingActions.length}</span>
+												</div>
+												
+												<button class="carousel-nav next" on:click={() => nextAction('pending')} disabled={pendingActions.length <= 1}>
+													<span class="nav-arrow">&gt;</span>
+												</button>
+											</div>
+											
+											<!-- Accept/Reject Buttons -->
+											<div class="carousel-action-buttons">
+												<button 
+													class="carousel-btn reject" 
+													on:click={() => rejectAction(pendingActions[currentPendingIndex].id, pendingActions[currentPendingIndex].text)}
+													title="Reject - Tell Daddy why"
+												>
+													<span class="carousel-btn-icon">✕</span>
+												</button>
+												<button 
+													class="carousel-btn accept" 
+													on:click={() => { acceptAction(pendingActions[currentPendingIndex].id); if (currentPendingIndex >= pendingActions.length - 1) currentPendingIndex = Math.max(0, pendingActions.length - 2); }}
+													title="Accept - Add to bucket"
+												>
+													<span class="carousel-btn-icon">✓</span>
+												</button>
+											</div>
+										{/if}
+									{:else if actionCarouselTab === 'bucket'}
+										<!-- Accepted Actions (In Bucket) -->
+										{#if bucketActions.length === 0}
+											<div class="carousel-empty">
+												<span class="material-symbols-outlined">inbox</span>
+												<p>No actions in bucket yet</p>
+												<span class="empty-hint">Accept actions from Top Action tab</span>
+											</div>
+										{:else}
+											<div class="carousel-card-container">
+												<button class="carousel-nav prev" on:click={() => prevAction('bucket')} disabled={bucketActions.length <= 1}>
+													<span class="nav-arrow">&lt;</span>
+												</button>
+												
+												<div class="carousel-action-card bucket-card">
+													<div class="bucket-checkbox-row">
+														<input 
+															type="checkbox" 
+															class="bucket-checkbox"
+															checked={bucketActions[currentBucketIndex]?.progress === 'green'}
+															on:change={() => updateActionProgress(bucketActions[currentBucketIndex].id, bucketActions[currentBucketIndex].progress === 'green' ? 'red' : 'green')}
+														/>
+														<p class="carousel-action-text">{bucketActions[currentBucketIndex]?.text || ''}</p>
+													</div>
+													<span class="carousel-action-index">{currentBucketIndex + 1} of {bucketActions.length}</span>
+												</div>
+												
+												<button class="carousel-nav next" on:click={() => nextAction('bucket')} disabled={bucketActions.length <= 1}>
+													<span class="nav-arrow">&gt;</span>
+												</button>
+											</div>
+											
+											<!-- RAG Progress Buttons -->
+											<div class="carousel-rag-buttons">
+												<button 
+													class="rag-btn-large red" 
+													class:active={bucketActions[currentBucketIndex]?.progress === 'red'}
+													on:click={() => updateActionProgress(bucketActions[currentBucketIndex].id, 'red')}
+													title="Not Started"
+												>
+													<span class="rag-pentagon"></span>
+												</button>
+												<button 
+													class="rag-btn-large amber" 
+													class:active={bucketActions[currentBucketIndex]?.progress === 'amber'}
+													on:click={() => updateActionProgress(bucketActions[currentBucketIndex].id, 'amber')}
+													title="In Progress"
+												>
+													<span class="rag-pentagon"></span>
+												</button>
+												<button 
+													class="rag-btn-large green" 
+													class:active={bucketActions[currentBucketIndex]?.progress === 'green'}
+													on:click={() => updateActionProgress(bucketActions[currentBucketIndex].id, 'green')}
+													title="Completed"
+												>
+													<span class="rag-pentagon"></span>
+												</button>
+											</div>
+										{/if}
+									{:else if actionCarouselTab === 'backlog'}
+										<!-- Backlog Items -->
+										{#if backlogItems.length === 0}
+											<div class="carousel-empty">
+												<span class="material-symbols-outlined">history</span>
+												<p>No backlog items</p>
+												<span class="empty-hint">Previous tasks will appear here</span>
+											</div>
+										{:else}
+											<div class="carousel-card-container">
+												<button class="carousel-nav prev" on:click={() => prevAction('backlog')} disabled={backlogItems.length <= 1}>
+													<span class="nav-arrow">&lt;</span>
+												</button>
+												
+												<div class="carousel-action-card backlog-card-style">
+													<p class="carousel-action-text">{backlogItems[currentBacklogIndex]?.text || ''}</p>
+													<span class="carousel-action-index">{currentBacklogIndex + 1} of {backlogItems.length}</span>
+												</div>
+												
+												<button class="carousel-nav next" on:click={() => nextAction('backlog')} disabled={backlogItems.length <= 1}>
+													<span class="nav-arrow">&gt;</span>
+												</button>
+											</div>
+											
+											<!-- RAG Progress Buttons -->
+											<div class="carousel-rag-buttons">
+												<button 
+													class="rag-btn-large red" 
+													class:active={backlogItems[currentBacklogIndex]?.progress === 'red'}
+													on:click={() => updateActionProgress(backlogItems[currentBacklogIndex].id, 'red')}
+													title="Not Started"
+												>
+													<span class="rag-pentagon"></span>
+												</button>
+												<button 
+													class="rag-btn-large amber" 
+													class:active={backlogItems[currentBacklogIndex]?.progress === 'amber'}
+													on:click={() => updateActionProgress(backlogItems[currentBacklogIndex].id, 'amber')}
+													title="In Progress"
+												>
+													<span class="rag-pentagon"></span>
+												</button>
+												<button 
+													class="rag-btn-large green" 
+													class:active={backlogItems[currentBacklogIndex]?.progress === 'green'}
+													on:click={() => updateActionProgress(backlogItems[currentBacklogIndex].id, 'green')}
+													title="Completed"
+												>
+													<span class="rag-pentagon"></span>
+												</button>
+											</div>
+										{/if}
+									{/if}
 								</div>
 							{/if}
 						</div>
@@ -4474,6 +5010,7 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 						</div>
 					</div>
 				</div>
+			
 			{:else if activeTab === 'valuation'}
 				{#if valuation}
 					<div class="valuation-section">
@@ -4893,8 +5430,112 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 				{@const customerCount = Number(ddqResponses[15]) || 0}
 				{@const arpc = Number(ddqResponses[16]) || 0}
 				{@const currentPhase = stage === 'Idea' || stage === 'MVP' ? 'Introduction' : stage === 'Beta' || stage === 'Launched' ? 'Growth' : stage === 'Growing' ? 'Acceleration' : 'Maturity'}
+				{@const productName = ddqResponses[1] || 'Your Product'}
 				
 					<div class="strengths-weaknesses-section">
+						<!-- TODAY'S PROBLEM - START HERE -->
+						<div class="minimal-card todays-problem-card">
+							<div class="card-header">
+								<span class="material-symbols-outlined icon-large" style="color: #ef4444;">warning</span>
+								<h2 class="section-title">Start Here: Today's Problem</h2>
+							</div>
+							<p class="section-desc">What's the burning issue RIGHT NOW? Focus all analysis on solving THIS.</p>
+							
+							<div class="todays-problem-content">
+								{#if Array.isArray(challenges) && challenges.length > 0}
+									<div class="primary-challenge-box">
+										<span class="primary-label">Your #1 Challenge:</span>
+										<span class="primary-value">{challenges[0]}</span>
+									</div>
+									
+									<!-- Challenge-specific SWOT Focus -->
+									<div class="challenge-swot-focus">
+										<h4>📊 SWOT Analysis for "{challenges[0]}" Challenge</h4>
+										<div class="challenge-swot-grid">
+											<div class="challenge-swot-item leverage">
+												<span class="csw-header">💪 Leverage (Strengths to Use)</span>
+												{#if swotAnalysis.strengths && swotAnalysis.strengths.length > 0}
+													<p>{swotAnalysis.strengths[0]}</p>
+												{:else}
+													<p>Identify core strengths to tackle this</p>
+												{/if}
+											</div>
+											<div class="challenge-swot-item fix">
+												<span class="csw-header">🔧 Fix (Weakness Causing This)</span>
+												{#if swotAnalysis.weaknesses && swotAnalysis.weaknesses.length > 0}
+													<p>{swotAnalysis.weaknesses.find((w) => w.toLowerCase().includes(challenges[0].toLowerCase().slice(0, 4))) || swotAnalysis.weaknesses[0]}</p>
+												{:else}
+													<p>Identify weakness to address</p>
+												{/if}
+											</div>
+											<div class="challenge-swot-item capture">
+												<span class="csw-header">🎯 Capture (Opportunity)</span>
+												{#if swotAnalysis.opportunities && swotAnalysis.opportunities.length > 0}
+													<p>{swotAnalysis.opportunities[0]}</p>
+												{:else}
+													<p>Identify opportunity to capture</p>
+												{/if}
+											</div>
+											<div class="challenge-swot-item mitigate">
+												<span class="csw-header">🛡️ Mitigate (Threat)</span>
+												{#if swotAnalysis.threats && swotAnalysis.threats.length > 0}
+													<p>{swotAnalysis.threats[0]}</p>
+												{:else}
+													<p>Identify threat to mitigate</p>
+												{/if}
+											</div>
+										</div>
+									</div>
+									
+									<!-- Specific Why for this challenge -->
+									<div class="why-this-matters">
+										<h4>🤔 Why "{challenges[0]}" Matters Right Now</h4>
+										<div class="why-content">
+											{#if challenges[0] === 'Customers'}
+												<p><strong>Revenue depends on it:</strong> Without customers, there's no business. At {stage} stage, every new customer is proof of product-market fit.</p>
+												<p><strong>Your signal:</strong> {customerCount > 0 ? `You have ${customerCount} customers. Can you 2x in 30 days?` : 'Get your first 5 paying customers before anything else.'}</p>
+											{:else if challenges[0] === 'Funding'}
+												<p><strong>Runway is life:</strong> You need capital to execute. But raising too early = bad terms. Raising too late = desperation.</p>
+												<p><strong>Your signal:</strong> {hasRevenue ? 'Revenue is your leverage. Show growth before you ask.' : 'Pre-revenue fundraise is harder. Show traction first.'}</p>
+											{:else if challenges[0] === 'Product'}
+												<p><strong>Product is foundation:</strong> Everything else is amplification. If product doesn't work, marketing won't save it.</p>
+												<p><strong>Your signal:</strong> {stage === 'MVP' || stage === 'Beta' ? 'You\'re building. Focus on 1 feature that users love, not 10 they don\'t.' : 'Iterate based on usage data, not opinions.'}</p>
+											{:else if challenges[0] === 'Team'}
+												<p><strong>Team = execution capacity:</strong> You can only move as fast as your team allows. Wrong hires cost more than slow hires.</p>
+												<p><strong>Your signal:</strong> Team size is {teamSize}. What's the ONE role that would unblock everything?</p>
+											{:else if challenges[0] === 'Competition'}
+												<p><strong>Competition is validation:</strong> If there's competition, there's a market. Differentiate on 1 thing, not 10.</p>
+												<p><strong>Your signal:</strong> What can you do that competitors CAN'T or WON'T?</p>
+											{:else}
+												<p><strong>Focus creates momentum:</strong> Solving one problem well beats spreading thin across many.</p>
+												<p><strong>Your signal:</strong> What's the ONE thing that, if solved, makes everything else easier?</p>
+											{/if}
+										</div>
+									</div>
+									
+									<!-- Other challenges shown smaller -->
+									{#if challenges.length > 1}
+										<div class="secondary-challenges">
+											<span class="secondary-label">Other challenges to address:</span>
+											<div class="secondary-tags">
+												{#each challenges.slice(1) as challenge}
+													<span class="secondary-tag">{challenge}</span>
+												{/each}
+											</div>
+										</div>
+									{/if}
+								{:else}
+									<div class="no-challenges">
+										<p>No specific challenges selected. Go to your Profile and update the DDQ to specify current challenges.</p>
+										<button class="btn-secondary" on:click={() => activeTab = 'profile'}>
+											<span class="material-symbols-outlined">edit</span>
+											Update Challenges
+										</button>
+									</div>
+								{/if}
+							</div>
+						</div>
+						
 						<!-- Introspection Overview -->
 						<div class="actionable-summary-box introspection-overview">
 							<div class="summary-header">
@@ -6826,857 +7467,1455 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 					</div>
 				{/if}
 
-			<!-- GTM Co-Founder Tab -->
+			<!-- GTM Tab - Dynamic Strategy -->
 			{:else if activeTab === 'gtm'}
 				{#if valuation && ddqResponses}
+					{@const productName = ddqResponses[1] || 'Your Product'}
 					{@const stage = ddqResponses[5] || 'Idea'}
 					{@const fundingNeeded = ddqResponses[22] || 'Less than ₹10 Lakhs'}
 					{@const teamSize = Number(ddqResponses[17]) || 1}
-					{@const challenge = ddqResponses[19] || 'Customer Acquisition'}
-					{@const acquisitionChannels = Array.isArray(ddqResponses[20]) ? ddqResponses[20] : (ddqResponses[20] ? [ddqResponses[20]] : [])}
-					{@const acquisitionStrategy = acquisitionChannels.join(', ').toLowerCase()}
 					{@const targetCustomer = ddqResponses[8] || 'Not specified'}
 					{@const monthlyRevenue = Number(ddqResponses[13]) || 0}
 					{@const customerCount = Number(ddqResponses[15]) || 0}
-					{@const runwayMonths = fundingNeeded === 'Less than ₹10 Lakhs' ? 6 : fundingNeeded === '₹10-50 Lakhs' ? 12 : 18}
-					{@const founderHoursPerWeek = teamSize <= 2 ? 15 : teamSize <= 5 ? 10 : 5}
-					{@const gtmStage = !hasRevenue ? 'Pre-Revenue' : customerCount < 20 ? 'Early Traction' : 'Scaling'}
+					{@const runwayMonths = fundingNeeded === 'Less than ₹10 Lakhs' ? 6 : fundingNeeded === '₹10-25 Lakhs' ? 9 : fundingNeeded === '₹25-50 Lakhs' ? 12 : 18}
+					{@const gtmStageLocal = !hasRevenue ? 'Pre-Revenue' : customerCount < 10 ? 'Early Traction' : customerCount < 50 ? 'Growth' : 'Scaling'}
 					{@const currentTraction = hasRevenue ? `₹${monthlyRevenue.toLocaleString('en-IN')}/mo, ${customerCount} customers` : customerCount > 0 ? `${customerCount} beta users` : 'No traction yet'}
 
 					<div class="gtm-section">
-						<!-- GTM Overview -->
-						<div class="actionable-summary-box gtm-overview">
-							<div class="summary-header">
-								<span class="material-symbols-outlined">rocket_launch</span>
-								<h3>What is GTM Co-Founder?</h3>
-							</div>
-							<p class="summary-text">Your <strong>Go-To-Market execution partner</strong>. Not a strategy document — a decision loop. Test hypotheses, measure signals, kill or scale in 14 days.</p>
-							<div class="action-checklist">
-								<div class="checklist-title">🚀 Your GTM Priorities:</div>
-								<ul>
-									<li><strong>State:</strong> Know your constraints (runway, bandwidth)</li>
-									<li><strong>Hypotheses:</strong> Run max 3 experiments at once</li>
-									<li><strong>Signals:</strong> Define success metrics before testing</li>
-									<li><strong>Decision:</strong> Kill losers fast, double down on winners</li>
-								</ul>
-							</div>
-						</div>
-
-						<!-- GTM Header -->
-						<div class="gtm-header minimal-card">
+						<!-- GTM Header with Generate Button -->
+						<div class="gtm-header-card minimal-card">
 							<div class="gtm-header-content">
 								<div class="gtm-title-section">
 									<span class="material-symbols-outlined gtm-icon">rocket_launch</span>
 									<div>
-										<h1 class="gtm-title">GTM Co-Founder</h1>
-										<p class="gtm-subtitle">Decision loop, not a plan. Evidence, not assumptions.</p>
+										<h1 class="gtm-title">GTM Strategy for {productName}</h1>
+										<p class="gtm-subtitle">Investor-grade, execution-ready Go-To-Market plan</p>
 									</div>
 								</div>
-								<div class="gtm-philosophy">
-									<div class="philosophy-item">
-										<span class="philosophy-label">Operating Mode</span>
-										<span class="philosophy-value">Test → Learn → Kill/Scale</span>
-									</div>
-									<div class="philosophy-item">
-										<span class="philosophy-label">Decision Cycle</span>
-										<span class="philosophy-value">14 days max</span>
-									</div>
-									<div class="philosophy-item">
-										<span class="philosophy-label">Core Metric</span>
-										<span class="philosophy-value">Cost per Learning</span>
-									</div>
-								</div>
-							</div>
-						</div>
-
-						<!-- Section A: Current GTM State -->
-						<div class="minimal-card gtm-state-card">
-							<div class="actionable-guide">
-								<span class="guide-icon">📊</span>
-								<div class="guide-content">
-									<strong>What to do:</strong> These are your constraints. If runway ≤6 months, every experiment must show signal in 14 days. Allocate your GTM bandwidth wisely — don't spread thin across too many channels.
-								</div>
-							</div>
-							<div class="card-header">
-								<span class="material-symbols-outlined icon-large">dashboard</span>
-								<h2 class="section-title">Current GTM State</h2>
-							</div>
-
-							<div class="gtm-state-grid">
-								<div class="state-item">
-									<span class="state-label">Company Stage</span>
-									<span class="state-value stage-{gtmStage.toLowerCase().replace(' ', '-')}">{gtmStage}</span>
-								</div>
-								<div class="state-item">
-									<span class="state-label">Runway</span>
-									<span class="state-value">{runwayMonths} months</span>
-								</div>
-								<div class="state-item">
-									<span class="state-label">Founder GTM Bandwidth</span>
-									<span class="state-value">{founderHoursPerWeek} hrs/week</span>
-								</div>
-								<div class="state-item">
-									<span class="state-label">Current Traction</span>
-									<span class="state-value traction">{currentTraction}</span>
-								</div>
-							</div>
-
-							<div class="gtm-constraint-warning">
-								<span class="material-symbols-outlined">warning</span>
-								<div>
-									<strong>Constraint Reality:</strong>
-									{#if runwayMonths <= 6}
-										With {runwayMonths} months runway, every GTM experiment must generate signal within 14 days. No long-term bets.
-									{:else if runwayMonths <= 12}
-										{runwayMonths} months gives room for 2-3 channel tests. But kill losers fast—don't let zombie channels consume time.
-									{:else}
-										Runway allows experimentation, but don't mistake time for permission to be unfocused. Test 2 channels max at once.
-									{/if}
-								</div>
-							</div>
-						</div>
-
-						<!-- Section B: Active GTM Hypotheses -->
-						<div class="minimal-card">
-							<div class="actionable-guide">
-								<span class="guide-icon">🧪</span>
-								<div class="guide-content">
-									<strong>What to do:</strong> Pick ONE hypothesis to test this week. Define your "Success Signal" before starting. After 14 days: if signal is positive → scale it. If negative → kill it and test next hypothesis. Never run more than 3 experiments simultaneously.
-								</div>
-							</div>
-							<div class="card-header">
-								<span class="material-symbols-outlined icon-large">science</span>
-								<h2 class="section-title">Active GTM Hypotheses</h2>
-								<span class="hypothesis-limit">Max 3 Active</span>
-							</div>
-							<p class="section-desc">Each hypothesis is testable in &lt;30 days. If you can't invalidate it, it's not a hypothesis.</p>
-
-							<div class="hypotheses-grid">
-								<!-- Hypothesis 1 -->
-								<div class="hypothesis-card active">
-									<div class="hypothesis-header">
-										<span class="hypothesis-id">H1</span>
-										<span class="hypothesis-status status-active">🔬 Testing</span>
-									</div>
-									<div class="hypothesis-content">
-										<div class="hypothesis-field">
-											<span class="field-label">Target Persona</span>
-											<span class="field-value">{targetCustomer}</span>
-										</div>
-										<div class="hypothesis-field">
-											<span class="field-label">Channel</span>
-											<span class="field-value">
-												{#if !hasRevenue}
-													Direct Outreach (LinkedIn/Email)
-												{:else if customerCount < 20}
-													Referral from existing customers
-												{:else}
-													Content-led inbound
-												{/if}
-											</span>
-										</div>
-										<div class="hypothesis-field">
-											<span class="field-label">Core Message</span>
-											<span class="field-value">
-												{#if !hasRevenue}
-													"I'm building X for [persona]. Can I show you a 5-min demo for feedback?"
-												{:else if customerCount < 20}
-													"Your peer [Customer X] is using this. Want to see why?"
-												{:else}
-													Problem-focused content showing expertise without selling
-												{/if}
-											</span>
-										</div>
-										<div class="hypothesis-metrics">
-											<div class="metric">
-												<span class="metric-label">Timebox</span>
-												<span class="metric-value">14 days</span>
-											</div>
-											<div class="metric">
-												<span class="metric-label">Cost</span>
-												<span class="metric-value">₹0 + {founderHoursPerWeek}h</span>
-											</div>
-											<div class="metric">
-												<span class="metric-label">Confidence</span>
-												<span class="metric-value confidence-medium">Medium</span>
-											</div>
-										</div>
-										<div class="hypothesis-signal">
-											<span class="signal-label">Success Signal</span>
-											<span class="signal-value">
-												{#if !hasRevenue}
-													≥3 demo calls booked from 30 outreach attempts (10% conversion)
-												{:else if customerCount < 20}
-													≥2 warm intros from 5 customer asks (40% referral rate)
-												{:else}
-													≥5 inbound inquiries from content in 14 days
-												{/if}
-											</span>
-										</div>
-									</div>
-									<div class="hypothesis-why">
-										<strong>Why this now:</strong>
-										{#if !hasRevenue}
-											Pre-revenue = validation mode. Direct outreach gives fastest feedback loop. Zero cost, max learning.
-										{:else if customerCount < 20}
-											Early customers are your GTM cheat code. Referrals convert 4x better than cold outreach.
-										{:else}
-											You have proof points. Content lets you scale trust without scaling founder time.
-										{/if}
-									</div>
-								</div>
-
-								<!-- Hypothesis 2 -->
-								<div class="hypothesis-card queued">
-									<div class="hypothesis-header">
-										<span class="hypothesis-id">H2</span>
-										<span class="hypothesis-status status-queued">⏳ Queued</span>
-									</div>
-									<div class="hypothesis-content">
-										<div class="hypothesis-field">
-											<span class="field-label">Target Persona</span>
-											<span class="field-value">{targetCustomer} — adjacent segment</span>
-										</div>
-										<div class="hypothesis-field">
-											<span class="field-label">Channel</span>
-											<span class="field-value">
-												{#if stage === 'Idea' || stage === 'MVP'}
-													Community participation (forums, Discord, Reddit)
-												{:else}
-													Partnership with complementary tool/service
-												{/if}
-											</span>
-										</div>
-										<div class="hypothesis-field">
-											<span class="field-label">Core Message</span>
-											<span class="field-value">
-												{#if stage === 'Idea' || stage === 'MVP'}
-													Genuine help first. Mention product only when asked.
-												{:else}
-													Joint value prop: "Our customers also need Y. Let's co-sell."
-												{/if}
-											</span>
-										</div>
-										<div class="hypothesis-metrics">
-											<div class="metric">
-												<span class="metric-label">Timebox</span>
-												<span class="metric-value">21 days</span>
-											</div>
-											<div class="metric">
-												<span class="metric-label">Cost</span>
-												<span class="metric-value">₹0 + 8h</span>
-											</div>
-											<div class="metric">
-												<span class="metric-label">Confidence</span>
-												<span class="metric-value confidence-low">Low</span>
-											</div>
-										</div>
-										<div class="hypothesis-signal">
-											<span class="signal-label">Success Signal</span>
-											<span class="signal-value">
-												{#if stage === 'Idea' || stage === 'MVP'}
-													≥2 DMs asking about product from 10 helpful posts
-												{:else}
-													≥1 partner willing to do co-marketing test
-												{/if}
-											</span>
-										</div>
-									</div>
-									<div class="hypothesis-why">
-										<strong>Why queued:</strong> Lower confidence. Only activate if H1 shows weak signal after 14 days.
-									</div>
-								</div>
-							</div>
-						</div>
-
-						<!-- Section C: GTM Decisions (NON-NEGOTIABLE) -->
-						<div class="minimal-card gtm-decisions-card">
-							<div class="card-header">
-								<span class="material-symbols-outlined icon-large">gavel</span>
-								<h2 class="section-title">GTM Decisions</h2>
-								<span class="decision-badge">Non-Negotiable</span>
-							</div>
-							<p class="section-desc">Every cycle must have a kill decision. If you can't kill anything, you're not operating—you're hoping.</p>
-
-							<div class="decisions-grid">
-								<!-- Double Down -->
-								<div class="decision-card double-down">
-									<div class="decision-header">
-										<span class="material-symbols-outlined">keyboard_double_arrow_up</span>
-										<h4>Double Down</h4>
-									</div>
-									<div class="decision-content">
-										<div class="decision-what">
-											{#if hasRevenue && customerCount >= 5}
-												<strong>Customer referral outreach</strong>
-											{:else}
-												<strong>Direct outreach to {targetCustomer}</strong>
-											{/if}
-										</div>
-										<div class="decision-evidence">
-											<span class="evidence-label">Evidence Required</span>
-											<span class="evidence-value">
-												{#if hasRevenue && customerCount >= 5}
-													If ≥2 referrals convert in 14 days → increase ask frequency to every customer
-												{:else}
-													If ≥10% response rate on first 30 outreach → increase volume to 50/week
-												{/if}
-											</span>
-										</div>
-										<div class="decision-impact">
-											<span class="impact-item">
-												<span class="impact-label">Runway Impact</span>
-												<span class="impact-value">Neutral (time only)</span>
-											</span>
-											<span class="impact-item">
-												<span class="impact-label">Traction Narrative</span>
-												<span class="impact-value positive">+Strong (shows hustle)</span>
-											</span>
-										</div>
-									</div>
-								</div>
-
-								<!-- Pause -->
-								<div class="decision-card pause">
-									<div class="decision-header">
-										<span class="material-symbols-outlined">pause_circle</span>
-										<h4>Pause</h4>
-									</div>
-									<div class="decision-content">
-										<div class="decision-what">
-											<strong>
-												{#if acquisitionStrategy.includes('social')}
-													Social media posting without engagement tracking
-												{:else if acquisitionStrategy.includes('content')}
-													Long-form content creation
-												{:else}
-													Generic networking / coffee chats
-												{/if}
-											</strong>
-										</div>
-										<div class="decision-evidence">
-											<span class="evidence-label">Reason</span>
-											<span class="evidence-value">
-												{#if acquisitionStrategy.includes('social')}
-													Posting ≠ distribution. Pause until you have a content-to-conversation playbook.
-												{:else if acquisitionStrategy.includes('content')}
-													Content takes 90+ days to compound. At {runwayMonths} months runway, you need faster signals.
-												{:else}
-													Coffee chats feel productive but rarely convert. Pause until you have a specific ask.
-												{/if}
-											</span>
-										</div>
-										<div class="decision-impact">
-											<span class="impact-item">
-												<span class="impact-label">Runway Impact</span>
-												<span class="impact-value positive">+{Math.round(founderHoursPerWeek * 0.3)}h/week freed</span>
-											</span>
-											<span class="impact-item">
-												<span class="impact-label">Review In</span>
-												<span class="impact-value">30 days</span>
-											</span>
-										</div>
-									</div>
-								</div>
-
-								<!-- Kill -->
-								<div class="decision-card kill">
-									<div class="decision-header">
-										<span class="material-symbols-outlined">cancel</span>
-										<h4>Kill</h4>
-									</div>
-									<div class="decision-content">
-										<div class="decision-what">
-											<strong>
-												{#if stage === 'Idea' || stage === 'MVP'}
-													Paid ads of any kind
-												{:else if !hasRevenue}
-													SEO / organic search investment
-												{:else}
-													Spray-and-pray cold email tools
-												{/if}
-											</strong>
-										</div>
-										<div class="decision-evidence">
-											<span class="evidence-label">Reason</span>
-											<span class="evidence-value">
-												{#if stage === 'Idea' || stage === 'MVP'}
-													You don't know your ICP yet. Ads amplify confusion, not clarity. Kill until post-PMF.
-												{:else if !hasRevenue}
-													SEO is a 6-12 month play. With {runwayMonths} months runway and no revenue, it's a distraction.
-												{:else}
-													Automated cold email has less than 1% reply rates. Manual personalization beats volume at your stage.
-												{/if}
-											</span>
-										</div>
-										<div class="decision-impact">
-											<span class="impact-item">
-												<span class="impact-label">Reversibility</span>
-												<span class="impact-value">High (can restart anytime)</span>
-											</span>
-											<span class="impact-item">
-												<span class="impact-label">Founder Time Saved</span>
-												<span class="impact-value positive">+5h/week</span>
-											</span>
-										</div>
-									</div>
-								</div>
-							</div>
-						</div>
-
-						<!-- Section D: 14-Day Action Plan -->
-						<div class="minimal-card">
-							<div class="card-header">
-								<span class="material-symbols-outlined icon-large">sprint</span>
-								<h2 class="section-title">Next 14-Day Action Plan</h2>
-							</div>
-
-							<div class="action-plan-table">
-								<div class="action-row header">
-									<span class="action-col action">Action</span>
-									<span class="action-col owner">Owner</span>
-									<span class="action-col signal">Expected Signal</span>
-									<span class="action-col review">Review Date</span>
-								</div>
-
-								<div class="action-row">
-									<span class="action-col action">
-										<span class="action-number">1</span>
-										{#if !hasRevenue}
-											Send 30 personalized outreach messages to {targetCustomer}
-										{:else}
-											Ask 5 best customers for 1 warm intro each
-										{/if}
-									</span>
-									<span class="action-col owner">Founder</span>
-									<span class="action-col signal">
-										{#if !hasRevenue}
-											≥3 replies, ≥1 demo call
-										{:else}
-											≥2 intros received
-										{/if}
-									</span>
-									<span class="action-col review">Day 7</span>
-								</div>
-
-								<div class="action-row">
-									<span class="action-col action">
-										<span class="action-number">2</span>
-										{#if !hasRevenue}
-											Conduct 2 discovery calls, document objections
-										{:else if customerCount < 20}
-											Follow up on all intros within 24h
-										{:else}
-											Publish 2 problem-focused posts on LinkedIn
-										{/if}
-									</span>
-									<span class="action-col owner">Founder</span>
-									<span class="action-col signal">
-										{#if !hasRevenue}
-											Top 3 objections identified
-										{:else if customerCount < 20}
-											≥1 demo scheduled
-										{:else}
-											≥10 comments or DMs
-										{/if}
-									</span>
-									<span class="action-col review">Day 10</span>
-								</div>
-
-								<div class="action-row">
-									<span class="action-col action">
-										<span class="action-number">3</span>
-										Compile GTM signal data and make Go/No-Go decision on H1
-									</span>
-									<span class="action-col owner">Founder</span>
-									<span class="action-col signal">Clear decision: Double down or Kill</span>
-									<span class="action-col review">Day 14</span>
-								</div>
-
-								<div class="action-row highlight">
-									<span class="action-col action">
-										<span class="action-number">⚡</span>
-										<strong>Invalidation Checkpoint:</strong> If Day 7 signal is 0 responses, pivot outreach angle immediately—don't wait for Day 14.
-									</span>
-									<span class="action-col owner">—</span>
-									<span class="action-col signal">—</span>
-									<span class="action-col review">Day 7</span>
-								</div>
-							</div>
-
-							<!-- Custom To-Do Items with RAG Status -->
-							<div class="custom-todo-section">
-								<div class="todo-section-header">
-									<div class="todo-title-area">
-										<span class="material-symbols-outlined">playlist_add_check</span>
-										<h3>Your Custom Action Items</h3>
-										<span class="todo-count">{gtmTodoItems.length} items</span>
+								<div class="gtm-header-actions">
+									<div class="gtm-stage-badge {gtmStageLocal.toLowerCase().replace(' ', '-')}">
+										{gtmStageLocal}
 									</div>
 									<button 
-										class="add-todo-btn" 
-										on:click={() => showAddTodoForm = !showAddTodoForm}
+										class="btn-generate-gtm" 
+										on:click={generateGTMStrategy}
+										disabled={gtmLoading}
 									>
-										<span class="material-symbols-outlined">{showAddTodoForm ? 'close' : 'add'}</span>
-										{showAddTodoForm ? 'Cancel' : 'Add Action'}
+										{#if gtmLoading}
+											<span class="material-symbols-outlined rotating">sync</span>
+											Generating...
+										{:else}
+											<span class="material-symbols-outlined">auto_awesome</span>
+											{gtmStrategy ? 'Regenerate Strategy' : 'Generate GTM Strategy'}
+										{/if}
 									</button>
 								</div>
+							</div>
+							<div class="gtm-quick-stats">
+								<div class="quick-stat">
+									<span class="stat-label">Stage</span>
+									<span class="stat-value">{stage}</span>
+								</div>
+								<div class="quick-stat">
+									<span class="stat-label">Runway</span>
+									<span class="stat-value">~{runwayMonths} months</span>
+								</div>
+								<div class="quick-stat">
+									<span class="stat-label">Traction</span>
+									<span class="stat-value">{currentTraction}</span>
+								</div>
+								<div class="quick-stat">
+									<span class="stat-label">Team</span>
+									<span class="stat-value">{teamSize} {teamSize === 1 ? 'person' : 'people'}</span>
+								</div>
+							</div>
+						</div>
 
-								<!-- Add New To-Do Form -->
-								{#if showAddTodoForm}
-									<div class="add-todo-form">
-										<div class="form-row">
-											<div class="form-field full-width">
-												<label for="todo-action">Action Item *</label>
-												<input 
-													type="text" 
-													id="todo-action"
-													bind:value={newTodoAction}
-													placeholder="e.g., Set up analytics tracking for conversion funnel"
-												/>
-											</div>
+						<!-- Decision Simulation -->
+						<div class="minimal-card simulation-card">
+							<div class="card-header">
+								<span class="material-symbols-outlined icon-large">science</span>
+								<h3 class="section-title">Decision Simulation</h3>
+								<div class="card-header-actions">
+									<button class="info-btn" on:click={() => showInfo('simulation')} title="What is this?">
+										<span class="info-icon">i</span>
+									</button>
+								</div>
+							</div>
+							<p class="section-desc">Simulate the impact of a GTM decision before you execute</p>
+							
+							<div class="simulation-input-area">
+								<textarea 
+									bind:value={simulationInput}
+									placeholder="Describe a GTM decision you're considering... e.g., 'Launch product on ProductHunt' or 'Partner with 3 influencers' or 'Run LinkedIn ads for ₹50K'"
+									rows="2"
+								></textarea>
+								<button class="simulate-btn" on:click={async () => {
+									if (!simulationInput.trim()) return;
+									simulationLoading = true;
+									
+									try {
+										// Call the real simulation API
+										const response = await fetch(`${API_URL}/api/simulation/run`, {
+											method: 'POST',
+											headers: {
+												'Content-Type': 'application/json',
+												'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
+											},
+											body: JSON.stringify({
+												decision: simulationInput,
+												context: gtmStrategy ? JSON.stringify({
+													stage: gtmStageLocal,
+													traction: currentTraction,
+													productName: productName
+												}) : '',
+												companyData: {
+													industry: ddqResponses[3]?.[0] || ddqResponses[3] || 'Technology',
+													stage: ddqResponses[5] || 'Early-stage',
+													teamSize: ddqResponses[6] || '1-5',
+													revenue: ddqResponses[9] || 'Pre-revenue',
+													challenge: ddqResponses[19]?.[0] || 'Growth'
+												},
+												timeframe: '6 months'
+											})
+										});
+										
+										if (response.ok) {
+											const data = await response.json();
+											const sim = data.simulation;
+											
+											// Transform API response to match UI format - use new impactAnalysis structure
+											simulationResult = {
+												scenario: simulationInput,
+												runwayImpact: sim.impactAnalysis?.runway || { 
+													value: sim.financialImpact?.runwayChange || 'Impact varies', 
+													direction: sim.probability?.success > 60 ? 'positive' : 'neutral' 
+												},
+												growthImpact: sim.impactAnalysis?.growth || { 
+													value: sim.financialImpact?.revenueChange || `${sim.probability?.success || 50}% success likelihood`, 
+													direction: sim.probability?.success > 60 ? 'positive' : sim.probability?.success > 40 ? 'neutral' : 'negative' 
+												},
+												valuationImpact: sim.impactAnalysis?.valuation || { 
+													value: sim.bestCase?.timeline || 'Based on execution',
+													direction: 'neutral' 
+												},
+												riskLevel: sim.impactAnalysis?.riskLevel || (sim.keyFactors?.some((f: any) => f.impact === 'high' && !f.controllable) ? 'high' : 'medium'),
+												recommendation: sim.recommendation || 'Consider the tradeoffs carefully before proceeding.',
+												confidence: sim.probability?.success || 65,
+												summary: sim.summary,
+												bestCase: sim.bestCase,
+												worstCase: sim.worstCase,
+												nextSteps: sim.nextSteps,
+												alternativeApproaches: sim.alternativeApproaches
+											};
+										} else {
+											const errorData = await response.json().catch(() => ({}));
+											console.error('Simulation API error:', errorData);
+											throw new Error(errorData.error || 'API call failed');
+										}
+									} catch (error) {
+										console.error('Simulation error:', error);
+										// Fallback to local simulation
+										const isExpansion = simulationInput.toLowerCase().includes('expand') || simulationInput.toLowerCase().includes('launch') || simulationInput.toLowerCase().includes('new');
+										const isHiring = simulationInput.toLowerCase().includes('hire') || simulationInput.toLowerCase().includes('team');
+										const isFunding = simulationInput.toLowerCase().includes('raise') || simulationInput.toLowerCase().includes('fund');
+										
+										simulationResult = {
+											scenario: simulationInput,
+											runwayImpact: isHiring ? { value: '-2 to -4 months', direction: 'negative' } : isFunding ? { value: '+8 to +12 months', direction: 'positive' } : { value: '-1 to -2 months', direction: 'negative' },
+											growthImpact: isExpansion ? { value: '+25-40% potential', direction: 'positive' } : isHiring ? { value: '+15-20% capacity', direction: 'positive' } : { value: '+10-15%', direction: 'positive' },
+											valuationImpact: isFunding ? { value: '+20-30% post-money', direction: 'positive' } : isExpansion ? { value: '+15-25% if successful', direction: 'positive' } : { value: '+5-10%', direction: 'neutral' },
+											riskLevel: isExpansion ? 'high' : isHiring ? 'medium' : isFunding ? 'medium' : 'low',
+											recommendation: isExpansion ? 'Consider pilot testing in one area first before full expansion. Set clear success metrics.' : isHiring ? 'Hire for the bottleneck, not the backlog. Ensure you have 6+ months runway post-hire.' : isFunding ? 'Raise when you have leverage (growth metrics), not when you need it. Have a clear use-of-funds plan.' : 'Proceed with caution. Monitor leading indicators weekly.',
+											confidence: isExpansion ? 65 : isHiring ? 75 : isFunding ? 70 : 80
+										};
+									}
+									simulationLoading = false;
+								}} disabled={simulationLoading || !simulationInput.trim()}>
+									{#if simulationLoading}
+										<span class="material-symbols-outlined spinning">progress_activity</span>
+										Simulating...
+									{:else}
+										<span class="material-symbols-outlined">play_arrow</span>
+										Simulate Impact
+									{/if}
+								</button>
+							</div>
+							
+							{#if simulationResult}
+								<div class="simulation-results">
+									<div class="simulation-scenario">
+										<span class="material-symbols-outlined">lightbulb</span>
+										<strong>Scenario:</strong> {simulationResult.scenario}
+									</div>
+									
+									{#if simulationResult.summary}
+										<div class="simulation-summary">
+											<span class="material-symbols-outlined">summarize</span>
+											<p>{simulationResult.summary}</p>
 										</div>
-										<div class="form-row three-col">
-											<div class="form-field">
-												<label for="todo-owner">Owner</label>
-												<select id="todo-owner" bind:value={newTodoOwner}>
-													<option value="Founder">Founder</option>
-													<option value="Co-Founder">Co-Founder</option>
-													<option value="CTO">CTO</option>
-													<option value="Marketing">Marketing</option>
-													<option value="Sales">Sales</option>
-													<option value="Team">Team</option>
-													<option value="External">External</option>
-												</select>
-											</div>
-											<div class="form-field">
-												<label for="todo-signal">Expected Signal</label>
-												<input 
-													type="text" 
-													id="todo-signal"
-													bind:value={newTodoSignal}
-													placeholder="e.g., ≥5% conversion rate"
-												/>
-											</div>
-											<div class="form-field">
-												<label for="todo-review">Review Date</label>
-												<input 
-													type="text" 
-													id="todo-review"
-													bind:value={newTodoReviewDate}
-													placeholder="e.g., Day 7, Jan 5"
-												/>
-											</div>
+									{/if}
+									
+									<div class="simulation-impacts-grid">
+										<div class="sim-impact-card {simulationResult.runwayImpact.direction}">
+											<span class="sim-icon">💰</span>
+											<span class="sim-label">Runway Impact</span>
+											<span class="sim-value">{simulationResult.runwayImpact.value}</span>
 										</div>
-										<div class="form-actions">
-											<button class="btn-cancel" on:click={() => showAddTodoForm = false}>Cancel</button>
-											<button class="btn-add" on:click={addGTMTodoItem} disabled={!newTodoAction.trim()}>
-												<span class="material-symbols-outlined">add_task</span>
-												Add Action Item
-											</button>
+										<div class="sim-impact-card {simulationResult.growthImpact.direction}">
+											<span class="sim-icon">📈</span>
+											<span class="sim-label">Growth Impact</span>
+											<span class="sim-value">{simulationResult.growthImpact.value}</span>
+										</div>
+										<div class="sim-impact-card {simulationResult.valuationImpact.direction}">
+											<span class="sim-icon">💎</span>
+											<span class="sim-label">Valuation Impact</span>
+											<span class="sim-value">{simulationResult.valuationImpact.value}</span>
+										</div>
+										<div class="sim-impact-card risk-{simulationResult.riskLevel}">
+											<span class="sim-icon">⚠️</span>
+											<span class="sim-label">Risk Level</span>
+											<span class="sim-value">{simulationResult.riskLevel.toUpperCase()}</span>
 										</div>
 									</div>
-								{/if}
+									
+									{#if simulationResult.bestCase || simulationResult.worstCase}
+										<div class="scenario-cards">
+											{#if simulationResult.bestCase}
+												<div class="scenario-card best-case">
+													<div class="scenario-header">
+														<span class="material-symbols-outlined">trending_up</span>
+														<strong>Best Case Scenario</strong>
+													</div>
+													<p class="scenario-desc">{simulationResult.bestCase.description}</p>
+													{#if simulationResult.bestCase.metrics?.length}
+														<ul class="scenario-list">
+															{#each simulationResult.bestCase.metrics as metric}
+																<li><span class="material-symbols-outlined">check_circle</span> {metric}</li>
+															{/each}
+														</ul>
+													{/if}
+													{#if simulationResult.bestCase.timeline}
+														<span class="timeline-badge">⏱️ {simulationResult.bestCase.timeline}</span>
+													{/if}
+												</div>
+											{/if}
+											
+											{#if simulationResult.worstCase}
+												<div class="scenario-card worst-case">
+													<div class="scenario-header">
+														<span class="material-symbols-outlined">trending_down</span>
+														<strong>Worst Case Scenario</strong>
+													</div>
+													<p class="scenario-desc">{simulationResult.worstCase.description}</p>
+													{#if simulationResult.worstCase.risks?.length}
+														<div class="risks-section">
+															<span class="sub-label">Risks:</span>
+															<ul class="scenario-list">
+																{#each simulationResult.worstCase.risks as risk}
+																	<li><span class="material-symbols-outlined">warning</span> {risk}</li>
+																{/each}
+															</ul>
+														</div>
+													{/if}
+													{#if simulationResult.worstCase.mitigation?.length}
+														<div class="mitigation-section">
+															<span class="sub-label">Mitigation:</span>
+															<ul class="scenario-list">
+																{#each simulationResult.worstCase.mitigation as action}
+																	<li><span class="material-symbols-outlined">shield</span> {action}</li>
+																{/each}
+															</ul>
+														</div>
+													{/if}
+												</div>
+											{/if}
+										</div>
+									{/if}
+									
+									<div class="simulation-recommendation">
+										<div class="rec-header">
+											<span class="material-symbols-outlined">gavel</span>
+											<strong>Recommendation</strong>
+											<span class="confidence-badge">Confidence: {simulationResult.confidence}%</span>
+										</div>
+										<p>{simulationResult.recommendation}</p>
+									</div>
+									
+									{#if simulationResult.nextSteps?.length}
+										<div class="next-steps-section">
+											<div class="section-header">
+												<span class="material-symbols-outlined">checklist</span>
+												<strong>Next Steps</strong>
+											</div>
+											<ol class="next-steps-list">
+												{#each simulationResult.nextSteps as step, i}
+													<li>{step}</li>
+												{/each}
+											</ol>
+										</div>
+									{/if}
+									
+									{#if simulationResult.alternativeApproaches?.length}
+										<div class="alternatives-section">
+											<div class="section-header">
+												<span class="material-symbols-outlined">alt_route</span>
+												<strong>Alternative Approaches</strong>
+											</div>
+											<div class="alternatives-grid">
+												{#each simulationResult.alternativeApproaches as alt}
+													<div class="alternative-card">
+														<span class="alt-approach">{alt.approach}</span>
+														<span class="alt-tradeoff">↔️ {alt.tradeoff}</span>
+													</div>
+												{/each}
+											</div>
+										</div>
+									{/if}
+									
+									<button class="btn-secondary" on:click={() => { simulationResult = null; simulationInput = ''; }}>
+										<span class="material-symbols-outlined">refresh</span>
+										New Simulation
+									</button>
+								</div>
+							{/if}
+						</div>
 
-								<!-- Custom To-Do List with RAG Status -->
-								{#if gtmTodoItems.length > 0}
-									<div class="todo-list">
-										{#each gtmTodoItems as item, index (item.id)}
-											<div class="todo-item rag-{item.ragStatus}">
-												<div class="todo-item-main">
-													<span class="todo-number">{index + 4}</span>
-													<div class="todo-content">
-														<span class="todo-action-text">{item.action}</span>
-														<div class="todo-meta">
-															<span class="todo-owner"><span class="material-symbols-outlined">person</span> {item.owner}</span>
-															<span class="todo-signal"><span class="material-symbols-outlined">trending_up</span> {item.expectedSignal}</span>
-															<span class="todo-review"><span class="material-symbols-outlined">event</span> {item.reviewDate}</span>
+						{#if gtmError}
+							<div class="gtm-error-card minimal-card">
+								<span class="material-symbols-outlined">error</span>
+								<p>{gtmError}</p>
+								<button class="btn-retry" on:click={generateGTMStrategy}>Try Again</button>
+							</div>
+						{/if}
+
+						{#if gtmLoading}
+							<div class="gtm-loading-card minimal-card">
+								<div class="loading-spinner"></div>
+								<h3>Generating Your GTM Strategy</h3>
+								<p>Analyzing your product, market, and competition to create a tailored strategy...</p>
+							</div>
+						{:else if gtmStrategy}
+							<!-- GTM Navigation Tabs -->
+							<div class="gtm-nav-tabs">
+								<button class="gtm-nav-tab" class:active={activeGtmSection === 'overview'} on:click={() => activeGtmSection = 'overview'}>
+									<span class="material-symbols-outlined">dashboard</span>
+									Overview
+								</button>
+								<button class="gtm-nav-tab" class:active={activeGtmSection === 'market'} on:click={() => activeGtmSection = 'market'}>
+									<span class="material-symbols-outlined">groups</span>
+									Target Market
+								</button>
+								<button class="gtm-nav-tab" class:active={activeGtmSection === 'positioning'} on:click={() => activeGtmSection = 'positioning'}>
+									<span class="material-symbols-outlined">stars</span>
+									Positioning
+								</button>
+								<button class="gtm-nav-tab" class:active={activeGtmSection === 'pricing'} on:click={() => activeGtmSection = 'pricing'}>
+									<span class="material-symbols-outlined">payments</span>
+									Pricing
+								</button>
+								<button class="gtm-nav-tab" class:active={activeGtmSection === 'distribution'} on:click={() => activeGtmSection = 'distribution'}>
+									<span class="material-symbols-outlined">share</span>
+									Distribution
+								</button>
+								<button class="gtm-nav-tab" class:active={activeGtmSection === 'marketing'} on:click={() => activeGtmSection = 'marketing'}>
+									<span class="material-symbols-outlined">campaign</span>
+									Marketing
+								</button>
+								<button class="gtm-nav-tab" class:active={activeGtmSection === 'launch'} on:click={() => activeGtmSection = 'launch'}>
+									<span class="material-symbols-outlined">rocket</span>
+									Launch Plan
+								</button>
+								<button class="gtm-nav-tab" class:active={activeGtmSection === 'metrics'} on:click={() => activeGtmSection = 'metrics'}>
+									<span class="material-symbols-outlined">analytics</span>
+									Metrics
+								</button>
+								<button class="gtm-nav-tab" class:active={activeGtmSection === 'execution'} on:click={() => activeGtmSection = 'execution'}>
+									<span class="material-symbols-outlined">sprint</span>
+									90-Day Plan
+								</button>
+							</div>
+
+							<!-- GTM Content Sections -->
+							<div class="gtm-content">
+								{#if activeGtmSection === 'overview'}
+									<!-- Product Overview Section -->
+									<div class="gtm-section-card minimal-card">
+										<div class="section-header">
+											<span class="material-symbols-outlined">inventory_2</span>
+											<h2>Product Overview</h2>
+										</div>
+										<div class="overview-content">
+											<div class="overview-item highlight">
+												<span class="item-label">One-Line Description</span>
+												<p class="item-value large">{gtmStrategy.productOverview?.oneLineDescription || productName}</p>
+											</div>
+											<div class="overview-grid">
+												<div class="overview-item">
+													<span class="item-label">Category</span>
+													<p class="item-value">{gtmStrategy.productOverview?.category || 'Technology'}</p>
+												</div>
+												<div class="overview-item">
+													<span class="item-label">Primary Problem Solved</span>
+													<p class="item-value">{gtmStrategy.productOverview?.primaryProblem || 'Not specified'}</p>
+												</div>
+											</div>
+											{#if gtmStrategy.productOverview?.whyNow}
+												<div class="why-now-box">
+													<h4><span class="material-symbols-outlined">schedule</span> Why Now?</h4>
+													<div class="why-now-content">
+														<div class="why-item">
+															<span class="why-label">Market Shift</span>
+															<p>{gtmStrategy.productOverview.whyNow.marketShift}</p>
+														</div>
+														<div class="why-item">
+															<span class="why-label">Timing</span>
+															<p>{gtmStrategy.productOverview.whyNow.timing}</p>
 														</div>
 													</div>
 												</div>
-												<div class="todo-item-controls">
-													<div class="rag-selector">
-														<button 
-															class="rag-btn not-started" 
-															class:active={item.ragStatus === 'not-started'}
-															on:click={() => updateTodoRAGStatus(item.id, 'not-started')}
-															title="Not Started"
-														>
-															<span class="material-symbols-outlined">hourglass_empty</span>
-														</button>
-														<button 
-															class="rag-btn red" 
-															class:active={item.ragStatus === 'red'}
-															on:click={() => updateTodoRAGStatus(item.id, 'red')}
-															title="At Risk / Blocked"
-														>
-															<span class="material-symbols-outlined">error</span>
-														</button>
-														<button 
-															class="rag-btn amber" 
-															class:active={item.ragStatus === 'amber'}
-															on:click={() => updateTodoRAGStatus(item.id, 'amber')}
-															title="In Progress / Needs Attention"
-														>
-															<span class="material-symbols-outlined">warning</span>
-														</button>
-														<button 
-															class="rag-btn green" 
-															class:active={item.ragStatus === 'green'}
-															on:click={() => updateTodoRAGStatus(item.id, 'green')}
-															title="On Track / Completed"
-														>
-															<span class="material-symbols-outlined">check_circle</span>
-														</button>
+											{/if}
+										</div>
+									</div>
+
+									<!-- Value Proposition Section -->
+									<div class="gtm-section-card minimal-card">
+										<div class="section-header">
+											<span class="material-symbols-outlined">diamond</span>
+											<h2>Core Value Proposition</h2>
+										</div>
+										<div class="value-prop-content">
+											<div class="value-statement-box">
+												<p class="value-statement">"{gtmStrategy.valueProposition?.statement || `${productName} helps ${targetCustomer} achieve their goals.`}"</p>
+											</div>
+											{#if gtmStrategy.valueProposition?.keyBenefits}
+												<div class="benefits-grid">
+													{#each gtmStrategy.valueProposition.keyBenefits as benefit, i}
+														<div class="benefit-card {benefit.type}">
+															<span class="benefit-type">{benefit.type}</span>
+															<p class="benefit-text">{benefit.benefit}</p>
+															{#if benefit.proof}
+																<span class="benefit-proof">{benefit.proof}</span>
+															{/if}
+														</div>
+													{/each}
+												</div>
+											{/if}
+											{#if gtmStrategy.valueProposition?.proofPoints}
+												<div class="proof-points">
+													<h4>Proof Points</h4>
+													<ul>
+														{#each gtmStrategy.valueProposition.proofPoints as proof}
+															<li><span class="material-symbols-outlined">verified</span> {proof}</li>
+														{/each}
+													</ul>
+												</div>
+											{/if}
+										</div>
+									</div>
+
+									<!-- Hypotheses & Decisions -->
+									<div class="gtm-section-card minimal-card">
+										<div class="section-header">
+											<span class="material-symbols-outlined">science</span>
+											<h2>Active GTM Hypotheses</h2>
+											<span class="badge-limit">Test & Learn</span>
+										</div>
+										{#if gtmStrategy.hypotheses}
+											<div class="hypotheses-grid">
+												{#each gtmStrategy.hypotheses as hypothesis}
+													<div class="hypothesis-card {gtmHypothesisStatuses[hypothesis.id] || hypothesis.status?.toLowerCase() || 'active'}">
+														<div class="hypothesis-header">
+															<span class="hypothesis-id">{hypothesis.id}</span>
+															<select 
+																class="status-select"
+																value={gtmHypothesisStatuses[hypothesis.id] || hypothesis.status}
+																on:change={(e) => updateHypothesisStatus(hypothesis.id, e.target.value)}
+															>
+																<option value="Active">🔬 Active</option>
+																<option value="Queued">⏳ Queued</option>
+																<option value="Won">✅ Won - Scale</option>
+																<option value="Lost">❌ Lost - Kill</option>
+															</select>
+														</div>
+														<p class="hypothesis-text">{hypothesis.hypothesis}</p>
+														<div class="hypothesis-details">
+															<div class="detail-row">
+																<span class="detail-label">Channel:</span>
+																<span class="detail-value">{hypothesis.channel}</span>
+															</div>
+															<div class="detail-row">
+																<span class="detail-label">Success Signal:</span>
+																<span class="detail-value signal">{hypothesis.successSignal}</span>
+															</div>
+															<div class="detail-row">
+																<span class="detail-label">Timebox:</span>
+																<span class="detail-value">{hypothesis.timebox}</span>
+															</div>
+															<div class="detail-row">
+																<span class="detail-label">Cost:</span>
+																<span class="detail-value">{hypothesis.cost}</span>
+															</div>
+														</div>
 													</div>
-													<button class="delete-todo-btn" on:click={() => deleteTodoItem(item.id)} title="Delete">
-														<span class="material-symbols-outlined">delete</span>
+												{/each}
+											</div>
+										{/if}
+									</div>
+
+									<!-- GTM Decisions - Trackable H1/H2/H3 -->
+									{#if gtmStrategy.decisions}
+										<div class="gtm-section-card minimal-card decisions-trackable">
+											<div class="section-header">
+												<span class="material-symbols-outlined">gavel</span>
+												<h2>GTM Decisions</h2>
+												<span class="badge-limit">Track & Execute</span>
+											</div>
+											<div class="decisions-grid-enhanced">
+												<!-- H1: Double Down (AI Generated) -->
+												<div class="decision-card-enhanced double-down">
+													<div class="decision-header-enhanced">
+														<span class="horizon-badge h1">H1</span>
+														<span class="material-symbols-outlined">keyboard_double_arrow_up</span>
+														<h4>Double Down</h4>
+														<span class="ai-badge">AI Generated</span>
+													</div>
+													<p class="decision-title">{gtmStrategy.decisions.H1_doubleDown?.title || gtmStrategy.decisions.doubleDown?.what || 'Focus on your core channel'}</p>
+													<p class="decision-description">{gtmStrategy.decisions.H1_doubleDown?.description || gtmStrategy.decisions.doubleDown?.evidence || ''}</p>
+													
+													{#if gtmStrategy.decisions.H1_doubleDown?.targetMetric}
+														<div class="target-section">
+															<span class="target-label">Target:</span>
+															<span class="target-value">{gtmStrategy.decisions.H1_doubleDown.targetMetric}: {gtmStrategy.decisions.H1_doubleDown.targetValue}</span>
+														</div>
+													{/if}
+													
+													{#if gtmStrategy.decisions.H1_doubleDown?.weeklyMilestones}
+														<div class="milestones-mini">
+															{#each gtmStrategy.decisions.H1_doubleDown.weeklyMilestones.slice(0, 2) as milestone, i}
+																<span class="milestone-tag">W{i+1}: {milestone}</span>
+															{/each}
+														</div>
+													{/if}
+													
+													{#if !gtmTasks.some(t => t.category === 'double-down' && t.status === 'active')}
+														<button class="action-btn accept" on:click={() => {
+															taskToStart = {
+																taskType: 'H1',
+																category: 'double-down',
+																...(gtmStrategy.decisions.H1_doubleDown || gtmStrategy.decisions.doubleDown)
+															};
+															showTaskStartModal = true;
+														}}>
+															<span class="material-symbols-outlined">check_circle</span>
+															Accept & Track
+														</button>
+													{:else}
+														<div class="tracking-status active">
+															<span class="material-symbols-outlined">radio_button_checked</span>
+															Tracking Active
+														</div>
+													{/if}
+												</div>
+												
+												<!-- H2: Pause (AI Generated) -->
+												<div class="decision-card-enhanced pause">
+													<div class="decision-header-enhanced">
+														<span class="horizon-badge h2">H2</span>
+														<span class="material-symbols-outlined">pause_circle</span>
+														<h4>Pause</h4>
+														<span class="ai-badge">AI Generated</span>
+													</div>
+													<p class="decision-title">{gtmStrategy.decisions.H2_pause?.title || gtmStrategy.decisions.pause?.what || 'Deprioritize low-impact activities'}</p>
+													<p class="decision-description">{gtmStrategy.decisions.H2_pause?.description || gtmStrategy.decisions.pause?.reason || ''}</p>
+													
+													{#if gtmStrategy.decisions.H2_pause?.opportunityCost}
+														<div class="opportunity-cost">
+															<span class="material-symbols-outlined">info</span>
+															<span>Opportunity Cost: {gtmStrategy.decisions.H2_pause.opportunityCost}</span>
+														</div>
+													{/if}
+													
+													{#if gtmStrategy.decisions.H2_pause?.reviewDate}
+														<div class="review-date">
+															<span class="material-symbols-outlined">event</span>
+															Review: {gtmStrategy.decisions.H2_pause.reviewDate}
+														</div>
+													{/if}
+													
+													{#if !gtmTasks.some(t => t.category === 'pause' && t.status === 'active')}
+														<button class="action-btn pause" on:click={() => {
+															taskToStart = {
+																taskType: 'H2',
+																category: 'pause',
+																...(gtmStrategy.decisions.H2_pause || gtmStrategy.decisions.pause)
+															};
+															showTaskStartModal = true;
+														}}>
+															<span class="material-symbols-outlined">schedule</span>
+															Accept & Set Review
+														</button>
+													{:else}
+														<div class="tracking-status paused">
+															<span class="material-symbols-outlined">pause</span>
+															Paused - Review Scheduled
+														</div>
+													{/if}
+												</div>
+												
+												<!-- H3: Kill (User Created) -->
+												<div class="decision-card-enhanced kill">
+													<div class="decision-header-enhanced">
+														<span class="horizon-badge h3">H3</span>
+														<span class="material-symbols-outlined">cancel</span>
+														<h4>Kill</h4>
+														<span class="user-badge">You Decide</span>
+													</div>
+													<p class="decision-instruction">What are YOU going to stop doing? Be honest about what's not working.</p>
+													
+													<!-- User's Kill List -->
+													{#if gtmTasks.filter(t => t.category === 'kill').length > 0}
+														<div class="kill-list">
+															{#each gtmTasks.filter(t => t.category === 'kill') as killTask}
+																<div class="kill-item">
+																	<span class="material-symbols-outlined">do_not_disturb_on</span>
+																	<span>{killTask.title}</span>
+																</div>
+															{/each}
+														</div>
+													{:else}
+														<p class="no-kills">No items killed yet. What should you stop?</p>
+													{/if}
+													
+													<button class="action-btn kill" on:click={() => showH3Modal = true}>
+														<span class="material-symbols-outlined">add</span>
+														Add to Kill List
 													</button>
 												</div>
 											</div>
-										{/each}
+										</div>
+									{/if}
+									
+									<!-- Active GTM Tasks -->
+									{#if gtmTasks.filter(t => t.status === 'active').length > 0}
+										<div class="gtm-section-card minimal-card">
+											<div class="section-header">
+												<span class="material-symbols-outlined">checklist</span>
+												<h2>Your Active GTM Actions</h2>
+												<span class="badge-count">{gtmTasks.filter(t => t.status === 'active').length} active</span>
+											</div>
+											<div class="active-tasks-list">
+												{#each gtmTasks.filter(t => t.status === 'active') as task}
+													<div class="active-task-card {task.category}">
+														<div class="task-header">
+															<span class="horizon-badge {task.taskType?.toLowerCase()}">{task.taskType}</span>
+															<h4>{task.title}</h4>
+														</div>
+														<div class="task-progress">
+															<div class="progress-bar">
+																<div class="progress-fill" style="width: {task.progress}%"></div>
+															</div>
+															<span class="progress-text">{task.progress}%</span>
+														</div>
+														<div class="task-meta">
+															<span class="days-remaining">
+																<span class="material-symbols-outlined">schedule</span>
+																{Math.ceil((new Date(task.deadline) - new Date()) / (1000 * 60 * 60 * 24))} days left
+															</span>
+															<button class="update-btn" on:click={() => {
+																activeFollowup = { taskId: task.taskId, taskTitle: task.title, progress: task.progress };
+																taskProgressInput = task.progress;
+																showFollowupModal = true;
+															}}>
+																<span class="material-symbols-outlined">edit</span>
+																Update Progress
+															</button>
+														</div>
+													</div>
+												{/each}
+											</div>
+										</div>
+									{/if}
+
+								{:else if activeGtmSection === 'market'}
+									<!-- Target Market Section -->
+									<div class="gtm-section-card minimal-card">
+										<div class="section-header">
+											<span class="material-symbols-outlined">target</span>
+											<h2>Ideal Customer Profile (ICP)</h2>
+										</div>
+										{#if gtmStrategy.targetMarket?.icp}
+											<div class="icp-grid">
+												<div class="icp-item">
+													<span class="icp-label">Industry</span>
+													<span class="icp-value">{gtmStrategy.targetMarket.icp.industry}</span>
+												</div>
+												<div class="icp-item">
+													<span class="icp-label">Company Size</span>
+													<span class="icp-value">{gtmStrategy.targetMarket.icp.companySize}</span>
+												</div>
+												<div class="icp-item">
+													<span class="icp-label">Geography</span>
+													<span class="icp-value">{gtmStrategy.targetMarket.icp.geography}</span>
+												</div>
+												<div class="icp-item">
+													<span class="icp-label">Decision Maker</span>
+													<span class="icp-value">{gtmStrategy.targetMarket.icp.decisionMaker}</span>
+												</div>
+											</div>
+										{/if}
 									</div>
 
-									<!-- RAG Summary -->
-									<div class="rag-summary">
-										<div class="rag-summary-item not-started">
-											<span class="material-symbols-outlined">hourglass_empty</span>
-											<span class="rag-label">Not Started</span>
-											<span class="rag-count">{gtmTodoItems.filter(i => i.ragStatus === 'not-started').length}</span>
+									<!-- User Personas -->
+									<div class="gtm-section-card minimal-card">
+										<div class="section-header">
+											<span class="material-symbols-outlined">person</span>
+											<h2>User Personas</h2>
 										</div>
-										<div class="rag-summary-item red">
-											<span class="material-symbols-outlined">error</span>
-											<span class="rag-label">At Risk</span>
-											<span class="rag-count">{gtmTodoItems.filter(i => i.ragStatus === 'red').length}</span>
+										{#if gtmStrategy.targetMarket?.personas}
+											<div class="personas-grid">
+												{#each gtmStrategy.targetMarket.personas as persona, i}
+													<div class="persona-card">
+														<div class="persona-header">
+															<span class="persona-avatar">P{i + 1}</span>
+															<div>
+																<h4>{persona.name}</h4>
+																<p class="persona-role">{persona.role}</p>
+															</div>
+														</div>
+														<div class="persona-section">
+															<span class="section-label">Pain Points</span>
+															<ul>
+																{#each persona.painPoints || [] as pain}
+																	<li>{pain}</li>
+																{/each}
+															</ul>
+														</div>
+														<div class="persona-section">
+															<span class="section-label">Buying Trigger</span>
+															<p>{persona.buyingTrigger}</p>
+														</div>
+														{#if persona.objections}
+															<div class="persona-section">
+																<span class="section-label">Common Objections</span>
+																<ul class="objections-list">
+																	{#each persona.objections as objection}
+																		<li>{objection}</li>
+																	{/each}
+																</ul>
+															</div>
+														{/if}
+													</div>
+												{/each}
+											</div>
+										{/if}
+									</div>
+
+									<!-- Early Adopters vs Mass Market -->
+									<div class="gtm-section-card minimal-card">
+										<div class="section-header">
+											<span class="material-symbols-outlined">trending_up</span>
+											<h2>Market Segmentation</h2>
 										</div>
-										<div class="rag-summary-item amber">
-											<span class="material-symbols-outlined">warning</span>
-											<span class="rag-label">In Progress</span>
-											<span class="rag-count">{gtmTodoItems.filter(i => i.ragStatus === 'amber').length}</span>
-										</div>
-										<div class="rag-summary-item green">
-											<span class="material-symbols-outlined">check_circle</span>
-											<span class="rag-label">Completed</span>
-											<span class="rag-count">{gtmTodoItems.filter(i => i.ragStatus === 'green').length}</span>
+										<div class="market-segments">
+											{#if gtmStrategy.targetMarket?.earlyAdopters}
+												<div class="segment-card early">
+													<h4><span class="material-symbols-outlined">bolt</span> Early Adopters</h4>
+													<div class="segment-content">
+														<p><strong>Who:</strong> {gtmStrategy.targetMarket.earlyAdopters.who}</p>
+														<p><strong>Why they adopt first:</strong> {gtmStrategy.targetMarket.earlyAdopters.why}</p>
+														<p><strong>Where to find them:</strong> {gtmStrategy.targetMarket.earlyAdopters.whereToFind}</p>
+													</div>
+												</div>
+											{/if}
+											{#if gtmStrategy.targetMarket?.massMarket}
+												<div class="segment-card mass">
+													<h4><span class="material-symbols-outlined">groups</span> Mass Market</h4>
+													<div class="segment-content">
+														<p><strong>Who:</strong> {gtmStrategy.targetMarket.massMarket.who}</p>
+														<p><strong>Timeline:</strong> {gtmStrategy.targetMarket.massMarket.timeline}</p>
+														<p><strong>Requirements:</strong> {gtmStrategy.targetMarket.massMarket.requirements}</p>
+													</div>
+												</div>
+											{/if}
 										</div>
 									</div>
-								{:else}
-									<div class="empty-todo-state">
-										<span class="material-symbols-outlined">playlist_add</span>
-										<p>No custom actions yet. Click "Add Action" to create your own trackable items.</p>
+
+								{:else if activeGtmSection === 'positioning'}
+									<!-- Positioning Section -->
+									<div class="gtm-section-card minimal-card">
+										<div class="section-header">
+											<span class="material-symbols-outlined">stars</span>
+											<h2>Product Positioning</h2>
+										</div>
+										<div class="positioning-content">
+											<div class="positioning-statement-box">
+												<span class="label">Positioning Statement</span>
+												<p class="statement">"{gtmStrategy.positioning?.positioningStatement || 'Not defined'}"</p>
+											</div>
+											<div class="category-position">
+												<span class="label">Category Position</span>
+												<span class="position-badge">{gtmStrategy.positioning?.categoryPosition || 'Alternative'}</span>
+											</div>
+										</div>
 									</div>
+
+									<!-- Differentiation Axes -->
+									{#if gtmStrategy.positioning?.differentiationAxes}
+										<div class="gtm-section-card minimal-card">
+											<div class="section-header">
+												<span class="material-symbols-outlined">compare</span>
+												<h2>Differentiation Axes</h2>
+											</div>
+											<div class="diff-axes-grid">
+												{#each gtmStrategy.positioning.differentiationAxes as axis}
+													<div class="diff-axis-card">
+														<h4>{axis.axis}</h4>
+														<p class="axis-position">{axis.position}</p>
+														<p class="axis-vs">vs Competitors: {axis.vsCompetitors}</p>
+													</div>
+												{/each}
+											</div>
+										</div>
+									{/if}
+
+									<!-- Competitive Response -->
+									{#if gtmStrategy.positioning?.competitiveResponse}
+										<div class="gtm-section-card minimal-card">
+											<div class="section-header">
+												<span class="material-symbols-outlined">sports_martial_arts</span>
+												<h2>Competitive Response</h2>
+											</div>
+											<div class="competitive-response">
+												<p class="vs-main">{gtmStrategy.positioning.competitiveResponse.vsMainCompetitor}</p>
+												<div class="talking-points">
+													<h4>Key Talking Points</h4>
+													<ul>
+														{#each gtmStrategy.positioning.competitiveResponse.keyTalkingPoints || [] as point}
+															<li>{point}</li>
+														{/each}
+													</ul>
+												</div>
+											</div>
+										</div>
+									{/if}
+
+								{:else if activeGtmSection === 'pricing'}
+									<!-- Pricing Section -->
+									<div class="gtm-section-card minimal-card">
+										<div class="section-header">
+											<span class="material-symbols-outlined">payments</span>
+											<h2>Pricing Strategy</h2>
+										</div>
+										<div class="pricing-model-badge">
+											<span class="model-label">Pricing Model:</span>
+											<span class="model-value">{gtmStrategy.pricing?.model || 'Subscription'}</span>
+										</div>
+										{#if gtmStrategy.pricing?.tiers}
+											<div class="pricing-tiers">
+												{#each gtmStrategy.pricing.tiers as tier, i}
+													<div class="pricing-tier" class:recommended={i === 1}>
+														{#if i === 1}<span class="recommended-badge">Recommended</span>{/if}
+														<h4>{tier.name}</h4>
+														<p class="tier-price">{tier.price}</p>
+														<p class="tier-target">{tier.targetUser}</p>
+														<ul class="tier-features">
+															{#each tier.features || [] as feature}
+																<li><span class="material-symbols-outlined">check</span> {feature}</li>
+															{/each}
+														</ul>
+													</div>
+												{/each}
+											</div>
+										{/if}
+									</div>
+
+									<!-- Pricing Logic -->
+									{#if gtmStrategy.pricing?.pricingLogic}
+										<div class="gtm-section-card minimal-card">
+											<div class="section-header">
+												<span class="material-symbols-outlined">psychology</span>
+												<h2>Pricing Logic</h2>
+											</div>
+											<div class="pricing-logic-content">
+												<div class="logic-item">
+													<span class="logic-label">Approach</span>
+													<p>{gtmStrategy.pricing.pricingLogic.approach}</p>
+												</div>
+												<div class="logic-item">
+													<span class="logic-label">Rationale</span>
+													<p>{gtmStrategy.pricing.pricingLogic.rationale}</p>
+												</div>
+												<div class="logic-item">
+													<span class="logic-label">Expansion Path</span>
+													<p>{gtmStrategy.pricing.pricingLogic.expansionPath}</p>
+												</div>
+											</div>
+										</div>
+									{/if}
+
+								{:else if activeGtmSection === 'distribution'}
+									<!-- Distribution Channels -->
+									<div class="gtm-section-card minimal-card">
+										<div class="section-header">
+											<span class="material-symbols-outlined">share</span>
+											<h2>Distribution Channels</h2>
+										</div>
+										{#if gtmStrategy.distribution?.primaryChannels}
+											<div class="channels-list">
+												{#each gtmStrategy.distribution.primaryChannels as channel}
+													<div class="channel-card">
+														<div class="channel-priority">#{channel.priority}</div>
+														<div class="channel-content">
+															<h4>{channel.channel}</h4>
+															<p class="channel-rationale">{channel.rationale}</p>
+															<span class="channel-cac">Expected CAC: {channel.expectedCac}</span>
+														</div>
+													</div>
+												{/each}
+											</div>
+										{/if}
+									</div>
+
+									<!-- Sales Motion -->
+									{#if gtmStrategy.distribution?.salesMotion}
+										<div class="gtm-section-card minimal-card">
+											<div class="section-header">
+												<span class="material-symbols-outlined">handshake</span>
+												<h2>Sales Motion</h2>
+											</div>
+											<div class="sales-motion-content">
+												<div class="motion-type">
+													<span class="type-badge">{gtmStrategy.distribution.salesMotion.type}</span>
+												</div>
+												<p class="motion-rationale">{gtmStrategy.distribution.salesMotion.rationale}</p>
+												<div class="transition-plan">
+													<span class="label">Transition Plan:</span>
+													<p>{gtmStrategy.distribution.salesMotion.transitionPlan}</p>
+												</div>
+											</div>
+										</div>
+									{/if}
+
+									<!-- Channel Ownership -->
+									{#if gtmStrategy.distribution?.channelOwnership}
+										<div class="gtm-section-card minimal-card">
+											<div class="section-header">
+												<span class="material-symbols-outlined">assignment_ind</span>
+												<h2>Channel Ownership</h2>
+											</div>
+											<div class="ownership-grid">
+												<div class="ownership-item">
+													<span class="ownership-label">Lead Generation</span>
+													<span class="ownership-value">{gtmStrategy.distribution.channelOwnership.leadGeneration}</span>
+												</div>
+												<div class="ownership-item">
+													<span class="ownership-label">Qualification</span>
+													<span class="ownership-value">{gtmStrategy.distribution.channelOwnership.qualification}</span>
+												</div>
+												<div class="ownership-item">
+													<span class="ownership-label">Closing</span>
+													<span class="ownership-value">{gtmStrategy.distribution.channelOwnership.closing}</span>
+												</div>
+												<div class="ownership-item">
+													<span class="ownership-label">Onboarding</span>
+													<span class="ownership-value">{gtmStrategy.distribution.channelOwnership.onboarding}</span>
+												</div>
+											</div>
+										</div>
+									{/if}
+
+								{:else if activeGtmSection === 'marketing'}
+									<!-- Demand Generation -->
+									{#if gtmStrategy.marketing?.demandGeneration}
+										<div class="gtm-section-card minimal-card">
+											<div class="section-header">
+												<span class="material-symbols-outlined">campaign</span>
+												<h2>Demand Generation</h2>
+											</div>
+											<div class="demand-gen-grid">
+												<div class="demand-category">
+													<h4><span class="material-symbols-outlined">article</span> Content</h4>
+													<ul>
+														{#each gtmStrategy.marketing.demandGeneration.content || [] as item}
+															<li>{item}</li>
+														{/each}
+													</ul>
+												</div>
+												<div class="demand-category">
+													<h4><span class="material-symbols-outlined">ads_click</span> Paid Ads</h4>
+													<ul>
+														{#each gtmStrategy.marketing.demandGeneration.paidAds || [] as item}
+															<li>{item}</li>
+														{/each}
+													</ul>
+												</div>
+												<div class="demand-category">
+													<h4><span class="material-symbols-outlined">forum</span> Community</h4>
+													<ul>
+														{#each gtmStrategy.marketing.demandGeneration.community || [] as item}
+															<li>{item}</li>
+														{/each}
+													</ul>
+												</div>
+												<div class="demand-category">
+													<h4><span class="material-symbols-outlined">event</span> Events</h4>
+													<ul>
+														{#each gtmStrategy.marketing.demandGeneration.events || [] as item}
+															<li>{item}</li>
+														{/each}
+													</ul>
+												</div>
+											</div>
+										</div>
+									{/if}
+
+									<!-- Brand Messaging -->
+									{#if gtmStrategy.marketing?.brandMessaging}
+										<div class="gtm-section-card minimal-card">
+											<div class="section-header">
+												<span class="material-symbols-outlined">chat</span>
+												<h2>Brand & Messaging</h2>
+											</div>
+											<div class="brand-messaging-content">
+												<div class="core-narrative">
+													<span class="label">Core Narrative</span>
+													<p>"{gtmStrategy.marketing.brandMessaging.coreNarrative}"</p>
+												</div>
+												{#if gtmStrategy.marketing.brandMessaging.channelMessages}
+													<div class="channel-messages">
+														<h4>Channel-Specific Messages</h4>
+														{#each gtmStrategy.marketing.brandMessaging.channelMessages as cm}
+															<div class="channel-message">
+																<span class="channel-name">{cm.channel}</span>
+																<p>{cm.message}</p>
+															</div>
+														{/each}
+													</div>
+												{/if}
+											</div>
+										</div>
+									{/if}
+
+									<!-- Objection Handling -->
+									{#if gtmStrategy.marketing?.brandMessaging?.objectionHandling}
+										<div class="gtm-section-card minimal-card">
+											<div class="section-header">
+												<span class="material-symbols-outlined">support_agent</span>
+												<h2>Objection Handling</h2>
+											</div>
+											<div class="objections-grid">
+												{#each gtmStrategy.marketing.brandMessaging.objectionHandling as obj}
+													<div class="objection-card">
+														<div class="objection-text">
+															<span class="material-symbols-outlined">help</span>
+															"{obj.objection}"
+														</div>
+														<div class="response-text">
+															<span class="material-symbols-outlined">lightbulb</span>
+															{obj.response}
+														</div>
+													</div>
+												{/each}
+											</div>
+										</div>
+									{/if}
+
+									<!-- Growth Loops -->
+									{#if gtmStrategy.marketing?.growthLoops}
+										<div class="gtm-section-card minimal-card">
+											<div class="section-header">
+												<span class="material-symbols-outlined">autorenew</span>
+												<h2>Growth Loops</h2>
+											</div>
+											<div class="growth-loops-grid">
+												{#each gtmStrategy.marketing.growthLoops as loop}
+													<div class="growth-loop-card">
+														<h4>{loop.type}</h4>
+														<p class="loop-mechanism">{loop.mechanism}</p>
+														{#if loop.incentive}
+															<p class="loop-detail"><strong>Incentive:</strong> {loop.incentive}</p>
+														{/if}
+														{#if loop.kFactor}
+															<p class="loop-detail"><strong>K-Factor:</strong> {loop.kFactor}</p>
+														{/if}
+													</div>
+												{/each}
+											</div>
+										</div>
+									{/if}
+
+								{:else if activeGtmSection === 'launch'}
+									<!-- Launch Plan -->
+									{#if gtmStrategy.launchPlan}
+										<div class="gtm-section-card minimal-card">
+											<div class="section-header">
+												<span class="material-symbols-outlined">rocket</span>
+												<h2>Launch Plan</h2>
+											</div>
+											<div class="launch-phases">
+												<!-- Pre-Launch -->
+												{#if gtmStrategy.launchPlan.preLaunch}
+													<div class="launch-phase pre">
+														<div class="phase-header">
+															<span class="phase-icon">🎯</span>
+															<h4>Pre-Launch</h4>
+															<span class="phase-timeline">{gtmStrategy.launchPlan.preLaunch.timeline}</span>
+														</div>
+														<div class="phase-activities">
+															{#each gtmStrategy.launchPlan.preLaunch.activities || [] as activity}
+																<div class="activity-item">
+																	<span class="activity-name">{activity.activity}</span>
+																	<span class="activity-goal">{activity.goal}</span>
+																	<span class="activity-timeline">{activity.timeline}</span>
+																</div>
+															{/each}
+														</div>
+													</div>
+												{/if}
+
+												<!-- Launch -->
+												{#if gtmStrategy.launchPlan.launch}
+													<div class="launch-phase active">
+														<div class="phase-header">
+															<span class="phase-icon">🚀</span>
+															<h4>Launch Day</h4>
+														</div>
+														<div class="launch-details">
+															<div class="launch-section">
+																<span class="label">Day-1 Channels</span>
+																<div class="tag-list">
+																	{#each gtmStrategy.launchPlan.launch.day1Channels || [] as channel}
+																		<span class="tag">{channel}</span>
+																	{/each}
+																</div>
+															</div>
+															<div class="launch-section">
+																<span class="label">PR & Announcements</span>
+																<ul>
+																	{#each gtmStrategy.launchPlan.launch.prAnnouncements || [] as pr}
+																		<li>{pr}</li>
+																	{/each}
+																</ul>
+															</div>
+															<div class="launch-section">
+																<span class="label">Promotions</span>
+																<ul>
+																	{#each gtmStrategy.launchPlan.launch.promotions || [] as promo}
+																		<li>{promo}</li>
+																	{/each}
+																</ul>
+															</div>
+														</div>
+													</div>
+												{/if}
+
+												<!-- Post-Launch -->
+												{#if gtmStrategy.launchPlan.postLaunch}
+													<div class="launch-phase post">
+														<div class="phase-header">
+															<span class="phase-icon">📈</span>
+															<h4>Post-Launch</h4>
+														</div>
+														<div class="post-launch-details">
+															<p><strong>Iteration Cycles:</strong> {gtmStrategy.launchPlan.postLaunch.iterationCycles}</p>
+															<div class="launch-section">
+																<span class="label">Feature Rollouts</span>
+																<ul>
+																	{#each gtmStrategy.launchPlan.postLaunch.featureRollouts || [] as feature}
+																		<li>{feature}</li>
+																	{/each}
+																</ul>
+															</div>
+															<div class="launch-section">
+																<span class="label">Expansion Plan</span>
+																<ul>
+																	{#each gtmStrategy.launchPlan.postLaunch.expansionPlan || [] as expansion}
+																		<li>{expansion}</li>
+																	{/each}
+																</ul>
+															</div>
+														</div>
+													</div>
+												{/if}
+											</div>
+										</div>
+									{/if}
+
+									<!-- Customer Success -->
+									{#if gtmStrategy.customerSuccess}
+										<div class="gtm-section-card minimal-card">
+											<div class="section-header">
+												<span class="material-symbols-outlined">emoji_events</span>
+												<h2>Customer Onboarding & Success</h2>
+											</div>
+											<div class="customer-success-content">
+												{#if gtmStrategy.customerSuccess.firstValueMoment}
+													<div class="first-value-box">
+														<h4>First Value Moment</h4>
+														<p>{gtmStrategy.customerSuccess.firstValueMoment.definition}</p>
+														<div class="fvm-metrics">
+															<span><strong>Metric:</strong> {gtmStrategy.customerSuccess.firstValueMoment.metric}</span>
+															<span><strong>Target:</strong> {gtmStrategy.customerSuccess.firstValueMoment.timeline}</span>
+														</div>
+													</div>
+												{/if}
+												{#if gtmStrategy.customerSuccess.onboarding}
+													<div class="onboarding-section">
+														<h4>Onboarding</h4>
+														<p><strong>Support Level:</strong> {gtmStrategy.customerSuccess.onboarding.supportLevel}</p>
+														<div class="onboarding-tools">
+															<span class="label">Tools:</span>
+															<div class="tag-list">
+																{#each gtmStrategy.customerSuccess.onboarding.tools || [] as tool}
+																	<span class="tag">{tool}</span>
+																{/each}
+															</div>
+														</div>
+														<div class="milestones">
+															<span class="label">Milestones:</span>
+															<ol>
+																{#each gtmStrategy.customerSuccess.onboarding.milestones || [] as milestone}
+																	<li>{milestone}</li>
+																{/each}
+															</ol>
+														</div>
+													</div>
+												{/if}
+											</div>
+										</div>
+									{/if}
+
+								{:else if activeGtmSection === 'metrics'}
+									<!-- North Star Metric -->
+									{#if gtmStrategy.metrics?.northStar}
+										<div class="gtm-section-card minimal-card north-star-card">
+											<div class="section-header">
+												<span class="material-symbols-outlined">star</span>
+												<h2>North Star Metric</h2>
+											</div>
+											<div class="north-star-content">
+												<div class="north-star-metric">
+													<span class="ns-label">THE ONE METRIC</span>
+													<h3>{gtmStrategy.metrics.northStar.metric}</h3>
+												</div>
+												<div class="ns-details">
+													<div class="ns-item">
+														<span class="label">Target</span>
+														<p>{gtmStrategy.metrics.northStar.target}</p>
+													</div>
+													<div class="ns-item">
+														<span class="label">Rationale</span>
+														<p>{gtmStrategy.metrics.northStar.rationale}</p>
+													</div>
+												</div>
+											</div>
+										</div>
+									{/if}
+
+									<!-- Metrics Grid -->
+									<div class="metrics-categories-grid">
+										{#if gtmStrategy.metrics?.acquisition}
+											<div class="gtm-section-card minimal-card">
+												<div class="section-header small">
+													<span class="material-symbols-outlined">person_add</span>
+													<h3>Acquisition</h3>
+												</div>
+												<div class="metrics-list">
+													<div class="metric-row">
+														<span class="metric-name">CAC</span>
+														<span class="metric-current">{gtmStrategy.metrics.acquisition.cac?.current || 'TBD'}</span>
+														<span class="metric-target">→ {gtmStrategy.metrics.acquisition.cac?.target || 'TBD'}</span>
+													</div>
+													<div class="metric-row">
+														<span class="metric-name">Conversion Rate</span>
+														<span class="metric-current">{gtmStrategy.metrics.acquisition.conversionRate?.current || 'TBD'}</span>
+														<span class="metric-target">→ {gtmStrategy.metrics.acquisition.conversionRate?.target || 'TBD'}</span>
+													</div>
+													<div class="metric-row">
+														<span class="metric-name">CPL</span>
+														<span class="metric-current">{gtmStrategy.metrics.acquisition.cpl?.current || 'TBD'}</span>
+														<span class="metric-target">→ {gtmStrategy.metrics.acquisition.cpl?.target || 'TBD'}</span>
+													</div>
+												</div>
+											</div>
+										{/if}
+
+										{#if gtmStrategy.metrics?.activation}
+											<div class="gtm-section-card minimal-card">
+												<div class="section-header small">
+													<span class="material-symbols-outlined">bolt</span>
+													<h3>Activation</h3>
+												</div>
+												<div class="metrics-list">
+													<div class="metric-row">
+														<span class="metric-name">Time to First Value</span>
+														<span class="metric-current">{gtmStrategy.metrics.activation.timeToFirstValue?.current || 'TBD'}</span>
+														<span class="metric-target">→ {gtmStrategy.metrics.activation.timeToFirstValue?.target || 'TBD'}</span>
+													</div>
+													<div class="metric-row">
+														<span class="metric-name">Activation Rate</span>
+														<span class="metric-current">{gtmStrategy.metrics.activation.activationRate?.current || 'TBD'}</span>
+														<span class="metric-target">→ {gtmStrategy.metrics.activation.activationRate?.target || 'TBD'}</span>
+													</div>
+												</div>
+											</div>
+										{/if}
+
+										{#if gtmStrategy.metrics?.revenue}
+											<div class="gtm-section-card minimal-card">
+												<div class="section-header small">
+													<span class="material-symbols-outlined">currency_rupee</span>
+													<h3>Revenue</h3>
+												</div>
+												<div class="metrics-list">
+													<div class="metric-row">
+														<span class="metric-name">ARPU</span>
+														<span class="metric-current">{gtmStrategy.metrics.revenue.arpu?.current || 'TBD'}</span>
+														<span class="metric-target">→ {gtmStrategy.metrics.revenue.arpu?.target || 'TBD'}</span>
+													</div>
+													<div class="metric-row">
+														<span class="metric-name">LTV</span>
+														<span class="metric-current">{gtmStrategy.metrics.revenue.ltv?.current || 'TBD'}</span>
+														<span class="metric-target">→ {gtmStrategy.metrics.revenue.ltv?.target || 'TBD'}</span>
+													</div>
+													<div class="metric-row">
+														<span class="metric-name">Churn</span>
+														<span class="metric-current">{gtmStrategy.metrics.revenue.churn?.current || 'TBD'}</span>
+														<span class="metric-target">→ {gtmStrategy.metrics.revenue.churn?.target || 'TBD'}</span>
+													</div>
+												</div>
+											</div>
+										{/if}
+									</div>
+
+									<!-- Risks -->
+									{#if gtmStrategy.risks}
+										<div class="gtm-section-card minimal-card">
+											<div class="section-header">
+												<span class="material-symbols-outlined">warning</span>
+												<h2>Risks & Mitigation</h2>
+											</div>
+											<div class="risks-table">
+												<div class="risk-header-row">
+													<span>Risk</span>
+													<span>Impact</span>
+													<span>Mitigation</span>
+												</div>
+												{#each gtmStrategy.risks as risk}
+													<div class="risk-row">
+														<span class="risk-name">{risk.risk}</span>
+														<span class="risk-impact {risk.impact?.toLowerCase()}">{risk.impact}</span>
+														<span class="risk-mitigation">{risk.mitigation}</span>
+													</div>
+												{/each}
+											</div>
+										</div>
+									{/if}
+
+								{:else if activeGtmSection === 'execution'}
+									<!-- 90-Day Execution Plan -->
+									{#if gtmStrategy.executionPlan}
+										<div class="gtm-section-card minimal-card">
+											<div class="section-header">
+												<span class="material-symbols-outlined">sprint</span>
+												<h2>90-Day Execution Plan</h2>
+											</div>
+											<div class="execution-timeline">
+												{#each ['month1', 'month2', 'month3'] as month, i}
+													{#if gtmStrategy.executionPlan[month]}
+														<div class="month-card">
+															<div class="month-header">
+																<span class="month-number">Month {i + 1}</span>
+																<span class="month-theme">{gtmStrategy.executionPlan[month].theme}</span>
+															</div>
+															<div class="month-objectives">
+																<h5>Objectives</h5>
+																<ul>
+																	{#each gtmStrategy.executionPlan[month].objectives || [] as obj}
+																		<li>{obj}</li>
+																	{/each}
+																</ul>
+															</div>
+															<div class="month-actions">
+																<h5>Key Actions</h5>
+																<div class="actions-table">
+																	{#each gtmStrategy.executionPlan[month].keyActions || [] as action}
+																		<div class="action-row">
+																			<span class="action-text">{action.action}</span>
+																			<span class="action-owner">{action.owner}</span>
+																			<span class="action-timeline">{action.timeline}</span>
+																		</div>
+																	{/each}
+																</div>
+															</div>
+															<div class="month-metrics">
+																<h5>Success Metrics</h5>
+																<div class="success-tags">
+																	{#each gtmStrategy.executionPlan[month].successMetrics || [] as metric}
+																		<span class="success-tag">{metric}</span>
+																	{/each}
+																</div>
+															</div>
+														</div>
+													{/if}
+												{/each}
+											</div>
+										</div>
+									{/if}
+
+									<!-- VC-Grade Slides -->
+									{#if gtmStrategy.vcSlides}
+										<div class="gtm-section-card minimal-card">
+											<div class="section-header">
+												<span class="material-symbols-outlined">slideshow</span>
+												<h2>VC-Grade GTM Slides</h2>
+												<span class="badge-limit">3 Slides Only</span>
+											</div>
+											<div class="vc-slides-grid">
+												{#each ['slide1', 'slide2', 'slide3'] as slideKey, i}
+													{#if gtmStrategy.vcSlides[slideKey]}
+														<div class="vc-slide">
+															<div class="slide-number">{String(i + 1).padStart(2, '0')}</div>
+															<h4>{gtmStrategy.vcSlides[slideKey].title}</h4>
+															<ul>
+																{#each gtmStrategy.vcSlides[slideKey].points || [] as point}
+																	<li>{point}</li>
+																{/each}
+															</ul>
+														</div>
+													{/if}
+												{/each}
+											</div>
+										</div>
+									{/if}
 								{/if}
 							</div>
-						</div>
-
-						<!-- Section E: Risks & Blind Spots -->
-						<div class="minimal-card">
-							<div class="card-header">
-								<span class="material-symbols-outlined icon-large">visibility_off</span>
-								<h2 class="section-title">Risks & Blind Spots</h2>
-							</div>
-
-							<div class="risks-grid">
-								<div class="risk-item">
-									<div class="risk-header">
-										<span class="material-symbols-outlined">help_outline</span>
-										<h4>What This GTM Loop Does NOT Validate</h4>
-									</div>
-									<ul class="risk-list">
-										<li>Whether {targetCustomer} will actually pay (only validates interest)</li>
-										<li>Optimal pricing point (requires separate pricing experiments)</li>
-										<li>Long-term retention (too early to measure)</li>
-										<li>Scalability of channel beyond founder-led effort</li>
+						{:else}
+							<!-- Empty State - No Strategy Generated Yet -->
+							<div class="gtm-empty-state minimal-card">
+								<div class="empty-icon">
+									<span class="material-symbols-outlined">auto_awesome</span>
+								</div>
+								<h3>Generate Your GTM Strategy</h3>
+								<p>Click the button above to generate a comprehensive, investor-grade Go-To-Market strategy tailored to your product and market.</p>
+								<ul class="gtm-features">
+									<li><span class="material-symbols-outlined">check_circle</span> Target market & personas</li>
+									<li><span class="material-symbols-outlined">check_circle</span> Pricing & positioning</li>
+									<li><span class="material-symbols-outlined">check_circle</span> Distribution channels</li>
+									<li><span class="material-symbols-outlined">check_circle</span> Marketing strategy</li>
+									<li><span class="material-symbols-outlined">check_circle</span> 90-day execution plan</li>
+									<li><span class="material-symbols-outlined">check_circle</span> VC-ready slides</li>
 									</ul>
-								</div>
-
-								<div class="risk-item">
-									<div class="risk-header">
-										<span class="material-symbols-outlined">broken_image</span>
-										<h4>What Could Break the Model</h4>
-									</div>
-									<ul class="risk-list">
-										<li>Target persona doesn't have budget authority</li>
-										<li>Problem isn't urgent enough to buy now</li>
-										<li>Competitor launches with aggressive pricing</li>
-										<li>Founder burns out on high-touch outreach</li>
-									</ul>
-								</div>
-
-								<div class="risk-item full-width">
-									<div class="risk-header">
-										<span class="material-symbols-outlined">restart_alt</span>
-										<h4>GTM Reset Triggers</h4>
-									</div>
-									<div class="reset-triggers">
-										<div class="reset-trigger">
-											<span class="trigger-if">IF</span>
-											<span class="trigger-condition">&lt;5% response rate after 50 outreach attempts</span>
-											<span class="trigger-then">→</span>
-											<span class="trigger-action">Persona or message is wrong. Reset ICP hypothesis.</span>
-										</div>
-										<div class="reset-trigger">
-											<span class="trigger-if">IF</span>
-											<span class="trigger-condition">3 consecutive demos but 0 conversions</span>
-											<span class="trigger-then">→</span>
-											<span class="trigger-action">Product-market gap. Pause GTM, fix product.</span>
-										</div>
-										<div class="reset-trigger">
-											<span class="trigger-if">IF</span>
-											<span class="trigger-condition">Runway drops below 3 months with no traction</span>
-											<span class="trigger-then">→</span>
-											<span class="trigger-action">Emergency mode. One channel only. All-in or shut down.</span>
-										</div>
-									</div>
-								</div>
 							</div>
-						</div>
-
-						<!-- VC-Grade GTM Slides -->
-						<div class="minimal-card gtm-slides-card">
-							<div class="card-header">
-								<span class="material-symbols-outlined icon-large">slideshow</span>
-								<h2 class="section-title">VC-Grade GTM Slides</h2>
-								<span class="slides-badge">3 Slides Only</span>
-							</div>
-							<p class="section-desc">Operating logic, not a pitch. These slides show how you think, not what you hope.</p>
-
-							<div class="gtm-slides">
-								<!-- Slide 1: GTM Philosophy -->
-								<div class="gtm-slide">
-									<div class="slide-number">01</div>
-									<h4 class="slide-title">GTM Philosophy</h4>
-									<div class="slide-content">
-										<p class="slide-point">
-											<span class="point-marker">●</span>
-											<strong>How we decide:</strong> Every GTM channel must generate learnable signal within 14 days or gets killed.
-										</p>
-										<p class="slide-point">
-											<span class="point-marker">●</span>
-											<strong>How we evolve:</strong> We run 2 hypotheses max. Winners get doubled, losers get cut—no zombies.
-										</p>
-										<p class="slide-point">
-											<span class="point-marker">●</span>
-											<strong>Runway protection:</strong> Cost per learning &lt; ₹{Math.round(500000 / runwayMonths).toLocaleString('en-IN')}/month. Time is the constraint, not money.
-										</p>
-									</div>
-								</div>
-
-								<!-- Slide 2: Current GTM Focus -->
-								<div class="gtm-slide">
-									<div class="slide-number">02</div>
-									<h4 class="slide-title">Current GTM Focus</h4>
-									<div class="slide-content">
-										<p class="slide-point">
-											<span class="point-marker">●</span>
-											<strong>Channel 1:</strong>
-											{#if !hasRevenue}
-												Direct founder outreach to {targetCustomer}
-											{:else}
-												Customer referrals + warm intros
-											{/if}
-										</p>
-										<p class="slide-point">
-											<span class="point-marker">●</span>
-											<strong>Channel 2 (backup):</strong>
-											{#if stage === 'Idea' || stage === 'MVP'}
-												Community participation for organic discovery
-											{:else}
-												Strategic partnerships for distribution leverage
-											{/if}
-										</p>
-										<p class="slide-point">
-											<span class="point-marker">●</span>
-											<strong>30-day success:</strong>
-											{#if !hasRevenue}
-												3 paying customers from direct outreach
-											{:else}
-												2x current customer count through referrals
-											{/if}
-										</p>
-									</div>
-								</div>
-
-								<!-- Slide 3: GTM Learning Engine -->
-								<div class="gtm-slide">
-									<div class="slide-number">03</div>
-									<h4 class="slide-title">GTM Learning Engine</h4>
-									<div class="slide-content">
-										<p class="slide-point">
-											<span class="point-marker">●</span>
-											<strong>Experiment cadence:</strong> 14-day cycles. Data review on Day 7, decision on Day 14.
-										</p>
-										<p class="slide-point">
-											<span class="point-marker">●</span>
-											<strong>Kill criteria:</strong> &lt;50% of expected signal by Day 7 = immediate pivot. No sunk cost bias.
-										</p>
-										<p class="slide-point">
-											<span class="point-marker">●</span>
-											<strong>Reallocation rule:</strong> Killed channel's time goes to winner or next hypothesis in queue.
-										</p>
-									</div>
-								</div>
-							</div>
-						</div>
-
-						<!-- GTM Signal Metrics Reference -->
-						<div class="minimal-card gtm-metrics-card">
-							<div class="card-header">
-								<span class="material-symbols-outlined icon-large">speed</span>
-								<h2 class="section-title">GTM Signal Metrics</h2>
-								<span class="metrics-badge">Track These Only</span>
-							</div>
-							<p class="section-desc">Vanity metrics (impressions, likes, reach) are banned. These 5 metrics tell you if GTM is working.</p>
-
-							<div class="metrics-grid">
-								<div class="metric-card">
-									<span class="material-symbols-outlined metric-icon">timer</span>
-									<div class="metric-info">
-										<span class="metric-name">Time to First Response</span>
-										<span class="metric-desc">How fast does outreach get a reply?</span>
-										<span class="metric-target">Target: &lt;48 hours</span>
-									</div>
-								</div>
-								<div class="metric-card">
-									<span class="material-symbols-outlined metric-icon">conversion_path</span>
-									<div class="metric-info">
-										<span class="metric-name">Conversion per Conversation</span>
-										<span class="metric-desc">What % of conversations become next steps?</span>
-										<span class="metric-target">Target: &gt;20%</span>
-									</div>
-								</div>
-								<div class="metric-card">
-									<span class="material-symbols-outlined metric-icon">schedule</span>
-									<div class="metric-info">
-										<span class="metric-name">Sales Cycle Length</span>
-										<span class="metric-desc">First touch to closed deal</span>
-										<span class="metric-target">Target: &lt;30 days</span>
-									</div>
-								</div>
-								<div class="metric-card">
-									<span class="material-symbols-outlined metric-icon">school</span>
-									<div class="metric-info">
-										<span class="metric-name">Cost per Learning</span>
-										<span class="metric-desc">₹ + time spent per validated insight</span>
-										<span class="metric-target">Target: &lt;₹5,000/insight</span>
-									</div>
-								</div>
-								<div class="metric-card">
-									<span class="material-symbols-outlined metric-icon">thumb_up</span>
-									<div class="metric-info">
-										<span class="metric-name">Trust Signal Strength</span>
-										<span class="metric-desc">Are prospects sharing your content / referring others?</span>
-										<span class="metric-target">Target: 1 unsolicited referral/month</span>
-									</div>
-								</div>
-							</div>
-						</div>
+						{/if}
 					</div>
 				{:else}
 					<div class="minimal-card">
 						<div class="empty-state">
 							<span class="material-symbols-outlined icon-empty">rocket_launch</span>
-							<h3>GTM Co-Founder Ready</h3>
-							<p>Complete the assessment to activate your GTM decision loop</p>
+							<h3>GTM Strategy Ready</h3>
+							<p>Complete the assessment to generate your personalized GTM strategy</p>
 							<button class="btn-primary" on:click={startDDQ}>
 								<span class="material-symbols-outlined">play_arrow</span>
 								Start Assessment
@@ -7699,7 +8938,7 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 									</div>
 									<h2>Strategic Advisor</h2>
 									<p>Your AI-powered strategy partner. Ask any question or choose from suggestions below.</p>
-								</div>
+									</div>
 							{:else}
 								{#each advisorMessages as message, index}
 									<div class="chat-bubble {message.role}">
@@ -7710,14 +8949,14 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 										{:else}
 											<div class="bubble-content assistant-bubble">
 												<div class="bubble-header">
-													<span class="advisor-label">Strategy Advisor</span>
+														<span class="advisor-label">Strategy Advisor</span>
 													{#if message.saved}
 														<span class="saved-tag">
 															<span class="material-symbols-outlined">check</span>
 															Saved to Notes
 														</span>
 													{/if}
-												</div>
+													</div>
 												<div class="bubble-text">
 													{@html message.content.replace(/\n/g, '<br>').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\*(.*?)\*/g, '<em>$1</em>')}
 												</div>
@@ -7725,7 +8964,7 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 										{/if}
 									</div>
 								{/each}
-								{#if advisorLoading}
+									{#if advisorLoading}
 									<div class="chat-bubble assistant">
 										<div class="bubble-content assistant-bubble">
 											<div class="typing-dots">
@@ -7748,7 +8987,7 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 								on:click={() => sendAdvisorMessage(q.question)}
 								disabled={advisorLoading}
 							>
-								{q.question}
+						{q.question}
 							</button>
 						{/each}
 					</div>
@@ -7782,7 +9021,7 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 					</p>
 				</div>
 
-			{:else if activeTab === 'chat'}
+				{:else if activeTab === 'chat'}
 				<div class="chat-section elegant-card">
 					<h2 class="section-title">💬 AI Strategic Assistant</h2>
 					<p class="section-text">Ask me anything about your valuation, methodology, or scenarios...</p>
@@ -7794,7 +9033,7 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 			{/if}
 		</div>
 
-		<!-- Footer -->
+			<!-- Footer -->
 		<footer class="dashboard-footer">
 			<div class="footer-content">
 				<div class="footer-left">
@@ -7802,7 +9041,7 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 					<img src="/logo-light.png" alt="NebulAa" class="footer-logo-img logo-light" />
 					<span class="footer-logo">NebulAa</span>
 					<span class="footer-separator">•</span>
-					<span class="footer-tagline">Singularity</span>
+						<span class="footer-tagline">Singularity</span>
 					<span class="footer-separator">•</span>
 					<span class="footer-copyright">© 2025 All rights reserved</span>
 				</div>
@@ -7815,6 +9054,274 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 			</div>
 		</footer>
 	</main>
+
+	<!-- GTM Task Start Modal -->
+	{#if showTaskStartModal && taskToStart}
+		<!-- svelte-ignore a11y-click-events-have-key-events -->
+		<!-- svelte-ignore a11y-no-static-element-interactions -->
+		<div class="modal-overlay" on:click={() => showTaskStartModal = false}>
+			<!-- svelte-ignore a11y-click-events-have-key-events -->
+			<!-- svelte-ignore a11y-no-static-element-interactions -->
+			<div class="modal-content gtm-task-modal" on:click|stopPropagation>
+				<div class="modal-header">
+					<h3>
+						<span class="material-symbols-outlined">rocket_launch</span>
+						Start Tracking: {taskToStart.taskType}
+					</h3>
+					<button class="btn-icon" on:click={() => showTaskStartModal = false}>
+						<span class="material-symbols-outlined">close</span>
+					</button>
+				</div>
+				<div class="modal-body">
+					<div class="task-preview">
+						<h4>{taskToStart.title || taskToStart.what}</h4>
+						<p>{taskToStart.description || taskToStart.evidence || ''}</p>
+						
+						{#if taskToStart.targetMetric}
+							<div class="target-preview">
+								<span class="label">Target:</span>
+								<span class="value">{taskToStart.targetMetric}: {taskToStart.targetValue}</span>
+							</div>
+						{/if}
+						
+						{#if taskToStart.weeklyMilestones}
+							<div class="milestones-preview">
+								<span class="label">Weekly Milestones:</span>
+								<ul>
+									{#each taskToStart.weeklyMilestones as milestone, i}
+										<li>Week {i+1}: {milestone}</li>
+									{/each}
+								</ul>
+							</div>
+						{/if}
+					</div>
+					
+					<div class="commitment-section">
+						<h4>Your AI Co-founder will:</h4>
+						<ul class="commitment-list">
+							<li><span class="material-symbols-outlined">check_circle</span> Check in with you daily on progress</li>
+							<li><span class="material-symbols-outlined">check_circle</span> Suggest next steps based on your updates</li>
+							<li><span class="material-symbols-outlined">check_circle</span> Help you troubleshoot blockers</li>
+							<li><span class="material-symbols-outlined">check_circle</span> Celebrate wins with you</li>
+						</ul>
+					</div>
+					
+					<div class="modal-actions">
+						<button class="btn-secondary" on:click={() => showTaskStartModal = false}>
+							Not Now
+						</button>
+						<button class="btn-primary" on:click={() => startGTMTask(taskToStart.taskType, taskToStart.category, taskToStart)}>
+							<span class="material-symbols-outlined">check</span>
+							Accept & Start Tracking
+						</button>
+					</div>
+				</div>
+			</div>
+		</div>
+	{/if}
+	
+	<!-- GTM Follow-up / Progress Update Modal -->
+	{#if showFollowupModal && activeFollowup}
+		<!-- svelte-ignore a11y-click-events-have-key-events -->
+		<!-- svelte-ignore a11y-no-static-element-interactions -->
+		<div class="modal-overlay" on:click={() => showFollowupModal = false}>
+			<!-- svelte-ignore a11y-click-events-have-key-events -->
+			<!-- svelte-ignore a11y-no-static-element-interactions -->
+			<div class="modal-content gtm-followup-modal" on:click|stopPropagation>
+				<div class="modal-header">
+					<h3>
+						<span class="material-symbols-outlined">psychology</span>
+						AI Co-founder Check-in
+					</h3>
+					<button class="btn-icon" on:click={() => showFollowupModal = false}>
+						<span class="material-symbols-outlined">close</span>
+					</button>
+				</div>
+				<div class="modal-body">
+					<div class="followup-task-info">
+						<span class="task-name">{activeFollowup.taskTitle}</span>
+						{#if activeFollowup.message}
+							<div class="ai-message">
+								<span class="ai-avatar">🤖</span>
+								<p>{activeFollowup.message}</p>
+							</div>
+						{/if}
+					</div>
+					
+					<div class="progress-update-section">
+						<label>How's it going? Update your progress:</label>
+						<div class="progress-slider">
+							<input type="range" min="0" max="100" step="5" bind:value={taskProgressInput} />
+							<span class="progress-value">{taskProgressInput}%</span>
+						</div>
+						
+						<label>Quick update (optional):</label>
+						<textarea 
+							bind:value={taskNoteInput}
+							placeholder="What did you accomplish? Any blockers? What's next?"
+							rows="3"
+						></textarea>
+					</div>
+					
+					<div class="modal-actions">
+						<button class="btn-secondary" on:click={() => showFollowupModal = false}>
+							Later
+						</button>
+						<button class="btn-primary" on:click={() => updateTaskProgress(activeFollowup.taskId, taskProgressInput, taskNoteInput)}>
+							<span class="material-symbols-outlined">send</span>
+							Update & Get AI Feedback
+						</button>
+					</div>
+				</div>
+			</div>
+		</div>
+	{/if}
+	
+	<!-- H3 Kill Modal (User Created) -->
+	{#if showH3Modal}
+		<!-- svelte-ignore a11y-click-events-have-key-events -->
+		<!-- svelte-ignore a11y-no-static-element-interactions -->
+		<div class="modal-overlay" on:click={() => showH3Modal = false}>
+			<!-- svelte-ignore a11y-click-events-have-key-events -->
+			<!-- svelte-ignore a11y-no-static-element-interactions -->
+			<div class="modal-content h3-modal" on:click|stopPropagation>
+				<div class="modal-header">
+					<h3>
+						<span class="material-symbols-outlined">cancel</span>
+						Add to Kill List (H3)
+					</h3>
+					<button class="btn-icon" on:click={() => showH3Modal = false}>
+						<span class="material-symbols-outlined">close</span>
+					</button>
+				</div>
+				<div class="modal-body">
+					<p class="h3-intro">
+						Killing things that don't work is just as important as doubling down on what does. 
+						Be honest with yourself - what should you stop doing?
+					</p>
+					
+					<div class="form-group">
+						<label>What are you killing?</label>
+						<input 
+							type="text" 
+							bind:value={h3Input.title}
+							placeholder="e.g., Instagram marketing, Feature X, Partnership with Y"
+						/>
+					</div>
+					
+					<div class="form-group">
+						<label>Why are you killing it?</label>
+						<textarea 
+							bind:value={h3Input.reason}
+							placeholder="What's not working? What evidence do you have?"
+							rows="2"
+						></textarea>
+					</div>
+					
+					<div class="form-group">
+						<label>Can you restart later? (Reversibility)</label>
+						<select bind:value={h3Input.reversibility}>
+							<option value="yes">Yes - Can restart anytime</option>
+							<option value="maybe">Maybe - Would need effort to restart</option>
+							<option value="no">No - Burning this bridge</option>
+						</select>
+					</div>
+					
+					<div class="modal-actions">
+						<button class="btn-secondary" on:click={() => showH3Modal = false}>
+							Cancel
+						</button>
+						<button class="btn-danger" on:click={addH3Task} disabled={!h3Input.title}>
+							<span class="material-symbols-outlined">delete_forever</span>
+							Kill It
+						</button>
+					</div>
+				</div>
+			</div>
+		</div>
+	{/if}
+
+		<!-- Competitor Details Modal -->
+	{#if selectedCompetitor}
+		<!-- svelte-ignore a11y-click-events-have-key-events -->
+		<!-- svelte-ignore a11y-no-static-element-interactions -->
+		<div class="modal-overlay" on:click={closeCompetitorModal}>
+			<!-- svelte-ignore a11y-click-events-have-key-events -->
+			<!-- svelte-ignore a11y-no-static-element-interactions -->
+			<div class="modal-content competitor-modal" on:click|stopPropagation>
+				<div class="modal-header">
+					<h3>{selectedCompetitor.name || 'Competitor'}</h3>
+					<button class="btn-icon" on:click={closeCompetitorModal}>
+						<span class="material-symbols-outlined">close</span>
+						</button>
+				</div>
+				<div class="modal-body">
+					<!-- Flagship Product Highlight -->
+					{#if selectedCompetitor.products && selectedCompetitor.products.length > 0}
+						<div class="flagship-highlight">
+							<div class="flagship-icon">
+								<span class="material-symbols-outlined">star</span>
+							</div>
+							<div class="flagship-content">
+								<span class="flagship-title">Flagship Product</span>
+								<span class="flagship-name">{selectedCompetitor.flagshipProduct || selectedCompetitor.products[0]}</span>
+							</div>
+						</div>
+					{/if}
+
+						<div class="competitor-detail-section">
+						<h4>
+							<span class="material-symbols-outlined">attach_money</span>
+							Funding Information
+						</h4>
+						<p class="detail-value">Total Raised: ₹{((selectedCompetitor.fundingRaised || 0) / 10000000).toFixed(2)} Cr</p>
+						<p class="detail-label">Key Investments:</p>
+						<ul class="investments-list">
+							{#each (selectedCompetitor.investments || []) as investment}
+								<li>{investment}</li>
+							{/each}
+						</ul>
+					</div>
+					<div class="competitor-detail-section">
+						<h4>
+							<span class="material-symbols-outlined">inventory</span>
+							Product Portfolio
+						</h4>
+						<div class="products-list">
+							{#each (selectedCompetitor.products || []) as product, i}
+								<span class="product-badge" class:flagship={i === 0}>
+									{#if i === 0}<span class="material-symbols-outlined star-icon">star</span>{/if}
+									{product}
+								</span>
+							{/each}
+						</div>
+					</div>
+					<div class="competitor-detail-section">
+						<h4>
+							<span class="material-symbols-outlined">analytics</span>
+							Performance Metrics
+						</h4>
+							<div class="detail-metrics">
+							<div class="detail-metric">
+								<span class="material-symbols-outlined">currency_rupee</span>
+								<div>
+									<div class="detail-label">Current Valuation</div>
+									<div class="detail-value">₹{((selectedCompetitor.currentValuation || 0) / 10000000).toFixed(2)} Cr</div>
+								</div>
+							</div>
+							<div class="detail-metric">
+								<span class="material-symbols-outlined">trending_up</span>
+								<div>
+									<div class="detail-label">Growth Rate</div>
+									<div class="detail-value">{selectedCompetitor.growthRate || 0}%</div>
+								</div>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+	{/if}
 
 	<!-- Competitor Details Modal -->
 	{#if selectedCompetitor}
@@ -8368,7 +9875,7 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 
 	.home-row-top {
 		display: grid;
-		grid-template-columns: 160px 1fr 220px;
+		grid-template-columns: 160px 1fr;
 		gap: 1rem;
 		min-height: 280px;
 	}
@@ -9133,6 +10640,326 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 		padding: 1rem 0.5rem;
 	}
 
+	/* Actions Carousel Styles */
+	.actions-carousel-card {
+		min-height: 280px;
+		display: flex;
+		flex-direction: column;
+	}
+
+	.carousel-tabs {
+		display: flex;
+		gap: 0;
+		border-bottom: 2px solid #eab308;
+		margin-bottom: 0;
+		align-items: center;
+	}
+
+	.carousel-tab {
+		padding: 0.75rem 1.25rem;
+		background: transparent;
+		border: none;
+		cursor: pointer;
+		font-size: 0.85rem;
+		font-weight: 500;
+		color: var(--text-secondary);
+		position: relative;
+		transition: all 0.2s ease;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.carousel-tab:hover {
+		color: var(--text-primary);
+	}
+
+	.carousel-tab.active {
+		color: var(--text-primary);
+		font-weight: 600;
+	}
+
+	.carousel-tab.active::after {
+		content: '';
+		position: absolute;
+		bottom: -2px;
+		left: 0;
+		right: 0;
+		height: 2px;
+		background: var(--text-primary);
+	}
+
+	.tab-count {
+		background: var(--accent-color);
+		color: white;
+		font-size: 0.65rem;
+		padding: 0.15rem 0.4rem;
+		border-radius: 10px;
+		font-weight: 600;
+	}
+
+	.carousel-tab-spacer {
+		flex: 1;
+	}
+
+	.carousel-progress-bar {
+		height: 3px;
+		background: linear-gradient(90deg, #eab308 0%, #eab308 100%);
+		margin-bottom: 1rem;
+	}
+
+	.carousel-loading {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		padding: 3rem;
+		color: var(--text-secondary);
+	}
+
+	.carousel-content {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		padding: 1rem;
+	}
+
+	.carousel-empty {
+		text-align: center;
+		color: var(--text-secondary);
+		padding: 2rem;
+	}
+
+	.carousel-empty .material-symbols-outlined {
+		font-size: 3rem;
+		opacity: 0.3;
+		margin-bottom: 0.5rem;
+	}
+
+	.carousel-empty p {
+		font-size: 1rem;
+		margin-bottom: 0.25rem;
+	}
+
+	.carousel-empty .empty-hint {
+		font-size: 0.75rem;
+		opacity: 0.7;
+	}
+
+	.carousel-card-container {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 1rem;
+		width: 100%;
+		max-width: 600px;
+	}
+
+	.carousel-nav {
+		width: 48px;
+		height: 48px;
+		border: 2px solid var(--border-color);
+		background: transparent;
+		border-radius: 50%;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: all 0.2s ease;
+		flex-shrink: 0;
+	}
+
+	.carousel-nav:hover:not(:disabled) {
+		border-color: var(--accent-color);
+		background: rgba(var(--accent-rgb), 0.1);
+	}
+
+	.carousel-nav:disabled {
+		opacity: 0.3;
+		cursor: not-allowed;
+	}
+
+	.nav-arrow {
+		font-size: 1.5rem;
+		font-weight: 300;
+		color: var(--text-primary);
+		line-height: 1;
+	}
+
+	.carousel-action-card {
+		flex: 1;
+		min-height: 120px;
+		max-width: 400px;
+		background: var(--card-bg);
+		border: 1px solid var(--border-color);
+		border-radius: 12px;
+		padding: 1.5rem;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		text-align: center;
+		position: relative;
+	}
+
+	.action-source-badge {
+		position: absolute;
+		top: 0.5rem;
+		left: 0.5rem;
+		font-size: 0.65rem;
+		font-weight: 600;
+		padding: 0.2rem 0.5rem;
+		border-radius: 4px;
+		text-transform: uppercase;
+	}
+
+	.action-source-badge.gtm {
+		background: #8b5cf6;
+		color: white;
+	}
+
+	.action-source-badge.goal {
+		background: #0ea5e9;
+		color: white;
+	}
+
+	.carousel-action-text {
+		font-size: 1rem;
+		line-height: 1.5;
+		color: var(--text-primary);
+		margin: 0;
+	}
+
+	.carousel-action-index {
+		font-size: 0.7rem;
+		color: var(--text-secondary);
+		margin-top: 1rem;
+	}
+
+	.bucket-card {
+		background: linear-gradient(135deg, rgba(16, 185, 129, 0.05), rgba(16, 185, 129, 0.02));
+		border-color: rgba(16, 185, 129, 0.3);
+	}
+
+	.bucket-checkbox-row {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.75rem;
+		text-align: left;
+		width: 100%;
+	}
+
+	.bucket-checkbox {
+		width: 20px;
+		height: 20px;
+		flex-shrink: 0;
+		accent-color: #10b981;
+		cursor: pointer;
+		margin-top: 2px;
+	}
+
+	.backlog-card-style {
+		background: rgba(0, 0, 0, 0.02);
+		border-style: dashed;
+	}
+
+	/* Accept/Reject Buttons */
+	.carousel-action-buttons {
+		display: flex;
+		gap: 3rem;
+		margin-top: 1.5rem;
+	}
+
+	.carousel-btn {
+		width: 56px;
+		height: 56px;
+		border-radius: 50%;
+		border: 3px solid;
+		background: transparent;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: all 0.2s ease;
+	}
+
+	.carousel-btn.reject {
+		border-color: #ef4444;
+		color: #ef4444;
+	}
+
+	.carousel-btn.reject:hover {
+		background: #ef4444;
+		color: white;
+		transform: scale(1.1);
+	}
+
+	.carousel-btn.accept {
+		border-color: #10b981;
+		color: #10b981;
+	}
+
+	.carousel-btn.accept:hover {
+		background: #10b981;
+		color: white;
+		transform: scale(1.1);
+	}
+
+	.carousel-btn-icon {
+		font-size: 1.5rem;
+		font-weight: bold;
+	}
+
+	/* RAG Pentagon Buttons */
+	.carousel-rag-buttons {
+		display: flex;
+		gap: 2rem;
+		margin-top: 1.5rem;
+	}
+
+	.rag-btn-large {
+		width: 40px;
+		height: 40px;
+		border: none;
+		background: transparent;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: all 0.2s ease;
+		opacity: 0.4;
+	}
+
+	.rag-btn-large:hover {
+		opacity: 0.7;
+		transform: scale(1.15);
+	}
+
+	.rag-btn-large.active {
+		opacity: 1;
+		transform: scale(1.2);
+	}
+
+	.rag-btn-large .rag-pentagon {
+		width: 30px;
+		height: 30px;
+		clip-path: polygon(50% 0%, 100% 38%, 82% 100%, 18% 100%, 0% 38%);
+	}
+
+	.rag-btn-large.red .rag-pentagon {
+		background: #ef4444;
+	}
+
+	.rag-btn-large.amber .rag-pentagon {
+		background: #fbbf24;
+	}
+
+	.rag-btn-large.green .rag-pentagon {
+		background: #10b981;
+	}
+
 	/* News Marquee */
 	.news-marquee-container {
 		background: var(--card-bg);
@@ -9528,7 +11355,7 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 	/* Responsive adjustments for home layout */
 	@media (max-width: 1200px) {
 		.home-row-top {
-			grid-template-columns: 140px 1fr 180px;
+			grid-template-columns: 140px 1fr;
 		}
 	}
 
@@ -9539,20 +11366,14 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 		}
 		
 		.home-row-top {
-			grid-template-columns: 1fr 1fr;
-			grid-template-rows: auto auto;
+			grid-template-columns: 1fr;
 		}
 		
 		.valuation-summary-card {
 			grid-column: 1;
 		}
 		
-		.actions-card {
-			grid-column: 2;
-			grid-row: 1 / 3;
-		}
-		
-		.backlog-card {
+		.actions-carousel-card {
 			grid-column: 1;
 		}
 	}
@@ -9562,9 +11383,41 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 			grid-template-columns: 1fr;
 		}
 		
-		.actions-card, .backlog-card {
+		.actions-carousel-card {
 			grid-column: span 1;
 			grid-row: auto;
+		}
+		
+		.carousel-tabs {
+			flex-wrap: wrap;
+		}
+		
+		.carousel-tab {
+			padding: 0.5rem 0.75rem;
+			font-size: 0.75rem;
+		}
+		
+		.carousel-card-container {
+			gap: 0.5rem;
+		}
+		
+		.carousel-nav {
+			width: 36px;
+			height: 36px;
+		}
+		
+		.carousel-action-card {
+			padding: 1rem;
+			min-height: 100px;
+		}
+		
+		.carousel-action-buttons {
+			gap: 2rem;
+		}
+		
+		.carousel-btn {
+			width: 48px;
+			height: 48px;
 		}
 	}
 
@@ -10855,6 +12708,905 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 
 	.swot-quadrant li:last-child {
 		border-bottom: none;
+	}
+
+	/* =====================================================
+	   SYNOPSIS AND REFLECTION STYLES
+	   ===================================================== */
+	
+	.history-btn {
+		background: rgba(255,255,255,0.2);
+		border: none;
+		border-radius: 8px;
+		padding: 0.5rem;
+		cursor: pointer;
+		color: white;
+		display: flex;
+		align-items: center;
+	}
+	
+	.history-btn:hover {
+		background: rgba(255,255,255,0.3);
+	}
+	
+	/* Synopsis Card */
+	.synopsis-card {
+		background: var(--card-bg);
+		border: 2px solid var(--accent-primary);
+	}
+	
+	.synopsis-grid {
+		display: grid;
+		grid-template-columns: repeat(4, 1fr);
+		gap: 1rem;
+		margin: 1rem 0;
+	}
+	
+	.synopsis-item {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		padding: 1rem;
+		background: var(--bg-secondary);
+		border-radius: 10px;
+		text-align: center;
+	}
+	
+	.synopsis-label {
+		font-size: 0.75rem;
+		text-transform: uppercase;
+		color: var(--text-secondary);
+		letter-spacing: 0.5px;
+	}
+	
+	.synopsis-value {
+		font-size: 1.1rem;
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+	
+	.synopsis-value.has-revenue {
+		color: #22c55e;
+	}
+	
+	.synopsis-value.pre-revenue {
+		color: #f59e0b;
+	}
+	
+	.current-challenges-box {
+		background: linear-gradient(135deg, rgba(239, 68, 68, 0.1), rgba(251, 191, 36, 0.1));
+		border: 1px solid rgba(239, 68, 68, 0.2);
+		border-radius: 12px;
+		padding: 1rem 1.25rem;
+		margin: 1rem 0;
+	}
+	
+	.current-challenges-box h4 {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		margin: 0 0 0.75rem 0;
+		font-size: 0.95rem;
+		color: var(--text-primary);
+	}
+	
+	.current-challenges-box h4 .material-symbols-outlined {
+		color: #ef4444;
+		font-size: 1.2rem;
+	}
+	
+	.challenges-tags {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.5rem;
+	}
+	
+	.challenge-tag {
+		padding: 0.35rem 0.75rem;
+		border-radius: 20px;
+		font-size: 0.85rem;
+		font-weight: 500;
+		background: rgba(239, 68, 68, 0.15);
+		color: #dc2626;
+	}
+	
+	.challenge-tag.customers { background: rgba(59, 130, 246, 0.15); color: #2563eb; }
+	.challenge-tag.product { background: rgba(168, 85, 247, 0.15); color: #9333ea; }
+	.challenge-tag.funding { background: rgba(34, 197, 94, 0.15); color: #16a34a; }
+	.challenge-tag.team { background: rgba(249, 115, 22, 0.15); color: #ea580c; }
+	.challenge-tag.competition { background: rgba(236, 72, 153, 0.15); color: #db2777; }
+	
+	.goal-tracker {
+		background: var(--bg-secondary);
+		border-radius: 12px;
+		padding: 1rem 1.25rem;
+	}
+	
+	.goal-tracker h4 {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		margin: 0 0 0.5rem 0;
+		font-size: 0.95rem;
+	}
+	
+	.goal-tracker h4 .material-symbols-outlined {
+		color: var(--accent-primary);
+	}
+	
+	.goal-text {
+		margin: 0 0 0.75rem 0;
+		font-style: italic;
+		color: var(--text-secondary);
+	}
+	
+	.goal-progress .progress-bar {
+		height: 8px;
+		background: var(--border-color);
+		border-radius: 4px;
+		overflow: hidden;
+	}
+	
+	.goal-progress .progress-fill {
+		height: 100%;
+		background: linear-gradient(90deg, var(--accent-primary), var(--accent-secondary, #6366f1));
+		border-radius: 4px;
+		transition: width 0.5s ease;
+	}
+	
+	.goal-progress .progress-label {
+		font-size: 0.8rem;
+		color: var(--text-secondary);
+		margin-top: 0.25rem;
+		display: block;
+	}
+	
+	.synopsis-empty {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 1rem;
+		padding: 2rem;
+		text-align: center;
+	}
+	
+	.synopsis-empty .material-symbols-outlined {
+		font-size: 3rem;
+		color: var(--text-secondary);
+	}
+	
+	/* Reflection Card */
+	.reflection-card {
+		background: var(--card-bg);
+	}
+	
+	.mood-section {
+		margin-bottom: 1.5rem;
+	}
+	
+	.mood-section label {
+		display: block;
+		font-weight: 500;
+		margin-bottom: 0.75rem;
+		color: var(--text-primary);
+	}
+	
+	.mood-options {
+		display: flex;
+		gap: 0.75rem;
+	}
+	
+	.mood-btn {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.25rem;
+		padding: 0.75rem 1rem;
+		background: var(--bg-secondary);
+		border: 2px solid transparent;
+		border-radius: 12px;
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+	
+	.mood-btn:hover {
+		border-color: var(--accent-primary);
+		transform: translateY(-2px);
+	}
+	
+	.mood-btn.selected {
+		border-color: var(--accent-primary);
+		background: rgba(var(--accent-primary-rgb, 99, 102, 241), 0.1);
+	}
+	
+	.mood-btn span:first-child {
+		font-size: 1.5rem;
+	}
+	
+	.mood-btn span:last-child {
+		font-size: 0.8rem;
+		color: var(--text-secondary);
+	}
+	
+	.reflection-section {
+		margin-bottom: 1.25rem;
+	}
+	
+	.reflection-section label {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-weight: 500;
+		margin-bottom: 0.5rem;
+		color: var(--text-primary);
+	}
+	
+	.reflection-section label .material-symbols-outlined {
+		font-size: 1.2rem;
+		color: var(--accent-primary);
+	}
+	
+	.reflection-section textarea,
+	.reflection-section input[type="text"] {
+		width: 100%;
+		padding: 0.75rem 1rem;
+		border: 1px solid var(--border-color);
+		border-radius: 10px;
+		background: var(--bg-secondary);
+		color: var(--text-primary);
+		font-size: 0.95rem;
+		resize: vertical;
+		transition: border-color 0.2s ease;
+	}
+	
+	.reflection-section textarea:focus,
+	.reflection-section input[type="text"]:focus {
+		outline: none;
+		border-color: var(--accent-primary);
+	}
+	
+	.challenges-input-area {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+	}
+	
+	.challenge-input-row {
+		display: flex;
+		gap: 0.5rem;
+	}
+	
+	.challenge-input-row input {
+		flex: 1;
+		padding: 0.75rem 1rem;
+		border: 1px solid var(--border-color);
+		border-radius: 10px;
+		background: var(--bg-secondary);
+		color: var(--text-primary);
+	}
+	
+	.add-challenge-btn {
+		padding: 0.75rem;
+		background: var(--accent-primary);
+		color: white;
+		border: none;
+		border-radius: 10px;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+	}
+	
+	.add-challenge-btn:hover {
+		opacity: 0.9;
+	}
+	
+	.today-challenges-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+	
+	.today-challenge-item {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 0.5rem 0.75rem;
+		background: rgba(239, 68, 68, 0.1);
+		border-radius: 8px;
+	}
+	
+	.remove-challenge {
+		background: none;
+		border: none;
+		color: var(--text-secondary);
+		cursor: pointer;
+		padding: 0.25rem;
+		display: flex;
+	}
+	
+	.remove-challenge:hover {
+		color: #ef4444;
+	}
+	
+	.priority-section .priority-input {
+		font-size: 1.1rem;
+		font-weight: 500;
+		border: 2px solid var(--accent-primary);
+	}
+	
+	.reflection-actions {
+		display: flex;
+		justify-content: flex-end;
+		gap: 0.75rem;
+		margin-top: 1.5rem;
+		padding-top: 1rem;
+		border-top: 1px solid var(--border-color);
+	}
+	
+	/* Simulation Card */
+	.simulation-card {
+		background: var(--card-bg);
+	}
+	
+	.simulation-input-area {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+		margin: 1rem 0;
+	}
+	
+	.simulation-input-area textarea {
+		width: 100%;
+		padding: 0.75rem 1rem;
+		border: 1px solid var(--border-color);
+		border-radius: 10px;
+		background: var(--bg-secondary);
+		color: var(--text-primary);
+		resize: none;
+	}
+	
+	.simulate-btn {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		padding: 0.75rem 1.5rem;
+		background: linear-gradient(135deg, #8b5cf6, #6366f1);
+		color: white;
+		border: none;
+		border-radius: 10px;
+		cursor: pointer;
+		font-weight: 500;
+		transition: all 0.2s ease;
+	}
+	
+	.simulate-btn:hover:not(:disabled) {
+		transform: translateY(-2px);
+		box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+	}
+	
+	.simulate-btn:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
+	
+	.simulation-results {
+		margin-top: 1.5rem;
+		padding-top: 1.5rem;
+		border-top: 1px solid var(--border-color);
+	}
+	
+	.simulation-scenario {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.5rem;
+		padding: 0.75rem 1rem;
+		background: var(--bg-secondary);
+		border-radius: 10px;
+		margin-bottom: 1rem;
+	}
+	
+	.simulation-scenario .material-symbols-outlined {
+		color: var(--accent-primary);
+	}
+	
+	.simulation-impacts-grid {
+		display: grid;
+		grid-template-columns: repeat(4, 1fr);
+		gap: 0.75rem;
+		margin-bottom: 1rem;
+	}
+	
+	.sim-impact-card {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		text-align: center;
+		padding: 1rem;
+		background: var(--bg-secondary);
+		border-radius: 12px;
+		border: 2px solid transparent;
+	}
+	
+	.sim-impact-card.positive {
+		border-color: rgba(34, 197, 94, 0.3);
+		background: rgba(34, 197, 94, 0.05);
+	}
+	
+	.sim-impact-card.negative {
+		border-color: rgba(239, 68, 68, 0.3);
+		background: rgba(239, 68, 68, 0.05);
+	}
+	
+	.sim-impact-card.neutral {
+		border-color: rgba(234, 179, 8, 0.3);
+		background: rgba(234, 179, 8, 0.05);
+	}
+	
+	.sim-impact-card.risk-low {
+		border-color: rgba(34, 197, 94, 0.3);
+	}
+	
+	.sim-impact-card.risk-medium {
+		border-color: rgba(234, 179, 8, 0.3);
+	}
+	
+	.sim-impact-card.risk-high {
+		border-color: rgba(239, 68, 68, 0.3);
+	}
+	
+	.sim-icon {
+		font-size: 1.5rem;
+		margin-bottom: 0.25rem;
+	}
+	
+	.sim-label {
+		font-size: 0.75rem;
+		text-transform: uppercase;
+		color: var(--text-secondary);
+		margin-bottom: 0.25rem;
+	}
+	
+	.sim-value {
+		font-size: 0.9rem;
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+	
+	.simulation-recommendation {
+		background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.1));
+		border: 1px solid rgba(99, 102, 241, 0.2);
+		border-radius: 12px;
+		padding: 1rem 1.25rem;
+		margin-bottom: 1rem;
+	}
+	
+	.simulation-recommendation .rec-header {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		margin-bottom: 0.5rem;
+	}
+	
+	.simulation-recommendation .rec-header .material-symbols-outlined {
+		color: var(--accent-primary);
+	}
+	
+	.confidence-badge {
+		margin-left: auto;
+		font-size: 0.75rem;
+		padding: 0.25rem 0.5rem;
+		background: var(--bg-secondary);
+		border-radius: 12px;
+		color: var(--text-secondary);
+	}
+	
+	.simulation-recommendation p {
+		margin: 0;
+		color: var(--text-secondary);
+		line-height: 1.5;
+	}
+	
+	/* Simulation Summary */
+	.simulation-summary {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.75rem;
+		padding: 1rem;
+		background: linear-gradient(135deg, rgba(99, 102, 241, 0.08), rgba(139, 92, 246, 0.05));
+		border-radius: 12px;
+		margin-bottom: 1rem;
+		border-left: 3px solid var(--accent-primary);
+	}
+	
+	.simulation-summary .material-symbols-outlined {
+		color: var(--accent-primary);
+		flex-shrink: 0;
+	}
+	
+	.simulation-summary p {
+		margin: 0;
+		color: var(--text-primary);
+		font-size: 0.95rem;
+		line-height: 1.6;
+	}
+	
+	/* Scenario Cards (Best/Worst Case) */
+	.scenario-cards {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 1rem;
+		margin-bottom: 1rem;
+	}
+	
+	.scenario-card {
+		padding: 1rem;
+		border-radius: 12px;
+		border: 1px solid var(--border-color);
+	}
+	
+	.scenario-card.best-case {
+		background: linear-gradient(135deg, rgba(34, 197, 94, 0.08), rgba(34, 197, 94, 0.02));
+		border-color: rgba(34, 197, 94, 0.3);
+	}
+	
+	.scenario-card.worst-case {
+		background: linear-gradient(135deg, rgba(239, 68, 68, 0.08), rgba(239, 68, 68, 0.02));
+		border-color: rgba(239, 68, 68, 0.3);
+	}
+	
+	.scenario-header {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		margin-bottom: 0.75rem;
+	}
+	
+	.best-case .scenario-header .material-symbols-outlined {
+		color: #22c55e;
+	}
+	
+	.worst-case .scenario-header .material-symbols-outlined {
+		color: #ef4444;
+	}
+	
+	.scenario-desc {
+		font-size: 0.9rem;
+		color: var(--text-secondary);
+		line-height: 1.5;
+		margin-bottom: 0.75rem;
+	}
+	
+	.scenario-list {
+		list-style: none;
+		padding: 0;
+		margin: 0.5rem 0;
+	}
+	
+	.scenario-list li {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.5rem;
+		font-size: 0.85rem;
+		color: var(--text-secondary);
+		padding: 0.25rem 0;
+	}
+	
+	.scenario-list li .material-symbols-outlined {
+		font-size: 1rem;
+		flex-shrink: 0;
+	}
+	
+	.best-case .scenario-list li .material-symbols-outlined {
+		color: #22c55e;
+	}
+	
+	.worst-case .scenario-list li .material-symbols-outlined {
+		color: #ef4444;
+	}
+	
+	.sub-label {
+		display: block;
+		font-size: 0.75rem;
+		text-transform: uppercase;
+		color: var(--text-tertiary);
+		margin-top: 0.5rem;
+		margin-bottom: 0.25rem;
+	}
+	
+	.timeline-badge {
+		display: inline-block;
+		font-size: 0.8rem;
+		padding: 0.25rem 0.5rem;
+		background: rgba(34, 197, 94, 0.15);
+		color: #22c55e;
+		border-radius: 6px;
+		margin-top: 0.5rem;
+	}
+	
+	/* Next Steps Section */
+	.next-steps-section {
+		background: var(--bg-secondary);
+		border-radius: 12px;
+		padding: 1rem;
+		margin-bottom: 1rem;
+	}
+	
+	.next-steps-section .section-header {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		margin-bottom: 0.75rem;
+	}
+	
+	.next-steps-section .section-header .material-symbols-outlined {
+		color: var(--accent-primary);
+	}
+	
+	.next-steps-list {
+		margin: 0;
+		padding-left: 1.5rem;
+	}
+	
+	.next-steps-list li {
+		font-size: 0.9rem;
+		color: var(--text-secondary);
+		padding: 0.25rem 0;
+		line-height: 1.5;
+	}
+	
+	/* Alternatives Section */
+	.alternatives-section {
+		margin-bottom: 1rem;
+	}
+	
+	.alternatives-section .section-header {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		margin-bottom: 0.75rem;
+	}
+	
+	.alternatives-section .section-header .material-symbols-outlined {
+		color: var(--accent-secondary);
+	}
+	
+	.alternatives-grid {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+	
+	.alternative-card {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		padding: 0.75rem 1rem;
+		background: var(--bg-secondary);
+		border-radius: 8px;
+		border-left: 3px solid var(--accent-secondary);
+	}
+	
+	.alt-approach {
+		font-size: 0.9rem;
+		color: var(--text-primary);
+		font-weight: 500;
+	}
+	
+	.alt-tradeoff {
+		font-size: 0.8rem;
+		color: var(--text-secondary);
+	}
+	
+	@media (max-width: 768px) {
+		.scenario-cards {
+			grid-template-columns: 1fr;
+		}
+		
+		.simulation-impacts-grid {
+			grid-template-columns: repeat(2, 1fr);
+		}
+	}
+
+	/* AI Strategic Question Card */
+	.ai-prompt-card {
+		background: linear-gradient(135deg, var(--card-bg), rgba(99, 102, 241, 0.05));
+		border: 1px solid rgba(99, 102, 241, 0.2);
+	}
+	
+	.strategic-question-box {
+		text-align: center;
+		padding: 1.5rem;
+	}
+	
+	.strategic-question {
+		font-size: 1.2rem;
+		font-weight: 500;
+		line-height: 1.6;
+		color: var(--text-primary);
+		margin: 0 0 1.5rem 0;
+		font-style: italic;
+	}
+	
+	.ask-daddy-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.75rem 1.5rem;
+		background: var(--accent-primary);
+		color: white;
+		border: none;
+		border-radius: 10px;
+		cursor: pointer;
+		font-weight: 500;
+		transition: all 0.2s ease;
+	}
+	
+	.ask-daddy-btn:hover {
+		transform: translateY(-2px);
+		box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+	}
+	
+	@media (max-width: 768px) {
+		.synopsis-grid {
+			grid-template-columns: repeat(2, 1fr);
+		}
+		
+		.simulation-impacts-grid {
+			grid-template-columns: repeat(2, 1fr);
+		}
+		
+		.mood-options {
+			flex-wrap: wrap;
+		}
+	}
+
+	/* =====================================================
+	   TODAY'S PROBLEM SECTION STYLES
+	   ===================================================== */
+	
+	.todays-problem-card {
+		background: linear-gradient(135deg, var(--card-bg), rgba(239, 68, 68, 0.05));
+		border: 2px solid rgba(239, 68, 68, 0.3);
+	}
+	
+	.todays-problem-content {
+		padding: 0.5rem 0;
+	}
+	
+	.primary-challenge-box {
+		display: flex;
+		align-items: center;
+		gap: 1rem;
+		padding: 1.25rem;
+		background: linear-gradient(135deg, rgba(239, 68, 68, 0.15), rgba(251, 191, 36, 0.1));
+		border-radius: 12px;
+		margin-bottom: 1.5rem;
+	}
+	
+	.primary-label {
+		font-size: 0.9rem;
+		color: var(--text-secondary);
+		font-weight: 500;
+	}
+	
+	.primary-value {
+		font-size: 1.5rem;
+		font-weight: 700;
+		color: #ef4444;
+	}
+	
+	.challenge-swot-focus {
+		margin-bottom: 1.5rem;
+	}
+	
+	.challenge-swot-focus h4 {
+		margin: 0 0 1rem 0;
+		font-size: 1rem;
+		color: var(--text-primary);
+	}
+	
+	.challenge-swot-grid {
+		display: grid;
+		grid-template-columns: repeat(2, 1fr);
+		gap: 1rem;
+	}
+	
+	.challenge-swot-item {
+		padding: 1rem;
+		border-radius: 10px;
+		background: var(--bg-secondary);
+	}
+	
+	.challenge-swot-item.leverage {
+		border-left: 4px solid #22c55e;
+	}
+	
+	.challenge-swot-item.fix {
+		border-left: 4px solid #f59e0b;
+	}
+	
+	.challenge-swot-item.capture {
+		border-left: 4px solid #3b82f6;
+	}
+	
+	.challenge-swot-item.mitigate {
+		border-left: 4px solid #ef4444;
+	}
+	
+	.csw-header {
+		display: block;
+		font-size: 0.85rem;
+		font-weight: 600;
+		margin-bottom: 0.5rem;
+		color: var(--text-primary);
+	}
+	
+	.challenge-swot-item p {
+		margin: 0;
+		font-size: 0.9rem;
+		color: var(--text-secondary);
+		line-height: 1.5;
+	}
+	
+	.why-this-matters {
+		background: var(--bg-secondary);
+		border-radius: 12px;
+		padding: 1.25rem;
+		margin-bottom: 1.5rem;
+	}
+	
+	.why-this-matters h4 {
+		margin: 0 0 0.75rem 0;
+		font-size: 1rem;
+		color: var(--text-primary);
+	}
+	
+	.why-content p {
+		margin: 0 0 0.5rem 0;
+		font-size: 0.95rem;
+		line-height: 1.6;
+		color: var(--text-secondary);
+	}
+	
+	.why-content p:last-child {
+		margin-bottom: 0;
+	}
+	
+	.secondary-challenges {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		padding-top: 1rem;
+		border-top: 1px solid var(--border-color);
+	}
+	
+	.secondary-label {
+		font-size: 0.85rem;
+		color: var(--text-secondary);
+	}
+	
+	.secondary-tags {
+		display: flex;
+		gap: 0.5rem;
+	}
+	
+	.secondary-tag {
+		padding: 0.25rem 0.75rem;
+		background: var(--bg-secondary);
+		border-radius: 16px;
+		font-size: 0.8rem;
+		color: var(--text-secondary);
+	}
+	
+	.no-challenges {
+		text-align: center;
+		padding: 2rem;
+	}
+	
+	.no-challenges p {
+		color: var(--text-secondary);
+		margin-bottom: 1rem;
 	}
 
 	/* Funding Section */
@@ -18066,7 +20818,7 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 	}
 
 	/* ========================================
-	   GTM CO-FOUNDER TAB STYLES
+	   GTM TAB STYLES
 	   ======================================== */
 
 	.gtm-section {
@@ -18505,6 +21257,1533 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 
 	.decision-impact .impact-value.positive {
 		color: #10b981;
+	}
+
+	/* ========================================
+	   GTM TRACKABLE DECISIONS SYSTEM
+	   ======================================== */
+	
+	.decisions-grid-enhanced {
+		display: grid;
+		grid-template-columns: repeat(3, 1fr);
+		gap: 1.25rem;
+		margin-top: 1.25rem;
+	}
+
+	.decision-card-enhanced {
+		background: var(--bg-secondary);
+		border-radius: 16px;
+		border: 2px solid var(--border-color);
+		overflow: hidden;
+		transition: all 0.3s ease;
+		position: relative;
+	}
+
+	.decision-card-enhanced:hover {
+		transform: translateY(-2px);
+		box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+	}
+
+	.decision-card-enhanced.h1 {
+		border-color: #10b981;
+	}
+
+	.decision-card-enhanced.h2 {
+		border-color: #f59e0b;
+	}
+
+	.decision-card-enhanced.h3 {
+		border-color: #ef4444;
+	}
+
+	.decision-card-enhanced .card-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 1rem 1.25rem;
+		gap: 0.75rem;
+	}
+
+	.decision-card-enhanced.h1 .card-header {
+		background: linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(16, 185, 129, 0.05));
+	}
+
+	.decision-card-enhanced.h2 .card-header {
+		background: linear-gradient(135deg, rgba(245, 158, 11, 0.15), rgba(245, 158, 11, 0.05));
+	}
+
+	.decision-card-enhanced.h3 .card-header {
+		background: linear-gradient(135deg, rgba(239, 68, 68, 0.15), rgba(239, 68, 68, 0.05));
+	}
+
+	.header-left {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+	}
+
+	.horizon-badge {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		padding: 0.25rem 0.6rem;
+		border-radius: 6px;
+		font-size: 0.7rem;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+	}
+
+	.horizon-badge.h1 {
+		background: #10b981;
+		color: white;
+	}
+
+	.horizon-badge.h2 {
+		background: #f59e0b;
+		color: white;
+	}
+
+	.horizon-badge.h3 {
+		background: #ef4444;
+		color: white;
+	}
+
+	.card-title-text {
+		font-size: 1rem;
+		font-weight: 700;
+		color: var(--text-primary);
+		margin: 0;
+	}
+
+	.decision-card-enhanced.h1 .card-title-text {
+		color: #10b981;
+	}
+
+	.decision-card-enhanced.h2 .card-title-text {
+		color: #f59e0b;
+	}
+
+	.decision-card-enhanced.h3 .card-title-text {
+		color: #ef4444;
+	}
+
+	.source-badge {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+		padding: 0.2rem 0.6rem;
+		border-radius: 12px;
+		font-size: 0.65rem;
+		font-weight: 600;
+		text-transform: uppercase;
+	}
+
+	.source-badge.ai-badge {
+		background: linear-gradient(135deg, #8b5cf6, #6366f1);
+		color: white;
+	}
+
+	.source-badge.ai-badge .material-symbols-outlined {
+		font-size: 0.75rem;
+	}
+
+	.source-badge.user-badge {
+		background: linear-gradient(135deg, #3b82f6, #0ea5e9);
+		color: white;
+	}
+
+	.card-body-enhanced {
+		padding: 1.25rem;
+	}
+
+	.decision-what-enhanced {
+		font-size: 0.95rem;
+		font-weight: 600;
+		color: var(--text-primary);
+		margin-bottom: 1rem;
+		line-height: 1.5;
+	}
+
+	.decision-details {
+		display: flex;
+		flex-direction: column;
+		gap: 0.6rem;
+		margin-bottom: 1rem;
+		padding: 0.75rem;
+		background: var(--bg-tertiary);
+		border-radius: 10px;
+	}
+
+	.detail-row {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		font-size: 0.8rem;
+	}
+
+	.detail-label {
+		color: var(--text-secondary);
+	}
+
+	.detail-value {
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.detail-value.metric {
+		color: #8b5cf6;
+	}
+
+	.milestones-preview {
+		margin-bottom: 1rem;
+	}
+
+	.milestones-title {
+		font-size: 0.7rem;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		color: var(--text-secondary);
+		margin-bottom: 0.5rem;
+	}
+
+	.milestone-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.35rem;
+	}
+
+	.milestone-item {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-size: 0.8rem;
+		color: var(--text-secondary);
+	}
+
+	.milestone-item .material-symbols-outlined {
+		font-size: 0.9rem;
+		color: var(--text-tertiary);
+	}
+
+	.card-actions {
+		padding: 1rem 1.25rem;
+		border-top: 1px solid var(--border-color);
+		background: var(--bg-tertiary);
+	}
+
+	.action-btn {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		width: 100%;
+		padding: 0.75rem 1rem;
+		border: none;
+		border-radius: 10px;
+		font-size: 0.85rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.action-btn .material-symbols-outlined {
+		font-size: 1.1rem;
+	}
+
+	.action-btn.track-btn {
+		background: linear-gradient(135deg, #10b981, #059669);
+		color: white;
+	}
+
+	.action-btn.track-btn:hover {
+		background: linear-gradient(135deg, #059669, #047857);
+		transform: translateY(-1px);
+	}
+
+	.action-btn.review-btn {
+		background: linear-gradient(135deg, #f59e0b, #d97706);
+		color: white;
+	}
+
+	.action-btn.review-btn:hover {
+		background: linear-gradient(135deg, #d97706, #b45309);
+		transform: translateY(-1px);
+	}
+
+	.action-btn.add-btn {
+		background: linear-gradient(135deg, #ef4444, #dc2626);
+		color: white;
+	}
+
+	.action-btn.add-btn:hover {
+		background: linear-gradient(135deg, #dc2626, #b91c1c);
+		transform: translateY(-1px);
+	}
+
+	.tracking-status {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.6rem 1rem;
+		background: rgba(16, 185, 129, 0.1);
+		border-radius: 8px;
+		font-size: 0.8rem;
+		color: #10b981;
+		font-weight: 600;
+	}
+
+	.tracking-status .material-symbols-outlined {
+		font-size: 1rem;
+	}
+
+	/* H3 Kill List */
+	.h3-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		margin-bottom: 1rem;
+	}
+
+	.h3-item {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 0.75rem;
+		background: var(--bg-tertiary);
+		border-radius: 8px;
+		font-size: 0.85rem;
+	}
+
+	.h3-item .material-symbols-outlined {
+		color: #ef4444;
+		font-size: 1rem;
+	}
+
+	.h3-item-text {
+		flex: 1;
+		color: var(--text-primary);
+	}
+
+	.h3-item-reason {
+		font-size: 0.75rem;
+		color: var(--text-secondary);
+	}
+
+	.h3-empty {
+		text-align: center;
+		padding: 2rem 1rem;
+		color: var(--text-secondary);
+		font-size: 0.85rem;
+	}
+
+	.h3-empty .material-symbols-outlined {
+		font-size: 2rem;
+		color: var(--text-tertiary);
+		margin-bottom: 0.5rem;
+		display: block;
+	}
+
+	/* Active GTM Tasks Section */
+	.active-gtm-tasks {
+		margin-top: 2rem;
+		padding: 1.5rem;
+		background: var(--bg-secondary);
+		border-radius: 16px;
+		border: 1px solid var(--border-color);
+	}
+
+	.active-tasks-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		margin-bottom: 1.25rem;
+	}
+
+	.active-tasks-title {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+	}
+
+	.active-tasks-title .material-symbols-outlined {
+		font-size: 1.5rem;
+		color: #8b5cf6;
+	}
+
+	.active-tasks-title h3 {
+		margin: 0;
+		font-size: 1.1rem;
+		color: var(--text-primary);
+	}
+
+	.task-count-badge {
+		background: #8b5cf6;
+		color: white;
+		padding: 0.2rem 0.6rem;
+		border-radius: 12px;
+		font-size: 0.75rem;
+		font-weight: 600;
+	}
+
+	.active-tasks-list {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+	}
+
+	.active-task-card {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+		padding: 1.25rem;
+		background: var(--bg-tertiary);
+		border-radius: 12px;
+		border-left: 4px solid #8b5cf6;
+		transition: all 0.2s ease;
+	}
+
+	.active-task-card:hover {
+		background: var(--bg-hover);
+	}
+
+	.task-card-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: flex-start;
+	}
+
+	.task-info {
+		flex: 1;
+	}
+
+	.task-type-badge {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+		padding: 0.2rem 0.5rem;
+		border-radius: 4px;
+		font-size: 0.65rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		margin-bottom: 0.5rem;
+	}
+
+	.task-type-badge.h1-task {
+		background: rgba(16, 185, 129, 0.15);
+		color: #10b981;
+	}
+
+	.task-type-badge.h2-task {
+		background: rgba(245, 158, 11, 0.15);
+		color: #f59e0b;
+	}
+
+	.task-title {
+		font-size: 0.95rem;
+		font-weight: 600;
+		color: var(--text-primary);
+		margin-bottom: 0.25rem;
+	}
+
+	.task-metric {
+		font-size: 0.8rem;
+		color: var(--text-secondary);
+	}
+
+	.task-days-remaining {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-end;
+		gap: 0.25rem;
+	}
+
+	.days-count {
+		font-size: 1.5rem;
+		font-weight: 700;
+		color: #8b5cf6;
+	}
+
+	.days-label {
+		font-size: 0.7rem;
+		color: var(--text-secondary);
+		text-transform: uppercase;
+	}
+
+	.task-progress-section {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.progress-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		font-size: 0.8rem;
+	}
+
+	.progress-label {
+		color: var(--text-secondary);
+	}
+
+	.progress-value {
+		font-weight: 600;
+		color: #8b5cf6;
+	}
+
+	.progress-bar-container {
+		height: 8px;
+		background: var(--bg-secondary);
+		border-radius: 4px;
+		overflow: hidden;
+	}
+
+	.progress-bar-fill {
+		height: 100%;
+		background: linear-gradient(90deg, #8b5cf6, #6366f1);
+		border-radius: 4px;
+		transition: width 0.3s ease;
+	}
+
+	.task-last-followup {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.75rem;
+		padding: 0.75rem;
+		background: rgba(139, 92, 246, 0.1);
+		border-radius: 8px;
+	}
+
+	.task-last-followup .material-symbols-outlined {
+		font-size: 1.25rem;
+		color: #8b5cf6;
+	}
+
+	.followup-content {
+		flex: 1;
+	}
+
+	.followup-label {
+		font-size: 0.7rem;
+		text-transform: uppercase;
+		color: var(--text-secondary);
+		margin-bottom: 0.25rem;
+	}
+
+	.followup-message {
+		font-size: 0.85rem;
+		color: var(--text-primary);
+		line-height: 1.4;
+	}
+
+	.task-actions {
+		display: flex;
+		gap: 0.75rem;
+	}
+
+	.task-action-btn {
+		flex: 1;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		padding: 0.6rem 1rem;
+		border: none;
+		border-radius: 8px;
+		font-size: 0.8rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.task-action-btn.update-btn {
+		background: #8b5cf6;
+		color: white;
+	}
+
+	.task-action-btn.update-btn:hover {
+		background: #7c3aed;
+	}
+
+	.task-action-btn.complete-btn {
+		background: #10b981;
+		color: white;
+	}
+
+	.task-action-btn.complete-btn:hover {
+		background: #059669;
+	}
+
+	.no-active-tasks {
+		text-align: center;
+		padding: 2rem;
+		color: var(--text-secondary);
+	}
+
+	.no-active-tasks .material-symbols-outlined {
+		font-size: 3rem;
+		color: var(--text-tertiary);
+		margin-bottom: 0.75rem;
+		display: block;
+	}
+
+	/* GTM Modals */
+	.gtm-modal-overlay {
+		position: fixed;
+		top: 0;
+		left: 0;
+		width: 100%;
+		height: 100%;
+		background: rgba(0, 0, 0, 0.6);
+		backdrop-filter: blur(4px);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 1000;
+		animation: fadeIn 0.2s ease;
+	}
+
+	.gtm-modal {
+		background: var(--bg-primary);
+		border-radius: 20px;
+		max-width: 500px;
+		width: 90%;
+		max-height: 90vh;
+		overflow-y: auto;
+		box-shadow: 0 25px 50px rgba(0, 0, 0, 0.25);
+		animation: slideUp 0.3s ease;
+	}
+
+	.gtm-modal-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 1.5rem;
+		border-bottom: 1px solid var(--border-color);
+	}
+
+	.gtm-modal-header h3 {
+		margin: 0;
+		font-size: 1.25rem;
+		color: var(--text-primary);
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+	}
+
+	.gtm-modal-header h3 .material-symbols-outlined {
+		font-size: 1.5rem;
+		color: #8b5cf6;
+	}
+
+	.modal-close-btn {
+		background: none;
+		border: none;
+		padding: 0.5rem;
+		cursor: pointer;
+		color: var(--text-secondary);
+		border-radius: 8px;
+		transition: all 0.2s ease;
+	}
+
+	.modal-close-btn:hover {
+		background: var(--bg-tertiary);
+		color: var(--text-primary);
+	}
+
+	.gtm-modal-body {
+		padding: 1.5rem;
+	}
+
+	.commitment-section {
+		margin-bottom: 1.5rem;
+	}
+
+	.commitment-title {
+		font-size: 0.9rem;
+		font-weight: 600;
+		color: var(--text-primary);
+		margin-bottom: 0.75rem;
+	}
+
+	.commitment-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.commitment-item {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 0.75rem 1rem;
+		background: var(--bg-tertiary);
+		border-radius: 8px;
+		font-size: 0.85rem;
+		color: var(--text-primary);
+	}
+
+	.commitment-item .material-symbols-outlined {
+		font-size: 1.1rem;
+		color: #10b981;
+	}
+
+	.ai-welcome-message {
+		padding: 1rem;
+		background: linear-gradient(135deg, rgba(139, 92, 246, 0.1), rgba(99, 102, 241, 0.1));
+		border-radius: 12px;
+		border-left: 4px solid #8b5cf6;
+		margin-bottom: 1.5rem;
+	}
+
+	.ai-welcome-header {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		margin-bottom: 0.5rem;
+	}
+
+	.ai-welcome-header .material-symbols-outlined {
+		font-size: 1.25rem;
+		color: #8b5cf6;
+	}
+
+	.ai-welcome-header span {
+		font-size: 0.8rem;
+		font-weight: 600;
+		color: #8b5cf6;
+	}
+
+	.ai-welcome-text {
+		font-size: 0.9rem;
+		color: var(--text-primary);
+		line-height: 1.5;
+	}
+
+	.gtm-modal-footer {
+		padding: 1.5rem;
+		border-top: 1px solid var(--border-color);
+		display: flex;
+		gap: 1rem;
+	}
+
+	.modal-btn {
+		flex: 1;
+		padding: 0.85rem 1.5rem;
+		border: none;
+		border-radius: 10px;
+		font-size: 0.9rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.modal-btn.cancel-btn {
+		background: var(--bg-tertiary);
+		color: var(--text-primary);
+	}
+
+	.modal-btn.cancel-btn:hover {
+		background: var(--bg-hover);
+	}
+
+	.modal-btn.confirm-btn {
+		background: linear-gradient(135deg, #8b5cf6, #6366f1);
+		color: white;
+	}
+
+	.modal-btn.confirm-btn:hover {
+		background: linear-gradient(135deg, #7c3aed, #4f46e5);
+	}
+
+	/* Progress Update Modal */
+	.progress-update-section {
+		margin-bottom: 1.5rem;
+	}
+
+	.progress-slider-label {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 0.75rem;
+	}
+
+	.slider-title {
+		font-size: 0.9rem;
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.slider-value {
+		font-size: 1.25rem;
+		font-weight: 700;
+		color: #8b5cf6;
+	}
+
+	.progress-slider {
+		width: 100%;
+		height: 8px;
+		-webkit-appearance: none;
+		appearance: none;
+		background: var(--bg-tertiary);
+		border-radius: 4px;
+		outline: none;
+	}
+
+	.progress-slider::-webkit-slider-thumb {
+		-webkit-appearance: none;
+		appearance: none;
+		width: 20px;
+		height: 20px;
+		background: #8b5cf6;
+		border-radius: 50%;
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.progress-slider::-webkit-slider-thumb:hover {
+		transform: scale(1.1);
+	}
+
+	.note-section {
+		margin-bottom: 1.5rem;
+	}
+
+	.note-label {
+		display: block;
+		font-size: 0.9rem;
+		font-weight: 600;
+		color: var(--text-primary);
+		margin-bottom: 0.75rem;
+	}
+
+	.note-textarea {
+		width: 100%;
+		min-height: 100px;
+		padding: 1rem;
+		border: 1px solid var(--border-color);
+		border-radius: 10px;
+		background: var(--bg-secondary);
+		color: var(--text-primary);
+		font-size: 0.9rem;
+		resize: vertical;
+		outline: none;
+		transition: border-color 0.2s ease;
+	}
+
+	.note-textarea:focus {
+		border-color: #8b5cf6;
+	}
+
+	/* H3 Kill Modal */
+	.h3-form-group {
+		margin-bottom: 1.25rem;
+	}
+
+	.h3-form-label {
+		display: block;
+		font-size: 0.85rem;
+		font-weight: 600;
+		color: var(--text-primary);
+		margin-bottom: 0.5rem;
+	}
+
+	.h3-form-input {
+		width: 100%;
+		padding: 0.85rem 1rem;
+		border: 1px solid var(--border-color);
+		border-radius: 10px;
+		background: var(--bg-secondary);
+		color: var(--text-primary);
+		font-size: 0.9rem;
+		outline: none;
+		transition: border-color 0.2s ease;
+	}
+
+	.h3-form-input:focus {
+		border-color: #ef4444;
+	}
+
+	.modal-btn.danger-btn {
+		background: linear-gradient(135deg, #ef4444, #dc2626);
+		color: white;
+	}
+
+	.modal-btn.danger-btn:hover {
+		background: linear-gradient(135deg, #dc2626, #b91c1c);
+	}
+
+	/* Followup Notification Banner */
+	.followup-notification {
+		display: flex;
+		align-items: center;
+		gap: 1rem;
+		padding: 1rem 1.25rem;
+		background: linear-gradient(135deg, rgba(139, 92, 246, 0.15), rgba(99, 102, 241, 0.1));
+		border-radius: 12px;
+		border: 1px solid rgba(139, 92, 246, 0.3);
+		margin-bottom: 1.5rem;
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.followup-notification:hover {
+		background: linear-gradient(135deg, rgba(139, 92, 246, 0.2), rgba(99, 102, 241, 0.15));
+	}
+
+	.followup-notification .material-symbols-outlined {
+		font-size: 1.75rem;
+		color: #8b5cf6;
+	}
+
+	.followup-notification-content {
+		flex: 1;
+	}
+
+	.followup-notification-title {
+		font-size: 0.95rem;
+		font-weight: 600;
+		color: var(--text-primary);
+		margin-bottom: 0.25rem;
+	}
+
+	.followup-notification-text {
+		font-size: 0.85rem;
+		color: var(--text-secondary);
+	}
+
+	.followup-notification-action {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+		color: #8b5cf6;
+		font-size: 0.85rem;
+		font-weight: 600;
+	}
+
+	/* Decision Card Header Enhanced */
+	.decision-header-enhanced {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 1rem 1.25rem;
+		background: var(--bg-tertiary);
+	}
+
+	.decision-card-enhanced.double-down .decision-header-enhanced {
+		background: linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(16, 185, 129, 0.05));
+	}
+
+	.decision-card-enhanced.pause .decision-header-enhanced {
+		background: linear-gradient(135deg, rgba(245, 158, 11, 0.15), rgba(245, 158, 11, 0.05));
+	}
+
+	.decision-card-enhanced.kill .decision-header-enhanced {
+		background: linear-gradient(135deg, rgba(239, 68, 68, 0.15), rgba(239, 68, 68, 0.05));
+	}
+
+	.decision-header-enhanced h4 {
+		margin: 0;
+		font-size: 1rem;
+		font-weight: 600;
+		flex: 1;
+	}
+
+	.decision-card-enhanced.double-down .decision-header-enhanced h4,
+	.decision-card-enhanced.double-down .decision-header-enhanced .material-symbols-outlined {
+		color: #10b981;
+	}
+
+	.decision-card-enhanced.pause .decision-header-enhanced h4,
+	.decision-card-enhanced.pause .decision-header-enhanced .material-symbols-outlined {
+		color: #f59e0b;
+	}
+
+	.decision-card-enhanced.kill .decision-header-enhanced h4,
+	.decision-card-enhanced.kill .decision-header-enhanced .material-symbols-outlined {
+		color: #ef4444;
+	}
+
+	.ai-badge {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+		padding: 0.2rem 0.5rem;
+		background: linear-gradient(135deg, #8b5cf6, #6366f1);
+		color: white;
+		border-radius: 10px;
+		font-size: 0.6rem;
+		font-weight: 600;
+		text-transform: uppercase;
+	}
+
+	.user-badge {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+		padding: 0.2rem 0.5rem;
+		background: linear-gradient(135deg, #3b82f6, #0ea5e9);
+		color: white;
+		border-radius: 10px;
+		font-size: 0.6rem;
+		font-weight: 600;
+		text-transform: uppercase;
+	}
+
+	.decision-title {
+		font-size: 0.95rem;
+		font-weight: 600;
+		color: var(--text-primary);
+		padding: 1rem 1.25rem 0.5rem;
+		margin: 0;
+	}
+
+	.decision-description {
+		font-size: 0.85rem;
+		color: var(--text-secondary);
+		padding: 0 1.25rem;
+		margin: 0;
+		line-height: 1.5;
+	}
+
+	.target-section {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.75rem 1.25rem;
+		margin: 0.75rem 1.25rem;
+		background: var(--bg-tertiary);
+		border-radius: 8px;
+		font-size: 0.85rem;
+	}
+
+	.target-label {
+		color: var(--text-secondary);
+	}
+
+	.target-value {
+		font-weight: 600;
+		color: #8b5cf6;
+	}
+
+	.milestones-mini {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.5rem;
+		padding: 0 1.25rem;
+		margin-bottom: 0.75rem;
+	}
+
+	.milestone-tag {
+		display: inline-block;
+		padding: 0.25rem 0.6rem;
+		background: var(--bg-tertiary);
+		border-radius: 6px;
+		font-size: 0.75rem;
+		color: var(--text-secondary);
+	}
+
+	.opportunity-cost, .review-date {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.5rem 1.25rem;
+		font-size: 0.8rem;
+		color: var(--text-secondary);
+	}
+
+	.opportunity-cost .material-symbols-outlined,
+	.review-date .material-symbols-outlined {
+		font-size: 1rem;
+		color: #f59e0b;
+	}
+
+	.decision-instruction {
+		padding: 1rem 1.25rem;
+		font-size: 0.9rem;
+		color: var(--text-secondary);
+		font-style: italic;
+		margin: 0;
+	}
+
+	.kill-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		padding: 0 1.25rem;
+		margin-bottom: 1rem;
+	}
+
+	.kill-item {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 0.6rem 0.75rem;
+		background: rgba(239, 68, 68, 0.1);
+		border-radius: 8px;
+		font-size: 0.85rem;
+		color: var(--text-primary);
+	}
+
+	.kill-item .material-symbols-outlined {
+		font-size: 1rem;
+		color: #ef4444;
+	}
+
+	.no-kills {
+		padding: 1.5rem 1.25rem;
+		text-align: center;
+		color: var(--text-tertiary);
+		font-size: 0.85rem;
+		margin: 0;
+	}
+
+	.action-btn.accept,
+	.action-btn.pause,
+	.action-btn.kill {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		margin: 1rem 1.25rem;
+		padding: 0.75rem;
+		border: none;
+		border-radius: 10px;
+		font-size: 0.85rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.action-btn.accept {
+		background: linear-gradient(135deg, #10b981, #059669);
+		color: white;
+	}
+
+	.action-btn.accept:hover {
+		background: linear-gradient(135deg, #059669, #047857);
+	}
+
+	.action-btn.pause {
+		background: linear-gradient(135deg, #f59e0b, #d97706);
+		color: white;
+	}
+
+	.action-btn.pause:hover {
+		background: linear-gradient(135deg, #d97706, #b45309);
+	}
+
+	.action-btn.kill {
+		background: linear-gradient(135deg, #ef4444, #dc2626);
+		color: white;
+	}
+
+	.action-btn.kill:hover {
+		background: linear-gradient(135deg, #dc2626, #b91c1c);
+	}
+
+	.tracking-status.active,
+	.tracking-status.paused {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		margin: 1rem 1.25rem;
+		padding: 0.75rem;
+		border-radius: 10px;
+		font-size: 0.85rem;
+		font-weight: 600;
+	}
+
+	.tracking-status.active {
+		background: rgba(16, 185, 129, 0.15);
+		color: #10b981;
+	}
+
+	.tracking-status.paused {
+		background: rgba(245, 158, 11, 0.15);
+		color: #f59e0b;
+	}
+
+	/* Active Task Cards */
+	.active-task-card {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+		padding: 1.25rem;
+		background: var(--bg-tertiary);
+		border-radius: 12px;
+		border-left: 4px solid #8b5cf6;
+	}
+
+	.active-task-card.double-down {
+		border-left-color: #10b981;
+	}
+
+	.active-task-card.pause {
+		border-left-color: #f59e0b;
+	}
+
+	.task-header {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+	}
+
+	.task-header h4 {
+		margin: 0;
+		font-size: 0.95rem;
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.task-progress {
+		display: flex;
+		align-items: center;
+		gap: 1rem;
+	}
+
+	.progress-bar {
+		flex: 1;
+		height: 8px;
+		background: var(--bg-secondary);
+		border-radius: 4px;
+		overflow: hidden;
+	}
+
+	.progress-fill {
+		height: 100%;
+		background: linear-gradient(90deg, #8b5cf6, #6366f1);
+		border-radius: 4px;
+		transition: width 0.3s ease;
+	}
+
+	.progress-text {
+		font-size: 0.8rem;
+		font-weight: 600;
+		color: #8b5cf6;
+		min-width: 40px;
+	}
+
+	.task-meta {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+	}
+
+	.days-remaining {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+		font-size: 0.8rem;
+		color: var(--text-secondary);
+	}
+
+	.days-remaining .material-symbols-outlined {
+		font-size: 1rem;
+	}
+
+	.update-btn {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+		padding: 0.5rem 1rem;
+		background: #8b5cf6;
+		color: white;
+		border: none;
+		border-radius: 8px;
+		font-size: 0.8rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.update-btn:hover {
+		background: #7c3aed;
+	}
+
+	.update-btn .material-symbols-outlined {
+		font-size: 1rem;
+	}
+
+	/* GTM Modal Specific Styles */
+	.gtm-task-modal,
+	.gtm-followup-modal,
+	.h3-modal {
+		max-width: 520px;
+	}
+
+	.task-preview {
+		padding: 1.25rem;
+		background: var(--bg-tertiary);
+		border-radius: 12px;
+		margin-bottom: 1.5rem;
+	}
+
+	.task-preview h4 {
+		margin: 0 0 0.5rem 0;
+		font-size: 1rem;
+		color: var(--text-primary);
+	}
+
+	.task-preview p {
+		margin: 0;
+		font-size: 0.9rem;
+		color: var(--text-secondary);
+		line-height: 1.5;
+	}
+
+	.target-preview,
+	.milestones-preview {
+		margin-top: 1rem;
+		padding-top: 1rem;
+		border-top: 1px solid var(--border-color);
+	}
+
+	.target-preview .label,
+	.milestones-preview .label {
+		font-size: 0.75rem;
+		text-transform: uppercase;
+		color: var(--text-secondary);
+		margin-bottom: 0.35rem;
+		display: block;
+	}
+
+	.target-preview .value {
+		font-size: 0.9rem;
+		font-weight: 600;
+		color: #8b5cf6;
+	}
+
+	.milestones-preview ul {
+		margin: 0.5rem 0 0 0;
+		padding-left: 1.25rem;
+		font-size: 0.85rem;
+		color: var(--text-primary);
+	}
+
+	.milestones-preview li {
+		margin-bottom: 0.35rem;
+	}
+
+	.commitment-section {
+		padding: 1.25rem;
+		background: linear-gradient(135deg, rgba(139, 92, 246, 0.1), rgba(99, 102, 241, 0.05));
+		border-radius: 12px;
+		margin-bottom: 1.5rem;
+	}
+
+	.commitment-section h4 {
+		margin: 0 0 0.75rem 0;
+		font-size: 0.95rem;
+		color: var(--text-primary);
+	}
+
+	.commitment-list {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+	}
+
+	.commitment-list li {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 0.5rem 0;
+		font-size: 0.85rem;
+		color: var(--text-secondary);
+	}
+
+	.commitment-list .material-symbols-outlined {
+		font-size: 1.1rem;
+		color: #10b981;
+	}
+
+	.followup-task-info {
+		margin-bottom: 1.5rem;
+	}
+
+	.task-name {
+		display: block;
+		font-size: 1rem;
+		font-weight: 600;
+		color: var(--text-primary);
+		margin-bottom: 0.75rem;
+	}
+
+	.ai-message {
+		display: flex;
+		gap: 1rem;
+		padding: 1rem;
+		background: linear-gradient(135deg, rgba(139, 92, 246, 0.1), rgba(99, 102, 241, 0.05));
+		border-radius: 12px;
+		border-left: 4px solid #8b5cf6;
+	}
+
+	.ai-avatar {
+		font-size: 1.5rem;
+	}
+
+	.ai-message p {
+		margin: 0;
+		font-size: 0.9rem;
+		color: var(--text-primary);
+		line-height: 1.5;
+	}
+
+	.progress-update-section {
+		margin-bottom: 1rem;
+	}
+
+	.progress-update-section label {
+		display: block;
+		font-size: 0.9rem;
+		font-weight: 600;
+		color: var(--text-primary);
+		margin-bottom: 0.5rem;
+	}
+
+	.progress-slider {
+		display: flex;
+		align-items: center;
+		gap: 1rem;
+		margin-bottom: 1.25rem;
+	}
+
+	.progress-slider input[type="range"] {
+		flex: 1;
+		height: 8px;
+		-webkit-appearance: none;
+		appearance: none;
+		background: var(--bg-tertiary);
+		border-radius: 4px;
+		outline: none;
+	}
+
+	.progress-slider input[type="range"]::-webkit-slider-thumb {
+		-webkit-appearance: none;
+		appearance: none;
+		width: 20px;
+		height: 20px;
+		background: #8b5cf6;
+		border-radius: 50%;
+		cursor: pointer;
+	}
+
+	.progress-slider .progress-value {
+		font-size: 1.1rem;
+		font-weight: 700;
+		color: #8b5cf6;
+		min-width: 45px;
+	}
+
+	.progress-update-section textarea {
+		width: 100%;
+		padding: 0.85rem 1rem;
+		border: 1px solid var(--border-color);
+		border-radius: 10px;
+		background: var(--bg-secondary);
+		color: var(--text-primary);
+		font-size: 0.9rem;
+		resize: vertical;
+		outline: none;
+		transition: border-color 0.2s ease;
+	}
+
+	.progress-update-section textarea:focus {
+		border-color: #8b5cf6;
+	}
+
+	.h3-intro {
+		padding: 1rem;
+		background: rgba(239, 68, 68, 0.1);
+		border-radius: 10px;
+		font-size: 0.9rem;
+		color: var(--text-primary);
+		line-height: 1.5;
+		margin: 0 0 1.5rem 0;
+	}
+
+	.h3-modal .form-group {
+		margin-bottom: 1.25rem;
+	}
+
+	.h3-modal .form-group label {
+		display: block;
+		font-size: 0.85rem;
+		font-weight: 600;
+		color: var(--text-primary);
+		margin-bottom: 0.5rem;
+	}
+
+	.h3-modal .form-group input,
+	.h3-modal .form-group textarea,
+	.h3-modal .form-group select {
+		width: 100%;
+		padding: 0.85rem 1rem;
+		border: 1px solid var(--border-color);
+		border-radius: 10px;
+		background: var(--bg-secondary);
+		color: var(--text-primary);
+		font-size: 0.9rem;
+		outline: none;
+		transition: border-color 0.2s ease;
+	}
+
+	.h3-modal .form-group input:focus,
+	.h3-modal .form-group textarea:focus,
+	.h3-modal .form-group select:focus {
+		border-color: #ef4444;
+	}
+
+	.modal-actions {
+		display: flex;
+		gap: 1rem;
+		margin-top: 1.5rem;
+	}
+
+	.btn-danger {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		flex: 1;
+		padding: 0.85rem 1.25rem;
+		background: linear-gradient(135deg, #ef4444, #dc2626);
+		color: white;
+		border: none;
+		border-radius: 10px;
+		font-size: 0.9rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s ease;
+	}
+
+	.btn-danger:hover {
+		background: linear-gradient(135deg, #dc2626, #b91c1c);
+	}
+
+	.btn-danger:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	/* Badge count for active tasks */
+	.badge-count {
+		background: #8b5cf6;
+		color: white;
+		padding: 0.2rem 0.6rem;
+		border-radius: 10px;
+		font-size: 0.7rem;
+		font-weight: 600;
+	}
+
+	/* Responsive Design for GTM Trackable */
+	@media (max-width: 1024px) {
+		.decisions-grid-enhanced {
+			grid-template-columns: 1fr;
+		}
 	}
 
 	/* Action Plan Table */
@@ -19289,6 +23568,1667 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 		}
 	}
 
+	/* ========================================
+	   NEW DYNAMIC GTM STYLES
+	   ======================================== */
+
+	.gtm-header-card {
+		background: linear-gradient(135deg, rgba(139, 92, 246, 0.1), rgba(59, 130, 246, 0.1));
+		border: 1px solid rgba(139, 92, 246, 0.3);
+		padding: 1.5rem;
+	}
+
+	.gtm-header-actions {
+		display: flex;
+		align-items: center;
+		gap: 1rem;
+	}
+
+	.gtm-stage-badge {
+		padding: 0.5rem 1rem;
+		border-radius: 20px;
+		font-size: 0.8rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+	}
+
+	.gtm-stage-badge.pre-revenue { background: rgba(245, 158, 11, 0.2); color: #f59e0b; }
+	.gtm-stage-badge.early-traction { background: rgba(59, 130, 246, 0.2); color: #3b82f6; }
+	.gtm-stage-badge.growth { background: rgba(16, 185, 129, 0.2); color: #10b981; }
+	.gtm-stage-badge.scaling { background: rgba(139, 92, 246, 0.2); color: #8b5cf6; }
+
+	.btn-generate-gtm {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.75rem 1.5rem;
+		background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+		color: white;
+		border: none;
+		border-radius: 10px;
+		font-size: 0.9rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.3s ease;
+	}
+
+	.btn-generate-gtm:hover:not(:disabled) {
+		transform: translateY(-2px);
+		box-shadow: 0 4px 20px rgba(139, 92, 246, 0.4);
+	}
+
+	.btn-generate-gtm:disabled {
+		opacity: 0.7;
+		cursor: not-allowed;
+	}
+
+	.rotating {
+		animation: rotate 1s linear infinite;
+	}
+
+	@keyframes rotate {
+		from { transform: rotate(0deg); }
+		to { transform: rotate(360deg); }
+	}
+
+	.gtm-quick-stats {
+		display: flex;
+		gap: 1.5rem;
+		margin-top: 1.25rem;
+		padding-top: 1.25rem;
+		border-top: 1px solid rgba(139, 92, 246, 0.2);
+		flex-wrap: wrap;
+	}
+
+	.quick-stat {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+	}
+
+	.quick-stat .stat-label {
+		font-size: 0.7rem;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		color: var(--text-secondary);
+	}
+
+	.quick-stat .stat-value {
+		font-size: 0.95rem;
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	/* GTM Error & Loading States */
+	.gtm-error-card {
+		display: flex;
+		align-items: center;
+		gap: 1rem;
+		padding: 1.25rem;
+		background: rgba(239, 68, 68, 0.1);
+		border: 1px solid rgba(239, 68, 68, 0.3);
+	}
+
+	.gtm-error-card .material-symbols-outlined {
+		color: #ef4444;
+		font-size: 1.5rem;
+	}
+
+	.gtm-error-card p {
+		flex: 1;
+		margin: 0;
+		color: #ef4444;
+	}
+
+	.btn-retry {
+		padding: 0.5rem 1rem;
+		background: #ef4444;
+		color: white;
+		border: none;
+		border-radius: 6px;
+		font-size: 0.85rem;
+		cursor: pointer;
+	}
+
+	.gtm-loading-card {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		padding: 3rem;
+		text-align: center;
+	}
+
+	.gtm-loading-card h3 {
+		margin: 1.5rem 0 0.5rem;
+		color: var(--text-primary);
+	}
+
+	.gtm-loading-card p {
+		color: var(--text-secondary);
+		margin: 0;
+	}
+
+	.loading-spinner {
+		width: 50px;
+		height: 50px;
+		border: 4px solid var(--border-color);
+		border-top-color: #8b5cf6;
+		border-radius: 50%;
+		animation: rotate 1s linear infinite;
+	}
+
+	/* GTM Navigation Tabs */
+	.gtm-nav-tabs {
+		display: flex;
+		gap: 0.5rem;
+		padding: 0.75rem;
+		background: var(--bg-secondary);
+		border-radius: 12px;
+		overflow-x: auto;
+		flex-wrap: wrap;
+	}
+
+	.gtm-nav-tab {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.6rem 1rem;
+		background: transparent;
+		border: none;
+		border-radius: 8px;
+		color: var(--text-secondary);
+		font-size: 0.85rem;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		white-space: nowrap;
+	}
+
+	.gtm-nav-tab:hover {
+		background: var(--bg-tertiary);
+		color: var(--text-primary);
+	}
+
+	.gtm-nav-tab.active {
+		background: linear-gradient(135deg, rgba(139, 92, 246, 0.2), rgba(59, 130, 246, 0.2));
+		color: #8b5cf6;
+	}
+
+	.gtm-nav-tab .material-symbols-outlined {
+		font-size: 1.1rem;
+	}
+
+	/* GTM Content Area */
+	.gtm-content {
+		display: flex;
+		flex-direction: column;
+		gap: 1.5rem;
+	}
+
+	.gtm-section-card {
+		padding: 1.5rem;
+	}
+
+	.section-header {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		margin-bottom: 1.25rem;
+		padding-bottom: 1rem;
+		border-bottom: 1px solid var(--border-color);
+	}
+
+	.section-header .material-symbols-outlined {
+		font-size: 1.5rem;
+		color: #8b5cf6;
+	}
+
+	.section-header h2 {
+		margin: 0;
+		font-size: 1.25rem;
+		font-weight: 600;
+		color: var(--text-primary);
+		flex: 1;
+	}
+
+	.section-header.small h3 {
+		margin: 0;
+		font-size: 1rem;
+	}
+
+	.badge-limit {
+		padding: 0.35rem 0.75rem;
+		background: rgba(139, 92, 246, 0.15);
+		color: #8b5cf6;
+		font-size: 0.7rem;
+		font-weight: 600;
+		border-radius: 20px;
+		text-transform: uppercase;
+	}
+
+	/* Overview Section */
+	.overview-content {
+		display: flex;
+		flex-direction: column;
+		gap: 1.25rem;
+	}
+
+	.overview-item {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.overview-item.highlight {
+		padding: 1.25rem;
+		background: var(--bg-tertiary);
+		border-radius: 10px;
+	}
+
+	.overview-item .item-label {
+		font-size: 0.75rem;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		color: var(--text-secondary);
+	}
+
+	.overview-item .item-value {
+		margin: 0;
+		color: var(--text-primary);
+		line-height: 1.5;
+	}
+
+	.overview-item .item-value.large {
+		font-size: 1.25rem;
+		font-weight: 600;
+	}
+
+	.overview-grid {
+		display: grid;
+		grid-template-columns: repeat(2, 1fr);
+		gap: 1.25rem;
+	}
+
+	.why-now-box {
+		padding: 1.25rem;
+		background: rgba(59, 130, 246, 0.1);
+		border: 1px solid rgba(59, 130, 246, 0.2);
+		border-radius: 10px;
+	}
+
+	.why-now-box h4 {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		margin: 0 0 1rem;
+		color: #3b82f6;
+		font-size: 0.95rem;
+	}
+
+	.why-now-content {
+		display: grid;
+		grid-template-columns: repeat(2, 1fr);
+		gap: 1rem;
+	}
+
+	.why-item .why-label {
+		display: block;
+		font-size: 0.7rem;
+		text-transform: uppercase;
+		color: var(--text-secondary);
+		margin-bottom: 0.25rem;
+	}
+
+	.why-item p {
+		margin: 0;
+		color: var(--text-primary);
+		font-size: 0.9rem;
+	}
+
+	/* Value Proposition */
+	.value-prop-content {
+		display: flex;
+		flex-direction: column;
+		gap: 1.5rem;
+	}
+
+	.value-statement-box {
+		padding: 1.5rem;
+		background: linear-gradient(135deg, rgba(139, 92, 246, 0.1), rgba(59, 130, 246, 0.1));
+		border-radius: 12px;
+		text-align: center;
+	}
+
+	.value-statement {
+		margin: 0;
+		font-size: 1.25rem;
+		font-weight: 600;
+		color: var(--text-primary);
+		font-style: italic;
+		line-height: 1.6;
+	}
+
+	.benefits-grid {
+		display: grid;
+		grid-template-columns: repeat(3, 1fr);
+		gap: 1rem;
+	}
+
+	.benefit-card {
+		padding: 1.25rem;
+		background: var(--bg-tertiary);
+		border-radius: 10px;
+		border-left: 3px solid var(--border-color);
+	}
+
+	.benefit-card.functional { border-left-color: #3b82f6; }
+	.benefit-card.emotional { border-left-color: #ec4899; }
+	.benefit-card.social { border-left-color: #8b5cf6; }
+
+	.benefit-type {
+		display: inline-block;
+		font-size: 0.65rem;
+		text-transform: uppercase;
+		letter-spacing: 0.5px;
+		padding: 0.2rem 0.5rem;
+		background: var(--bg-secondary);
+		border-radius: 4px;
+		color: var(--text-secondary);
+		margin-bottom: 0.5rem;
+	}
+
+	.benefit-text {
+		margin: 0 0 0.5rem;
+		color: var(--text-primary);
+		font-size: 0.9rem;
+		line-height: 1.5;
+	}
+
+	.benefit-proof {
+		font-size: 0.8rem;
+		color: var(--text-tertiary);
+		font-style: italic;
+	}
+
+	.proof-points {
+		padding: 1rem;
+		background: var(--bg-tertiary);
+		border-radius: 10px;
+	}
+
+	.proof-points h4 {
+		margin: 0 0 0.75rem;
+		font-size: 0.9rem;
+		color: var(--text-primary);
+	}
+
+	.proof-points ul {
+		margin: 0;
+		padding: 0;
+		list-style: none;
+	}
+
+	.proof-points li {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.5rem 0;
+		font-size: 0.9rem;
+		color: var(--text-secondary);
+	}
+
+	.proof-points li .material-symbols-outlined {
+		color: #10b981;
+		font-size: 1rem;
+	}
+
+	/* Hypothesis Status Select */
+	.status-select {
+		padding: 0.35rem 0.75rem;
+		background: var(--bg-secondary);
+		border: 1px solid var(--border-color);
+		border-radius: 6px;
+		font-size: 0.8rem;
+		color: var(--text-primary);
+		cursor: pointer;
+	}
+
+	.hypothesis-text {
+		margin: 0;
+		padding: 1rem 1.25rem;
+		font-size: 0.95rem;
+		color: var(--text-primary);
+		line-height: 1.5;
+	}
+
+	.hypothesis-details {
+		padding: 0 1.25rem 1.25rem;
+	}
+
+	.detail-row {
+		display: flex;
+		justify-content: space-between;
+		padding: 0.5rem 0;
+		border-bottom: 1px solid var(--border-color);
+	}
+
+	.detail-row:last-child {
+		border-bottom: none;
+	}
+
+	.detail-label {
+		font-size: 0.8rem;
+		color: var(--text-secondary);
+	}
+
+	.detail-value {
+		font-size: 0.85rem;
+		color: var(--text-primary);
+		font-weight: 500;
+	}
+
+	.detail-value.signal {
+		color: #10b981;
+	}
+
+	/* GTM Decisions Enhanced */
+	.decision-header {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 1rem;
+		background: var(--bg-tertiary);
+	}
+
+	.decision-header h4 {
+		margin: 0;
+		font-size: 0.9rem;
+	}
+
+	.decision-card.double-down .decision-header { background: rgba(16, 185, 129, 0.1); color: #10b981; }
+	.decision-card.pause .decision-header { background: rgba(245, 158, 11, 0.1); color: #f59e0b; }
+	.decision-card.kill .decision-header { background: rgba(239, 68, 68, 0.1); color: #ef4444; }
+
+	.decision-what, .decision-evidence, .decision-impact {
+		margin: 0;
+		padding: 0.5rem 1rem;
+		font-size: 0.85rem;
+	}
+
+	.decision-what {
+		padding-top: 1rem;
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.decision-evidence, .decision-impact {
+		color: var(--text-secondary);
+	}
+
+	/* ICP Grid */
+	.icp-grid {
+		display: grid;
+		grid-template-columns: repeat(4, 1fr);
+		gap: 1rem;
+	}
+
+	.icp-item {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		padding: 1rem;
+		background: var(--bg-tertiary);
+		border-radius: 10px;
+	}
+
+	.icp-label {
+		font-size: 0.7rem;
+		text-transform: uppercase;
+		color: var(--text-secondary);
+	}
+
+	.icp-value {
+		font-size: 0.95rem;
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	/* Personas */
+	.personas-grid {
+		display: grid;
+		grid-template-columns: repeat(2, 1fr);
+		gap: 1.25rem;
+	}
+
+	.persona-card {
+		background: var(--bg-secondary);
+		border-radius: 12px;
+		border: 1px solid var(--border-color);
+		overflow: hidden;
+	}
+
+	.persona-header {
+		display: flex;
+		align-items: center;
+		gap: 1rem;
+		padding: 1.25rem;
+		background: var(--bg-tertiary);
+	}
+
+	.persona-avatar {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 40px;
+		height: 40px;
+		background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+		color: white;
+		border-radius: 50%;
+		font-weight: 700;
+	}
+
+	.persona-header h4 {
+		margin: 0;
+		font-size: 1rem;
+		color: var(--text-primary);
+	}
+
+	.persona-role {
+		margin: 0;
+		font-size: 0.85rem;
+		color: var(--text-secondary);
+	}
+
+	.persona-section {
+		padding: 1rem 1.25rem;
+		border-bottom: 1px solid var(--border-color);
+	}
+
+	.persona-section:last-child {
+		border-bottom: none;
+	}
+
+	.persona-section .section-label {
+		display: block;
+		font-size: 0.7rem;
+		text-transform: uppercase;
+		color: var(--text-secondary);
+		margin-bottom: 0.5rem;
+	}
+
+	.persona-section ul {
+		margin: 0;
+		padding-left: 1.25rem;
+	}
+
+	.persona-section li {
+		font-size: 0.85rem;
+		color: var(--text-primary);
+		margin-bottom: 0.25rem;
+	}
+
+	.persona-section p {
+		margin: 0;
+		font-size: 0.9rem;
+		color: var(--text-primary);
+	}
+
+	/* Market Segments */
+	.market-segments {
+		display: grid;
+		grid-template-columns: repeat(2, 1fr);
+		gap: 1.25rem;
+	}
+
+	.segment-card {
+		padding: 1.25rem;
+		background: var(--bg-tertiary);
+		border-radius: 10px;
+	}
+
+	.segment-card.early { border-left: 3px solid #f59e0b; }
+	.segment-card.mass { border-left: 3px solid #3b82f6; }
+
+	.segment-card h4 {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		margin: 0 0 1rem;
+		font-size: 0.95rem;
+	}
+
+	.segment-content p {
+		margin: 0 0 0.75rem;
+		font-size: 0.85rem;
+		color: var(--text-secondary);
+	}
+
+	.segment-content p:last-child {
+		margin-bottom: 0;
+	}
+
+	/* Positioning */
+	.positioning-content {
+		display: flex;
+		flex-direction: column;
+		gap: 1.5rem;
+	}
+
+	.positioning-statement-box {
+		padding: 1.5rem;
+		background: var(--bg-tertiary);
+		border-radius: 10px;
+	}
+
+	.positioning-statement-box .label {
+		display: block;
+		font-size: 0.7rem;
+		text-transform: uppercase;
+		color: var(--text-secondary);
+		margin-bottom: 0.5rem;
+	}
+
+	.positioning-statement-box .statement {
+		margin: 0;
+		font-size: 1.1rem;
+		font-style: italic;
+		color: var(--text-primary);
+		line-height: 1.6;
+	}
+
+	.category-position {
+		display: flex;
+		align-items: center;
+		gap: 1rem;
+	}
+
+	.position-badge {
+		padding: 0.5rem 1rem;
+		background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+		color: white;
+		border-radius: 20px;
+		font-weight: 600;
+	}
+
+	.diff-axes-grid {
+		display: grid;
+		grid-template-columns: repeat(3, 1fr);
+		gap: 1rem;
+	}
+
+	.diff-axis-card {
+		padding: 1.25rem;
+		background: var(--bg-tertiary);
+		border-radius: 10px;
+	}
+
+	.diff-axis-card h4 {
+		margin: 0 0 0.75rem;
+		font-size: 0.9rem;
+		color: #8b5cf6;
+	}
+
+	.axis-position {
+		margin: 0 0 0.5rem;
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.axis-vs {
+		margin: 0;
+		font-size: 0.85rem;
+		color: var(--text-secondary);
+	}
+
+	.competitive-response {
+		padding: 1.25rem;
+	}
+
+	.vs-main {
+		margin: 0 0 1.25rem;
+		font-size: 1rem;
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.talking-points h4 {
+		margin: 0 0 0.75rem;
+		font-size: 0.9rem;
+		color: var(--text-secondary);
+	}
+
+	.talking-points ul {
+		margin: 0;
+		padding-left: 1.25rem;
+	}
+
+	.talking-points li {
+		font-size: 0.9rem;
+		color: var(--text-primary);
+		margin-bottom: 0.5rem;
+	}
+
+	/* Pricing Tiers */
+	.pricing-model-badge {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		margin-bottom: 1.5rem;
+	}
+
+	.model-label {
+		font-size: 0.85rem;
+		color: var(--text-secondary);
+	}
+
+	.model-value {
+		padding: 0.5rem 1rem;
+		background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+		color: white;
+		border-radius: 20px;
+		font-weight: 600;
+	}
+
+	.pricing-tiers {
+		display: grid;
+		grid-template-columns: repeat(3, 1fr);
+		gap: 1.25rem;
+	}
+
+	.pricing-tier {
+		padding: 1.5rem;
+		background: var(--bg-secondary);
+		border: 2px solid var(--border-color);
+		border-radius: 12px;
+		position: relative;
+	}
+
+	.pricing-tier.recommended {
+		border-color: #8b5cf6;
+	}
+
+	.recommended-badge {
+		position: absolute;
+		top: -10px;
+		left: 50%;
+		transform: translateX(-50%);
+		padding: 0.25rem 0.75rem;
+		background: #8b5cf6;
+		color: white;
+		font-size: 0.7rem;
+		font-weight: 600;
+		border-radius: 20px;
+		text-transform: uppercase;
+	}
+
+	.pricing-tier h4 {
+		margin: 0 0 0.5rem;
+		font-size: 1.1rem;
+		color: var(--text-primary);
+	}
+
+	.tier-price {
+		margin: 0 0 0.5rem;
+		font-size: 1.5rem;
+		font-weight: 700;
+		color: #8b5cf6;
+	}
+
+	.tier-target {
+		margin: 0 0 1rem;
+		font-size: 0.85rem;
+		color: var(--text-secondary);
+	}
+
+	.tier-features {
+		margin: 0;
+		padding: 0;
+		list-style: none;
+	}
+
+	.tier-features li {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.5rem 0;
+		font-size: 0.85rem;
+		color: var(--text-primary);
+	}
+
+	.tier-features .material-symbols-outlined {
+		color: #10b981;
+		font-size: 1rem;
+	}
+
+	.pricing-logic-content {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+	}
+
+	.logic-item {
+		padding: 1rem;
+		background: var(--bg-tertiary);
+		border-radius: 8px;
+	}
+
+	.logic-label {
+		display: block;
+		font-size: 0.7rem;
+		text-transform: uppercase;
+		color: var(--text-secondary);
+		margin-bottom: 0.25rem;
+	}
+
+	.logic-item p {
+		margin: 0;
+		font-size: 0.9rem;
+		color: var(--text-primary);
+	}
+
+	/* Distribution Channels */
+	.channels-list {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+	}
+
+	.channel-card {
+		display: flex;
+		gap: 1rem;
+		padding: 1.25rem;
+		background: var(--bg-tertiary);
+		border-radius: 10px;
+	}
+
+	.channel-priority {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 40px;
+		height: 40px;
+		background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+		color: white;
+		border-radius: 50%;
+		font-weight: 700;
+		flex-shrink: 0;
+	}
+
+	.channel-content {
+		flex: 1;
+	}
+
+	.channel-content h4 {
+		margin: 0 0 0.5rem;
+		font-size: 1rem;
+		color: var(--text-primary);
+	}
+
+	.channel-rationale {
+		margin: 0 0 0.5rem;
+		font-size: 0.85rem;
+		color: var(--text-secondary);
+	}
+
+	.channel-cac {
+		font-size: 0.8rem;
+		color: #10b981;
+		font-weight: 500;
+	}
+
+	.sales-motion-content {
+		padding: 1rem;
+	}
+
+	.motion-type {
+		margin-bottom: 1rem;
+	}
+
+	.type-badge {
+		padding: 0.5rem 1rem;
+		background: var(--bg-tertiary);
+		border-radius: 20px;
+		font-weight: 600;
+		color: #8b5cf6;
+	}
+
+	.motion-rationale {
+		margin: 0 0 1rem;
+		color: var(--text-secondary);
+	}
+
+	.transition-plan .label {
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.transition-plan p {
+		margin: 0.25rem 0 0;
+		color: var(--text-secondary);
+	}
+
+	.ownership-grid {
+		display: grid;
+		grid-template-columns: repeat(4, 1fr);
+		gap: 1rem;
+	}
+
+	.ownership-item {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		padding: 1rem;
+		background: var(--bg-tertiary);
+		border-radius: 8px;
+	}
+
+	.ownership-label {
+		font-size: 0.7rem;
+		text-transform: uppercase;
+		color: var(--text-secondary);
+	}
+
+	.ownership-value {
+		font-size: 0.9rem;
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	/* Marketing Demand Gen */
+	.demand-gen-grid {
+		display: grid;
+		grid-template-columns: repeat(4, 1fr);
+		gap: 1rem;
+	}
+
+	.demand-category {
+		padding: 1.25rem;
+		background: var(--bg-tertiary);
+		border-radius: 10px;
+	}
+
+	.demand-category h4 {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		margin: 0 0 1rem;
+		font-size: 0.9rem;
+		color: #8b5cf6;
+	}
+
+	.demand-category ul {
+		margin: 0;
+		padding-left: 1.25rem;
+	}
+
+	.demand-category li {
+		font-size: 0.85rem;
+		color: var(--text-primary);
+		margin-bottom: 0.5rem;
+	}
+
+	.brand-messaging-content {
+		display: flex;
+		flex-direction: column;
+		gap: 1.5rem;
+	}
+
+	.core-narrative {
+		padding: 1.5rem;
+		background: var(--bg-tertiary);
+		border-radius: 10px;
+	}
+
+	.core-narrative .label {
+		display: block;
+		font-size: 0.7rem;
+		text-transform: uppercase;
+		color: var(--text-secondary);
+		margin-bottom: 0.5rem;
+	}
+
+	.core-narrative p {
+		margin: 0;
+		font-size: 1.1rem;
+		font-style: italic;
+		color: var(--text-primary);
+		line-height: 1.6;
+	}
+
+	.channel-messages h4 {
+		margin: 0 0 1rem;
+		font-size: 0.9rem;
+		color: var(--text-secondary);
+	}
+
+	.channel-message {
+		padding: 1rem;
+		background: var(--bg-tertiary);
+		border-radius: 8px;
+		margin-bottom: 0.75rem;
+	}
+
+	.channel-name {
+		display: inline-block;
+		padding: 0.2rem 0.5rem;
+		background: #8b5cf6;
+		color: white;
+		font-size: 0.7rem;
+		font-weight: 600;
+		border-radius: 4px;
+		margin-bottom: 0.5rem;
+	}
+
+	.channel-message p {
+		margin: 0;
+		font-size: 0.9rem;
+		color: var(--text-primary);
+	}
+
+	.objections-grid {
+		display: grid;
+		grid-template-columns: repeat(2, 1fr);
+		gap: 1rem;
+	}
+
+	.objection-card {
+		background: var(--bg-tertiary);
+		border-radius: 10px;
+		overflow: hidden;
+	}
+
+	.objection-text {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.5rem;
+		padding: 1rem;
+		background: rgba(239, 68, 68, 0.1);
+		font-size: 0.9rem;
+		color: #ef4444;
+	}
+
+	.response-text {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.5rem;
+		padding: 1rem;
+		font-size: 0.9rem;
+		color: var(--text-primary);
+	}
+
+	.response-text .material-symbols-outlined {
+		color: #10b981;
+	}
+
+	.growth-loops-grid {
+		display: grid;
+		grid-template-columns: repeat(2, 1fr);
+		gap: 1rem;
+	}
+
+	.growth-loop-card {
+		padding: 1.25rem;
+		background: var(--bg-tertiary);
+		border-radius: 10px;
+		border-left: 3px solid #8b5cf6;
+	}
+
+	.growth-loop-card h4 {
+		margin: 0 0 0.75rem;
+		font-size: 0.95rem;
+		color: #8b5cf6;
+	}
+
+	.loop-mechanism {
+		margin: 0 0 0.75rem;
+		font-size: 0.9rem;
+		color: var(--text-primary);
+	}
+
+	.loop-detail {
+		margin: 0 0 0.25rem;
+		font-size: 0.85rem;
+		color: var(--text-secondary);
+	}
+
+	/* Launch Plan */
+	.launch-phases {
+		display: flex;
+		flex-direction: column;
+		gap: 1.5rem;
+	}
+
+	.launch-phase {
+		background: var(--bg-tertiary);
+		border-radius: 12px;
+		overflow: hidden;
+	}
+
+	.launch-phase.pre { border-left: 4px solid #f59e0b; }
+	.launch-phase.active { border-left: 4px solid #10b981; }
+	.launch-phase.post { border-left: 4px solid #3b82f6; }
+
+	.phase-header {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 1rem 1.25rem;
+		background: var(--bg-secondary);
+	}
+
+	.phase-icon {
+		font-size: 1.25rem;
+	}
+
+	.phase-header h4 {
+		margin: 0;
+		flex: 1;
+		font-size: 1rem;
+	}
+
+	.phase-timeline {
+		font-size: 0.85rem;
+		color: var(--text-secondary);
+	}
+
+	.phase-activities {
+		padding: 1.25rem;
+	}
+
+	.activity-item {
+		display: grid;
+		grid-template-columns: 2fr 1fr 1fr;
+		gap: 1rem;
+		padding: 0.75rem;
+		background: var(--bg-secondary);
+		border-radius: 8px;
+		margin-bottom: 0.5rem;
+	}
+
+	.activity-name {
+		font-weight: 500;
+		color: var(--text-primary);
+	}
+
+	.activity-goal {
+		color: #10b981;
+		font-size: 0.85rem;
+	}
+
+	.activity-timeline {
+		color: var(--text-secondary);
+		font-size: 0.85rem;
+		text-align: right;
+	}
+
+	.launch-details, .post-launch-details {
+		padding: 1.25rem;
+	}
+
+	.launch-section {
+		margin-bottom: 1rem;
+	}
+
+	.launch-section:last-child {
+		margin-bottom: 0;
+	}
+
+	.launch-section .label {
+		display: block;
+		font-size: 0.75rem;
+		text-transform: uppercase;
+		color: var(--text-secondary);
+		margin-bottom: 0.5rem;
+	}
+
+	.tag-list {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.5rem;
+	}
+
+	.tag {
+		padding: 0.35rem 0.75rem;
+		background: var(--bg-secondary);
+		border-radius: 20px;
+		font-size: 0.8rem;
+		color: var(--text-primary);
+	}
+
+	.launch-section ul {
+		margin: 0;
+		padding-left: 1.25rem;
+	}
+
+	.launch-section li {
+		font-size: 0.85rem;
+		color: var(--text-primary);
+		margin-bottom: 0.25rem;
+	}
+
+	/* Customer Success */
+	.customer-success-content {
+		display: flex;
+		flex-direction: column;
+		gap: 1.5rem;
+	}
+
+	.first-value-box {
+		padding: 1.5rem;
+		background: linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(59, 130, 246, 0.1));
+		border-radius: 10px;
+	}
+
+	.first-value-box h4 {
+		margin: 0 0 0.75rem;
+		color: #10b981;
+	}
+
+	.first-value-box p {
+		margin: 0 0 1rem;
+		font-size: 1rem;
+		color: var(--text-primary);
+	}
+
+	.fvm-metrics {
+		display: flex;
+		gap: 2rem;
+	}
+
+	.fvm-metrics span {
+		font-size: 0.85rem;
+		color: var(--text-secondary);
+	}
+
+	.onboarding-section h4 {
+		margin: 0 0 1rem;
+		font-size: 1rem;
+	}
+
+	.onboarding-tools {
+		margin-bottom: 1rem;
+	}
+
+	.onboarding-tools .label {
+		font-weight: 600;
+		margin-right: 0.5rem;
+	}
+
+	.milestones ol {
+		margin: 0.5rem 0 0;
+		padding-left: 1.25rem;
+	}
+
+	.milestones li {
+		font-size: 0.9rem;
+		color: var(--text-primary);
+		margin-bottom: 0.5rem;
+	}
+
+	/* North Star & Metrics */
+	.north-star-card {
+		background: linear-gradient(135deg, rgba(139, 92, 246, 0.15), rgba(59, 130, 246, 0.15));
+	}
+
+	.north-star-content {
+		display: flex;
+		flex-direction: column;
+		gap: 1.5rem;
+	}
+
+	.north-star-metric {
+		text-align: center;
+		padding: 1.5rem;
+		background: var(--bg-secondary);
+		border-radius: 12px;
+	}
+
+	.ns-label {
+		display: block;
+		font-size: 0.7rem;
+		text-transform: uppercase;
+		letter-spacing: 1px;
+		color: #8b5cf6;
+		margin-bottom: 0.5rem;
+	}
+
+	.north-star-metric h3 {
+		margin: 0;
+		font-size: 1.5rem;
+		color: var(--text-primary);
+	}
+
+	.ns-details {
+		display: grid;
+		grid-template-columns: repeat(2, 1fr);
+		gap: 1rem;
+	}
+
+	.ns-item {
+		padding: 1rem;
+		background: var(--bg-tertiary);
+		border-radius: 8px;
+	}
+
+	.ns-item .label {
+		display: block;
+		font-size: 0.7rem;
+		text-transform: uppercase;
+		color: var(--text-secondary);
+		margin-bottom: 0.25rem;
+	}
+
+	.ns-item p {
+		margin: 0;
+		font-size: 0.9rem;
+		color: var(--text-primary);
+	}
+
+	.metrics-categories-grid {
+		display: grid;
+		grid-template-columns: repeat(3, 1fr);
+		gap: 1.25rem;
+	}
+
+	.metrics-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+	}
+
+	.metric-row {
+		display: grid;
+		grid-template-columns: 1fr 1fr 1fr;
+		gap: 0.5rem;
+		padding: 0.75rem;
+		background: var(--bg-tertiary);
+		border-radius: 6px;
+		font-size: 0.85rem;
+	}
+
+	.metric-name {
+		font-weight: 500;
+		color: var(--text-primary);
+	}
+
+	.metric-current {
+		color: var(--text-secondary);
+		text-align: center;
+	}
+
+	.metric-target {
+		color: #10b981;
+		text-align: right;
+	}
+
+	/* Risks Table */
+	.risks-table {
+		border: 1px solid var(--border-color);
+		border-radius: 10px;
+		overflow: hidden;
+	}
+
+	.risk-header-row {
+		display: grid;
+		grid-template-columns: 1.5fr 0.75fr 2fr;
+		gap: 1rem;
+		padding: 0.75rem 1rem;
+		background: var(--bg-tertiary);
+		font-size: 0.75rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		color: var(--text-secondary);
+	}
+
+	.risk-row {
+		display: grid;
+		grid-template-columns: 1.5fr 0.75fr 2fr;
+		gap: 1rem;
+		padding: 1rem;
+		border-bottom: 1px solid var(--border-color);
+		align-items: center;
+	}
+
+	.risk-row:last-child {
+		border-bottom: none;
+	}
+
+	.risk-name {
+		font-weight: 500;
+		color: var(--text-primary);
+	}
+
+	.risk-impact {
+		padding: 0.25rem 0.5rem;
+		border-radius: 4px;
+		font-size: 0.75rem;
+		font-weight: 600;
+		text-align: center;
+	}
+
+	.risk-impact.high { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+	.risk-impact.medium { background: rgba(245, 158, 11, 0.2); color: #f59e0b; }
+	.risk-impact.low { background: rgba(16, 185, 129, 0.2); color: #10b981; }
+
+	.risk-mitigation {
+		font-size: 0.85rem;
+		color: var(--text-secondary);
+	}
+
+	/* Execution Timeline */
+	.execution-timeline {
+		display: flex;
+		flex-direction: column;
+		gap: 1.5rem;
+	}
+
+	.month-card {
+		background: var(--bg-tertiary);
+		border-radius: 12px;
+		overflow: hidden;
+	}
+
+	.month-header {
+		display: flex;
+		align-items: center;
+		gap: 1rem;
+		padding: 1rem 1.25rem;
+		background: var(--bg-secondary);
+	}
+
+	.month-number {
+		padding: 0.5rem 1rem;
+		background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+		color: white;
+		border-radius: 20px;
+		font-weight: 700;
+		font-size: 0.85rem;
+	}
+
+	.month-theme {
+		font-weight: 600;
+		color: var(--text-primary);
+	}
+
+	.month-objectives, .month-actions, .month-metrics {
+		padding: 1rem 1.25rem;
+		border-bottom: 1px solid var(--border-color);
+	}
+
+	.month-metrics {
+		border-bottom: none;
+	}
+
+	.month-objectives h5, .month-actions h5, .month-metrics h5 {
+		margin: 0 0 0.75rem;
+		font-size: 0.85rem;
+		text-transform: uppercase;
+		color: var(--text-secondary);
+	}
+
+	.month-objectives ul {
+		margin: 0;
+		padding-left: 1.25rem;
+	}
+
+	.month-objectives li {
+		font-size: 0.9rem;
+		color: var(--text-primary);
+		margin-bottom: 0.5rem;
+	}
+
+	.actions-table {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.actions-table .action-row {
+		display: grid;
+		grid-template-columns: 2fr 1fr 1fr;
+		gap: 1rem;
+		padding: 0.75rem;
+		background: var(--bg-secondary);
+		border-radius: 6px;
+	}
+
+	.action-text {
+		font-size: 0.9rem;
+		color: var(--text-primary);
+	}
+
+	.action-owner {
+		font-size: 0.85rem;
+		color: #8b5cf6;
+		text-align: center;
+	}
+
+	.actions-table .action-timeline {
+		font-size: 0.85rem;
+		color: var(--text-secondary);
+		text-align: right;
+	}
+
+	.success-tags {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.5rem;
+	}
+
+	.success-tag {
+		padding: 0.35rem 0.75rem;
+		background: rgba(16, 185, 129, 0.15);
+		color: #10b981;
+		border-radius: 20px;
+		font-size: 0.8rem;
+	}
+
+	/* VC Slides */
+	.vc-slides-grid {
+		display: grid;
+		grid-template-columns: repeat(3, 1fr);
+		gap: 1.25rem;
+	}
+
+	.vc-slide {
+		padding: 1.5rem;
+		background: var(--bg-secondary);
+		border-radius: 12px;
+		border: 1px solid var(--border-color);
+		position: relative;
+	}
+
+	.vc-slide .slide-number {
+		position: absolute;
+		top: 1rem;
+		right: 1rem;
+		font-size: 2rem;
+		font-weight: 700;
+		color: rgba(139, 92, 246, 0.2);
+	}
+
+	.vc-slide h4 {
+		margin: 0 0 1rem;
+		font-size: 1rem;
+		color: #8b5cf6;
+		text-transform: uppercase;
+	}
+
+	.vc-slide ul {
+		margin: 0;
+		padding-left: 1.25rem;
+	}
+
+	.vc-slide li {
+		font-size: 0.85rem;
+		color: var(--text-secondary);
+		margin-bottom: 0.5rem;
+		line-height: 1.5;
+	}
+
+	/* GTM Empty State */
+	.gtm-empty-state {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		padding: 3rem;
+		text-align: center;
+	}
+
+	.empty-icon {
+		width: 80px;
+		height: 80px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: linear-gradient(135deg, rgba(139, 92, 246, 0.2), rgba(59, 130, 246, 0.2));
+		border-radius: 50%;
+		margin-bottom: 1.5rem;
+	}
+
+	.empty-icon .material-symbols-outlined {
+		font-size: 2.5rem;
+		color: #8b5cf6;
+	}
+
+	.gtm-empty-state h3 {
+		margin: 0 0 0.75rem;
+		font-size: 1.5rem;
+		color: var(--text-primary);
+	}
+
+	.gtm-empty-state p {
+		margin: 0 0 1.5rem;
+		color: var(--text-secondary);
+		max-width: 500px;
+	}
+
+	.gtm-features {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: center;
+		gap: 1rem;
+		list-style: none;
+		padding: 0;
+		margin: 0;
+	}
+
+	.gtm-features li {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-size: 0.9rem;
+		color: var(--text-secondary);
+	}
+
+	.gtm-features .material-symbols-outlined {
+		color: #10b981;
+		font-size: 1.1rem;
+	}
+
 	/* GTM Responsive */
 	@media (max-width: 1200px) {
 		.gtm-state-grid {
@@ -19305,6 +25245,22 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 
 		.metrics-grid {
 			grid-template-columns: repeat(3, 1fr);
+		}
+
+		.icp-grid, .ownership-grid, .demand-gen-grid {
+			grid-template-columns: repeat(2, 1fr);
+		}
+
+		.pricing-tiers, .vc-slides-grid {
+			grid-template-columns: 1fr;
+		}
+
+		.benefits-grid, .diff-axes-grid {
+			grid-template-columns: repeat(2, 1fr);
+		}
+
+		.metrics-categories-grid {
+			grid-template-columns: 1fr;
 		}
 	}
 
