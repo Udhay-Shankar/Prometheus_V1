@@ -1514,6 +1514,41 @@ What would you like to discuss?`,
 		ddqResponses = {};
 	}
 
+	// Autofill function for Rajinikanth Construction - early stage startup
+	function autofillRajinikanth() {
+		ddqResponses = {
+			1: 'Rajinikanth Construction',
+			2: 'Rajinikanth Construction is a construction company specializing in residential and commercial building projects in South India. We offer end-to-end construction services including design consultation, project management, and quality execution with a focus on sustainable building practices.',
+			3: ['Other'],
+			'3_other': 'Construction & Real Estate',
+			4: 'Tamil Nadu',
+			5: 'MVP',
+			6: 'L&T Construction, Sobha Developers',
+			7: 'Our competitive edge lies in our founder\'s 15+ years of industry experience, commitment to on-time delivery with zero cost overruns, and adoption of modern construction technologies like BIM and prefabrication. We offer transparent pricing with no hidden costs.',
+			8: 'Our ideal customers are middle to upper-middle class families looking to build their dream homes (₹50L-2Cr budget), and small to medium businesses needing commercial spaces. They value quality, transparency, and timely completion over lowest cost.',
+			9: 'B2C (Business to Consumer)',
+			10: '6-20',
+			11: 500000,
+			'11b': 'One-time Payment',
+			12: 'Yes',
+			13: 2500000,
+			14: 1800000,
+			15: 8,
+			16: 7500000,
+			17: 12,
+			18: ['Industry Expert', 'Business', 'Previous Startup'],
+			19: ['Customers', 'Funding', 'Competition'],
+			20: ['Direct sales', 'Word of mouth', 'Social media'],
+			21: 'Complete 5 new residential projects and establish partnerships with 3 real estate developers for commercial construction contracts',
+			22: '₹50 Lakhs - ₹1 Crore',
+			23: ['Competition', 'Economic', 'Funding']
+		};
+		// Rebuild questions to handle conditional logic
+		rebuildQuestions();
+		// Save to localStorage
+		localStorage.setItem('ddq_progress', JSON.stringify(ddqResponses));
+	}
+
 	function closeDDQ() {
 		showDDQ = false;
 		// Mark as dismissed in session to prevent re-opening
@@ -4373,6 +4408,10 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 							</span>
 						</div>
 						<div class="ddq-header-controls">
+							<button class="autofill-btn" on:click={autofillRajinikanth} title="Autofill with Rajinikanth Construction data">
+								<span class="material-symbols-outlined">auto_fix_high</span>
+								Autofill Demo
+							</button>
 							<span class="question-section-label">{currentQuestionData.section}</span>
 							<button class="modal-close-btn" on:click={closeDDQ} title="Close questionnaire">
 								<span class="material-symbols-outlined">close</span>
@@ -12396,6 +12435,31 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 		align-items: center;
 		justify-content: space-between;
 		gap: 16px;
+	}
+
+	.autofill-btn {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		padding: 8px 14px;
+		background: linear-gradient(135deg, #f59e0b, #d97706);
+		color: white;
+		border: none;
+		border-radius: 20px;
+		font-size: 0.8rem;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		white-space: nowrap;
+	}
+
+	.autofill-btn:hover {
+		transform: translateY(-2px);
+		box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);
+	}
+
+	.autofill-btn .material-symbols-outlined {
+		font-size: 18px;
 	}
 
 	.modal-close-btn {
