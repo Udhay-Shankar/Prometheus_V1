@@ -1469,7 +1469,14 @@ What would you like to discuss?`,
 						companyLogo = data.responses.logo;
 					}
 					
-					calculateValuation();
+					// Use saved valuation if available, otherwise recalculate
+					if (data.valuation && data.valuation.finalValuationINR) {
+						console.log('Using saved valuation from database:', data.valuation.finalValuationINR);
+						valuation = data.valuation;
+					} else {
+						console.log('No saved valuation found, recalculating...');
+						calculateValuation();
+					}
 					
 					// Also load SWOT, funding schemes, and competitors
 					generateSWOT().catch(err => console.warn('SWOT generation failed:', err));
@@ -1742,6 +1749,21 @@ What would you like to discuss?`,
 
 			valuation = await response.json();
 			activeTab = 'overview'; // Redirect to overview (hero page) after valuation
+			
+			// Save the calculated valuation to the database for persistence
+			try {
+				await fetch(`${API_URL}/api/ddq/update-valuation`, {
+					method: 'POST',
+					headers: {
+						'Content-Type': 'application/json',
+						Authorization: `Bearer ${token}`
+					},
+					body: JSON.stringify({ valuation })
+				});
+				console.log('Valuation saved to database successfully');
+			} catch (saveError) {
+				console.warn('Failed to save valuation to database:', saveError);
+			}
 			
 			// Trigger 5-second confetti celebration
 			triggerConfetti();

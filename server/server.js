@@ -1017,6 +1017,7 @@ app.post('/api/ddq/save', authenticateToken, async (req, res) => {
       userId: req.user.userId,
       responses: req.body.responses,
       scores: req.body.scores,
+      valuation: req.body.valuation || null, // Store calculated valuation
       createdAt: new Date(),
       status: 'completed'
     };
@@ -1026,6 +1027,40 @@ app.post('/api/ddq/save', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('DDQ save error:', error);
     res.status(500).json({ error: 'Failed to save DDQ responses' });
+  }
+});
+
+// Update DDQ with valuation after calculation
+app.post('/api/ddq/update-valuation', authenticateToken, async (req, res) => {
+  try {
+    const { valuation } = req.body;
+    
+    // Update the latest DDQ record for this user with the calculated valuation
+    const result = await ddqCollection.updateOne(
+      { userId: req.user.userId },
+      { $set: { valuation: valuation, valuationUpdatedAt: new Date() } },
+      { sort: { createdAt: -1 } }
+    );
+    
+    // If no document was updated with the simple query, find the latest and update it
+    if (result.matchedCount === 0) {
+      const latestDDQ = await ddqCollection.findOne(
+        { userId: req.user.userId },
+        { sort: { createdAt: -1 } }
+      );
+      
+      if (latestDDQ) {
+        await ddqCollection.updateOne(
+          { _id: latestDDQ._id },
+          { $set: { valuation: valuation, valuationUpdatedAt: new Date() } }
+        );
+      }
+    }
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('DDQ valuation update error:', error);
+    res.status(500).json({ error: 'Failed to update valuation' });
   }
 });
 
