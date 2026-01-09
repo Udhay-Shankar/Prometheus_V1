@@ -3726,19 +3726,28 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 			console.error('Error rejecting action:', error);
 		}
 		
-		// Open chatbot with question
+		// Navigate to Strategic Advisor tab and open chatbot
+		activeTab = 'advisor';
 		showChatbot = true;
 		
-		// Add initial message asking for reason
+		// Add initial message asking for reason - styled as rejection inquiry
 		chatMessages = [
 			...chatMessages,
 			{
 				role: 'assistant',
-				content: `I noticed you rejected the action: "${actionText}". Could you tell me why this action isn't relevant? This helps me suggest better actions.`,
+				content: `🤔 I noticed you rejected this action:\n\n**"${actionText}"**\n\nI'd love to understand why so I can give you better recommendations. Was it:\n\n• **Not relevant** to your current priorities?\n• **Already done** or in progress?\n• **Too time-consuming** right now?\n• **Not applicable** to your business?\n• Something else?\n\nPlease tell me briefly - this helps me learn!`,
 				timestamp: new Date(),
 				id: `rejection-${actionId}`
 			}
 		];
+		
+		// Scroll to Strategic Advisor section
+		setTimeout(() => {
+			const advisorSection = document.querySelector('.strategic-advisor-content');
+			if (advisorSection) {
+				advisorSection.scrollIntoView({ behavior: 'smooth' });
+			}
+		}, 100);
 		
 		// Set a 6-hour reminder if user doesn't respond (only if not already asked twice)
 		if (!rejectionAskedTwice.has(actionId)) {
@@ -3746,6 +3755,7 @@ What would you like to discuss about ${ddqResponses[1] || 'your business'}?`,
 				// Check if chatbot is not active and user hasn't responded
 				if (!showChatbot && rejectingActionId === actionId) {
 					// Re-ask the question
+					activeTab = 'advisor';
 					showChatbot = true;
 					chatMessages = [
 						...chatMessages,
@@ -7697,6 +7707,32 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 											<span class="sim-value">{simulationResult.riskLevel.toUpperCase()}</span>
 										</div>
 									</div>
+									
+									<!-- Detailed Explanation Section -->
+									{#if simulationResult.detailedExplanation}
+										<div class="detailed-explanation-section">
+											<div class="explanation-header">
+												<span class="material-symbols-outlined">psychology</span>
+												<strong>Detailed Analysis</strong>
+											</div>
+											<div class="explanation-content">
+												<p>{simulationResult.detailedExplanation}</p>
+											</div>
+										</div>
+									{/if}
+									
+									<!-- Calculation Breakdown -->
+									{#if simulationResult.calculationBreakdown}
+										<div class="calculation-breakdown-section">
+											<div class="breakdown-header">
+												<span class="material-symbols-outlined">calculate</span>
+												<strong>The Math Behind This</strong>
+											</div>
+											<div class="breakdown-content">
+												<p>{simulationResult.calculationBreakdown}</p>
+											</div>
+										</div>
+									{/if}
 									
 									{#if simulationResult.bestCase || simulationResult.worstCase}
 										<div class="scenario-cards">
@@ -13278,6 +13314,73 @@ ${proposal.conclusion || 'We believe that with the support of ' + scheme.name + 
 		margin: 0;
 		color: var(--text-secondary);
 		line-height: 1.5;
+	}
+	
+	/* Detailed Explanation Section */
+	.detailed-explanation-section {
+		background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.05));
+		border-radius: 12px;
+		padding: 1.25rem;
+		margin-bottom: 1rem;
+		border: 1px solid rgba(99, 102, 241, 0.2);
+	}
+	
+	.explanation-header {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		margin-bottom: 0.75rem;
+	}
+	
+	.explanation-header .material-symbols-outlined {
+		color: var(--accent-primary);
+		font-size: 1.25rem;
+	}
+	
+	.explanation-header strong {
+		color: var(--text-primary);
+		font-size: 1rem;
+	}
+	
+	.explanation-content p {
+		margin: 0;
+		color: var(--text-secondary);
+		line-height: 1.7;
+		font-size: 0.95rem;
+	}
+	
+	/* Calculation Breakdown Section */
+	.calculation-breakdown-section {
+		background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(34, 211, 238, 0.05));
+		border-radius: 12px;
+		padding: 1.25rem;
+		margin-bottom: 1rem;
+		border: 1px solid rgba(59, 130, 246, 0.2);
+	}
+	
+	.breakdown-header {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		margin-bottom: 0.75rem;
+	}
+	
+	.breakdown-header .material-symbols-outlined {
+		color: #3b82f6;
+		font-size: 1.25rem;
+	}
+	
+	.breakdown-header strong {
+		color: var(--text-primary);
+		font-size: 1rem;
+	}
+	
+	.breakdown-content p {
+		margin: 0;
+		color: var(--text-secondary);
+		line-height: 1.7;
+		font-size: 0.95rem;
+		font-family: 'Roboto Mono', monospace;
 	}
 	
 	/* Simulation Summary */

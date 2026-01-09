@@ -2131,6 +2131,9 @@ Provide specific reasoning for each scheme based on the company's actual profile
 const competitorCache = new Map();
 const CACHE_DURATION = 0; // Disabled - always fetch fresh data
 
+// In-memory cache for news (6-hour expiry)
+const newsCache = new Map();
+
 // Market Trends & Competitor Analysis endpoint
 app.post('/api/analysis/competitors', authenticateToken, async (req, res) => {
   try {
@@ -2384,7 +2387,115 @@ IMPORTANT: Every company in the response MUST be a real, verifiable company. Sea
         return true;
       });
       
-      console.log(`📊 Parsed ${analysis.competitors.length} valid competitors from API response`);
+      console.log(`📊 Step 1 filter: ${analysis.competitors.length} competitors passed basic validation`);
+      
+      // ====== 2-STEP VALIDATION ======
+      // Step 2: Verify each competitor name is a real company by checking for key indicators
+      const validatedCompetitors = [];
+      
+      for (const comp of analysis.competitors) {
+        // Known real companies that pass immediately (India-specific)
+        const knownRealCompanies = [
+          // Real Estate
+          'dlf', 'godrej properties', 'godrej', 'prestige', 'sobha', 'sobha developers', 'brigade', 'mahindra lifespaces',
+          'lodha', 'l&t realty', 'l&t construction', 'tata housing', 'sunteck', 'puravankara', 'emaar', 'hiranandani',
+          'casagrand', 'casa grand', 'aparna constructions', 'ramky', 'my home', 'provident', 'embassy', 'k raheja',
+          'oberoi realty', 'shapoorji pallonji', 'indiabulls', 'omaxe', 'parsvnath', 'unitech', 'ansal', 'supertech',
+          // FinTech
+          'paytm', 'phonepe', 'razorpay', 'cred', 'zerodha', 'groww', 'bharatpe', 'mobikwik', 'slice', 'jupiter',
+          'lendingkart', 'capital float', 'niyo', 'khatabook', 'smallcase', 'coin', 'policybazaar', 'digit insurance',
+          // FoodTech
+          'zomato', 'swiggy', 'rebel foods', 'faasos', 'box8', 'eatclub', 'eatsure', 'dominos', 'pizza hut', 'mcdonald',
+          'burger king', 'dunzo', 'zepto', 'blinkit', 'bigbasket', 'grofers', 'instamart',
+          // EdTech
+          'byju', 'byjus', 'unacademy', 'vedantu', 'toppr', 'doubtnut', 'physicswallah', 'upgrad', 'simplilearn',
+          'great learning', 'scaler', 'interviewbit', 'coding ninjas', 'whitehat jr',
+          // E-commerce
+          'flipkart', 'amazon', 'myntra', 'ajio', 'meesho', 'nykaa', 'purplle', 'mamaearth', 'sugar cosmetics',
+          'boat', 'noise', 'fire-boltt', 'lenskart', 'firstcry', 'pepperfry', 'urban ladder', 'urbanclap', 'urban company',
+          // SaaS
+          'zoho', 'freshworks', 'postman', 'chargebee', 'browserstack', 'druva', 'icertis', 'mindtickle', 'clevertap',
+          'leadsquared', 'webengage', 'moengage', 'yellow.ai', 'zetwerk', 'ofbusiness',
+          // Others
+          'ola', 'uber', 'rapido', 'oyo', 'make my trip', 'makemytrip', 'yatra', 'cleartrip', 'redbus', 'cure.fit', 'curefit',
+          'practo', 'pharmeasy', 'netmeds', 'medlife', 'tata 1mg', 'licious', 'country delight', 'milkbasket',
+          // Global Tech
+          'google', 'microsoft', 'amazon', 'apple', 'meta', 'facebook', 'tesla', 'nvidia', 'salesforce', 'oracle', 'sap',
+          'adobe', 'ibm', 'intel', 'cisco', 'dell', 'hp', 'lenovo', 'samsung', 'sony', 'lg', 'huawei', 'xiaomi',
+          'oppo', 'vivo', 'realme', 'oneplus', 'airbnb', 'uber', 'lyft', 'doordash', 'instacart', 'shopify', 'stripe',
+          'square', 'block', 'coinbase', 'robinhood', 'webull', 'etoro', 'revolut', 'monzo', 'n26', 'chime',
+          // Global Real Estate/PropTech
+          'zillow', 'redfin', 'opendoor', 'compass', 'realogy', 'cbre', 'jll', 'cushman wakefield', 'colliers',
+          'savills', 'knight frank', 'brookfield', 'blackstone', 'prologis'
+        ];
+        
+        const compNameLower = comp.name.toLowerCase().trim();
+        
+        // Check if it's a known real company
+        const isKnownReal = knownRealCompanies.some(known => 
+          compNameLower.includes(known) || known.includes(compNameLower)
+        );
+        
+        if (isKnownReal) {
+          comp.validationStatus = 'verified';
+          comp.validationSource = 'known_company_database';
+          validatedCompetitors.push(comp);
+          console.log(`✅ Verified (known): ${comp.name}`);
+          continue;
+        }
+        
+        // For user-mentioned competitors, trust them but mark as user-provided
+        if (comp.isUserMentioned || comp.region === 'user-pick') {
+          comp.validationStatus = 'user_provided';
+          comp.validationSource = 'user_input';
+          validatedCompetitors.push(comp);
+          console.log(`✅ Verified (user-provided): ${comp.name}`);
+          continue;
+        }
+        
+        // Additional heuristics for real companies:
+        // - Has specific location/headquarters
+        // - Has a founded year that makes sense
+        // - Has specific products mentioned
+        // - Name doesn't contain suspicious patterns
+        
+        const hasSpecificData = (
+          (comp.headquarters && comp.headquarters.length > 3 && !comp.headquarters.toLowerCase().includes('unknown')) ||
+          (comp.foundedYear && comp.foundedYear >= 1900 && comp.foundedYear <= new Date().getFullYear()) ||
+          (comp.flagshipProduct && comp.flagshipProduct.length > 3) ||
+          (comp.products && comp.products.length > 0 && comp.products[0].length > 3)
+        );
+        
+        // Check for suspicious name patterns (more lenient for companies with data)
+        const suspiciousPatterns = [
+          /^(company|startup|business|enterprise|firm|corp)\s/i,
+          /\s(company|startup|business|enterprise|firm|corp)$/i,
+          /^(the|a|an)\s+(company|startup|business)/i,
+          /^new\s/i,
+          /\s(pvt|private|ltd|limited|llp|inc)$/i // These might be okay but need checking
+        ];
+        
+        const hasSuspiciousName = suspiciousPatterns.some(p => p.test(compNameLower));
+        
+        if (hasSpecificData && !hasSuspiciousName) {
+          comp.validationStatus = 'validated';
+          comp.validationSource = 'data_heuristics';
+          validatedCompetitors.push(comp);
+          console.log(`✅ Validated (heuristics): ${comp.name}`);
+        } else if (hasSpecificData) {
+          // Has data but suspicious name - include with warning
+          comp.validationStatus = 'unverified';
+          comp.validationSource = 'needs_review';
+          validatedCompetitors.push(comp);
+          console.log(`⚠️ Included (unverified): ${comp.name}`);
+        } else {
+          // No specific data and not known - reject
+          console.log(`❌ Rejected (no validation): ${comp.name}`);
+        }
+      }
+      
+      analysis.competitors = validatedCompetitors;
+      console.log(`📊 Step 2 validation: ${validatedCompetitors.length} competitors passed 2-step validation`);
       
       // Post-process competitors to ensure all required fields exist with valid data
       // and categorize into verified vs potential competitors
@@ -2959,6 +3070,13 @@ Your role:
 5. Explain SWOT analysis, market trends, and funding schemes
 6. When asked about competitors, use the Competitor Analysis data above to provide detailed insights about market positioning, competitive threats, and differentiation strategies
 
+RESPONSE GUIDELINES:
+- NEVER give generic responses that could apply to any business
+- ALWAYS reference specific data from the context above (company name, revenue, customers, etc.)
+- If the user asks about something and data exists above, USE IT
+- Be specific with numbers and actionable with advice
+- Responses should be personalized to ${company.name || 'this business'}
+
 Keep responses concise, actionable, and personalized to ${company.name || 'this business'}.`;
 
     // Use Gemini API directly (Grok is deprecated)
@@ -2974,7 +3092,63 @@ Keep responses concise, actionable, and personalized to ${company.name || 'this 
       
       conversationText += `User: ${message}\n\nAssistant:`;
       
-      const geminiResponse = await callGemini(conversationText, systemPrompt);
+      // Step 1: Get initial response from Gemini
+      let geminiResponse = await callGemini(conversationText, systemPrompt);
+      
+      // ====== 2-STEP VALIDATION FOR AI RESPONSES ======
+      // Step 2: Validate the response is contextual and not generic
+      
+      const validationPrompt = `You are a response quality validator. Check if this response is appropriate and contextual.
+
+ORIGINAL USER QUESTION: "${message}"
+
+COMPANY CONTEXT:
+- Company Name: ${company.name || 'Unknown'}
+- Category: ${company.category || 'Unknown'}
+- Stage: ${company.stage || 'Unknown'}
+- Revenue: ₹${company.monthlyRevenue || 0}/month
+- Customers: ${company.customers || 0}
+
+GENERATED RESPONSE:
+"${geminiResponse}"
+
+VALIDATION CHECKLIST:
+1. Does the response mention the company name "${company.name}" or refer to their specific situation?
+2. Does it use specific numbers from the context (revenue, customers, valuation)?
+3. Is it actionable and specific (not vague platitudes)?
+4. Does it actually answer the user's question?
+5. Is it free from hallucinated facts not in the context?
+
+If the response passes validation (score > 70%), return:
+{ "valid": true, "score": <0-100>, "response": "<original or slightly improved response>" }
+
+If the response is too generic or incorrect, return:
+{ "valid": false, "score": <0-100>, "reason": "<why it failed>", "response": "<improved response using the actual context above>" }
+
+Return ONLY valid JSON.`;
+
+      try {
+        const validationResult = await callGemini(validationPrompt);
+        const jsonMatch = validationResult.match(/\{[\s\S]*\}/);
+        
+        if (jsonMatch) {
+          const validation = JSON.parse(jsonMatch[0]);
+          
+          if (validation.valid === false || validation.score < 70) {
+            console.log(`⚠️ Response validation failed (score: ${validation.score}), using improved response`);
+            geminiResponse = validation.response || geminiResponse;
+          } else {
+            console.log(`✅ Response validation passed (score: ${validation.score})`);
+            // Use improved response if provided
+            if (validation.response && validation.response.length > geminiResponse.length * 0.5) {
+              geminiResponse = validation.response;
+            }
+          }
+        }
+      } catch (validationError) {
+        console.warn('Response validation step failed, using original response:', validationError.message);
+        // Continue with original response if validation fails
+      }
       
       console.log('✅ Chat response from Gemini API for', company.name || 'user');
       return res.json({ response: geminiResponse });
@@ -3717,47 +3891,96 @@ Return ONLY valid JSON, no markdown or code blocks.`;
 app.get('/api/news', authenticateToken, async (req, res) => {
   try {
     const { query, industry } = req.query;
+    const userId = req.user.userId;
     
     // Build industry-specific search context
-    const searchContext = industry || query || 'technology startups business';
+    const cleanedIndustry = Array.isArray(industry) ? industry[0] : industry || '';
+    const searchContext = cleanedIndustry || query || 'technology startups business';
+    
+    // Create cache key based on industry and user
+    const cacheKey = `news_${userId}_${searchContext.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
+    
+    // Check for cached news (6-hour expiry)
+    const SIX_HOURS = 6 * 60 * 60 * 1000;
+    const cachedNews = newsCache.get(cacheKey);
+    if (cachedNews && (Date.now() - cachedNews.timestamp) < SIX_HOURS) {
+      console.log('📰 Returning cached news for:', searchContext);
+      return res.json(cachedNews.data);
+    }
+    
+    // Map industry categories to specific news search terms
+    const industryNewsKeywords = {
+      'Real Estate': 'real estate housing property construction India market',
+      'Real Estate & Construction': 'real estate property housing construction India developers builders',
+      'Construction': 'construction infrastructure building materials India projects',
+      'SaaS': 'SaaS software B2B cloud enterprise technology India startups',
+      'Mobile App': 'mobile apps app store India tech consumer apps',
+      'E-commerce': 'ecommerce online shopping retail D2C India market',
+      'Marketplace': 'marketplace platform gig economy India aggregator',
+      'AI/ML': 'artificial intelligence machine learning AI India tech startups',
+      'FinTech': 'fintech digital payments UPI banking India RBI',
+      'EdTech': 'edtech online learning education India students skilling',
+      'HealthTech': 'healthtech digital health telemedicine India healthcare',
+      'Hardware': 'hardware electronics manufacturing India make in India',
+      'Consulting': 'consulting professional services India business advisory',
+      'AgriTech': 'agritech agriculture farming India rural technology',
+      'FoodTech': 'foodtech food delivery cloud kitchen India zomato swiggy',
+      'Logistics': 'logistics supply chain delivery India ecommerce warehousing',
+      'CleanTech': 'cleantech renewable energy solar EV India green technology',
+      'D2C': 'D2C direct to consumer brands India online retail',
+      'FMCG': 'FMCG consumer goods retail India market brands'
+    };
+    
+    // Get industry-specific keywords or use the search context
+    const newsKeywords = industryNewsKeywords[searchContext] || `${searchContext} India business startup market`;
     
     // Use Gemini with Google Search grounding for real, current news
-    const prompt = `You are a news curator. Search for and provide 6 REAL, CURRENT news articles from the past 7 days related to: "${searchContext}".
+    const prompt = `You are a news curator specializing in ${searchContext} industry. Search Google for REAL, CURRENT news articles from the past 7 days that are SPECIFICALLY relevant to the ${searchContext} industry in India.
+
+SEARCH FOR: "${newsKeywords}"
+
+## CRITICAL REQUIREMENTS:
+1. News MUST be directly related to ${searchContext} industry - NOT generic business news
+2. Prioritize India-focused news or news with Indian market relevance
+3. Include news about major players, market trends, regulations, and innovations in ${searchContext}
+4. Each article must be from the PAST 7 DAYS (recent news only)
 
 Focus on trusted sources like:
-- Reuters, Bloomberg, CNBC, Financial Times
-- TechCrunch, The Verge, Wired, Ars Technica
-- Economic Times, Business Standard, Mint (for India)
-- Wall Street Journal, Forbes, Fortune
+- For ${searchContext}: Industry-specific publications, trade journals
+- Indian business: Economic Times, Business Standard, Mint, LiveMint, MoneyControl
+- Global business: Reuters, Bloomberg, CNBC, Financial Times
+- Tech: TechCrunch, The Verge, YourStory, Inc42
+- Industry-specific trade publications
 
 For EACH article, provide:
-1. The EXACT real headline (not paraphrased)
-2. A brief 2-sentence summary of the article
+1. The EXACT real headline (not paraphrased) - MUST be about ${searchContext}
+2. A brief 2-sentence summary explaining relevance to ${searchContext} industry
 3. The actual source publication name
 4. The real URL to the article (must be a valid, working URL)
-5. An image URL if available (thumbnail/featured image from the article)
-6. Published time (e.g., "2 hours ago", "Yesterday", "Dec 10, 2024")
+5. Published time (e.g., "2 hours ago", "Yesterday", "Jan 9, 2026")
 
 Return as JSON array:
 {
   "news": [
     {
-      "title": "Exact headline from the article",
-      "summary": "Brief 2-sentence summary of the key points.",
-      "source": "Reuters",
-      "url": "https://www.reuters.com/actual-article-url",
+      "title": "Exact headline about ${searchContext}",
+      "summary": "Brief 2-sentence summary explaining the ${searchContext} industry impact.",
+      "source": "Publication Name",
+      "url": "https://actual-article-url.com",
       "imageUrl": "https://example.com/image.jpg",
       "timeAgo": "3 hours ago",
-      "publishedAt": "2024-12-12T10:30:00Z"
+      "industry": "${searchContext}",
+      "relevanceScore": 95
     }
   ]
 }
 
 IMPORTANT: 
-- Only include REAL articles with WORKING URLs
+- ONLY include news that is DIRECTLY relevant to ${searchContext} - reject generic business news
+- All 6 articles should be about ${searchContext} industry specifically
+- If you cannot find 6 relevant articles, return fewer but ensure quality
 - URLs must be actual article links, not homepage links
-- Prioritize breaking news and significant developments
-- Include diverse sources for balanced coverage
+- Include relevanceScore (0-100) indicating how relevant the news is to ${searchContext}
 
 Return ONLY valid JSON, no markdown.`;
 
@@ -3786,72 +4009,55 @@ Return ONLY valid JSON, no markdown.`;
     let parsedNews;
     try {
       parsedNews = JSON.parse(newsText);
-      // Ensure all items have required fields
+      // Ensure all items have required fields and filter by relevance
       if (parsedNews.news && Array.isArray(parsedNews.news)) {
-        parsedNews.news = parsedNews.news.map(item => ({
-          title: item.title || 'News Update',
-          summary: item.summary || item.title || '',
-          source: item.source || 'News',
-          url: item.url || '#',
-          imageUrl: item.imageUrl || `https://picsum.photos/seed/${Math.random().toString(36).substr(2, 9)}/400/250`,
-          timeAgo: item.timeAgo || 'Recently',
-          publishedAt: item.publishedAt || new Date().toISOString()
-        }));
+        parsedNews.news = parsedNews.news
+          .filter(item => !item.relevanceScore || item.relevanceScore >= 60) // Only highly relevant news
+          .map(item => ({
+            title: item.title || 'News Update',
+            summary: item.summary || item.title || '',
+            source: item.source || 'News',
+            url: item.url || '#',
+            imageUrl: item.imageUrl || `https://picsum.photos/seed/${Math.random().toString(36).substr(2, 9)}/400/250`,
+            timeAgo: item.timeAgo || 'Recently',
+            publishedAt: item.publishedAt || new Date().toISOString(),
+            industry: item.industry || searchContext,
+            relevanceScore: item.relevanceScore || 80
+          }));
       }
+      
+      // Cache the successful response for 6 hours
+      newsCache.set(cacheKey, {
+        data: parsedNews,
+        timestamp: Date.now()
+      });
+      
     } catch (e) {
       console.error('News parsing error:', e);
-      // Fallback with placeholder news
-      parsedNews = {
-        news: [
-          { 
-            title: "Tech Industry Sees Renewed Investment Interest in AI Startups", 
-            summary: "Venture capital firms are increasingly focusing on artificial intelligence companies, with funding reaching new highs in Q4 2024.",
-            source: "TechCrunch", 
-            url: "https://techcrunch.com/",
-            imageUrl: "https://picsum.photos/seed/tech1/400/250",
-            timeAgo: "2 hours ago" 
-          },
-          { 
-            title: "Global Markets Rally on Economic Optimism", 
-            summary: "Stock markets worldwide showed strong gains as investors react positively to economic indicators and central bank policies.",
-            source: "Reuters", 
-            url: "https://www.reuters.com/",
-            imageUrl: "https://picsum.photos/seed/market1/400/250",
-            timeAgo: "4 hours ago" 
-          },
-          { 
-            title: "New Regulations Set to Transform Digital Payments Landscape", 
-            summary: "Government announces comprehensive framework for digital payment security and consumer protection measures.",
-            source: "Economic Times", 
-            url: "https://economictimes.indiatimes.com/",
-            imageUrl: "https://picsum.photos/seed/payment1/400/250",
-            timeAgo: "6 hours ago" 
-          },
-          { 
-            title: "Startups Embrace Sustainable Business Practices", 
-            summary: "Growing number of emerging companies are integrating ESG principles into their core business strategies.",
-            source: "Forbes", 
-            url: "https://www.forbes.com/",
-            imageUrl: "https://picsum.photos/seed/startup1/400/250",
-            timeAgo: "Yesterday" 
-          },
-          { 
-            title: "Cloud Computing Market Expected to Double by 2027", 
-            summary: "Industry analysts predict significant growth in cloud services as enterprises accelerate digital transformation initiatives.",
-            source: "Bloomberg", 
-            url: "https://www.bloomberg.com/",
-            imageUrl: "https://picsum.photos/seed/cloud1/400/250",
-            timeAgo: "Yesterday" 
-          },
-          { 
-            title: "Innovation Hub Opens to Support Local Entrepreneurs", 
-            summary: "New technology incubator aims to provide resources and mentorship for early-stage founders in the region.",
-            source: "YourStory", 
-            url: "https://yourstory.com/",
-            imageUrl: "https://picsum.photos/seed/hub1/400/250",
-            timeAgo: "2 days ago" 
-          }
+      // Industry-specific fallback news
+      const industryFallbacks = {
+        'Real Estate & Construction': [
+          { title: "Indian Real Estate Market Shows Strong Recovery in 2025", summary: "Property sales surge across major Indian cities as developers launch new projects and buyer sentiment improves.", source: "Economic Times", url: "https://economictimes.indiatimes.com/industry/services/property-/-cstruction", timeAgo: "Today" },
+          { title: "Construction Sector Growth Driven by Infrastructure Push", summary: "Government infrastructure projects and housing schemes continue to boost the construction industry.", source: "Business Standard", url: "https://www.business-standard.com/", timeAgo: "Yesterday" },
+          { title: "New Real Estate Regulations to Protect Homebuyers", summary: "RERA compliance drives transparency in property transactions across Indian states.", source: "LiveMint", url: "https://www.livemint.com/", timeAgo: "2 days ago" }
+        ],
+        'FinTech': [
+          { title: "UPI Transactions Hit New Record in December 2025", summary: "Digital payments continue exponential growth as more Indians adopt mobile banking.", source: "Economic Times", url: "https://economictimes.indiatimes.com/", timeAgo: "Today" },
+          { title: "RBI Announces New Guidelines for Digital Lending", summary: "New regulations aim to protect consumers while fostering fintech innovation.", source: "Business Standard", url: "https://www.business-standard.com/", timeAgo: "Yesterday" }
         ]
+      };
+      
+      const fallbackNews = industryFallbacks[searchContext] || [
+        { title: `${searchContext} Industry Sees Growth in 2025`, summary: `The ${searchContext} sector shows positive momentum with new investments and market expansion.`, source: "Economic Times", url: "https://economictimes.indiatimes.com/", timeAgo: "Today" },
+        { title: `Innovation Drives ${searchContext} Transformation`, summary: `Technology adoption accelerates change across the ${searchContext} industry in India.`, source: "YourStory", url: "https://yourstory.com/", timeAgo: "Yesterday" }
+      ];
+      
+      parsedNews = {
+        news: fallbackNews.map(item => ({
+          ...item,
+          imageUrl: `https://picsum.photos/seed/${Math.random().toString(36).substr(2, 9)}/400/250`,
+          industry: searchContext
+        }))
       };
     }
 
@@ -4259,13 +4465,15 @@ Respond in this exact JSON structure:
     "breakeven": "Time to breakeven on this decision"
   },
   "recommendation": "Clear, specific recommendation with reasoning based on THEIR situation - not generic advice",
+  "detailedExplanation": "A 3-4 paragraph detailed explanation of WHY this recommendation was made, including: 1) How the decision aligns with their current stage and resources, 2) The key assumptions behind the probability calculations, 3) What success looks like and how to measure it, 4) The biggest risk and how to mitigate it. This should be a thorough explanation a founder can share with advisors.",
   "alternativeApproaches": [
     {"approach": "Alternative approach specific to their context", "tradeoff": "What they gain/lose"},
     {"approach": "Another alternative", "tradeoff": "Tradeoff"}
   ],
   "nextSteps": ["Specific step 1 they should take", "Step 2", "Step 3"],
   "redFlags": ["Warning sign to watch for", "Another red flag"],
-  "confidenceExplanation": "Why you have this confidence level based on their data completeness"
+  "confidenceExplanation": "Why you have this confidence level based on their data completeness",
+  "calculationBreakdown": "Show the math: If current burn is ₹X/month and this adds ₹Y, new burn = ₹Z. If runway was N months, new runway = M months. Revenue potential = customers × conversion × price."
 }
 
 REMEMBER: Use the ACTUAL financial numbers provided above. Do not make up generic numbers.`;
@@ -4281,6 +4489,55 @@ REMEMBER: Use the ACTUAL financial numbers provided above. Do not make up generi
       if (jsonMatch) {
         simulation = JSON.parse(jsonMatch[0]);
         console.log('✅ Simulation generated successfully');
+        
+        // ====== 2-STEP VALIDATION FOR SIMULATION ======
+        // Step 2: Validate the simulation is contextual and uses actual data
+        const validationPrompt = `Validate this decision simulation for quality and specificity.
+
+DECISION: "${decision}"
+COMPANY: ${companyData?.name || 'Unknown'} (${companyData?.industry || 'Unknown'} industry)
+STAGE: ${companyData?.stage || 'Unknown'}
+REVENUE: ${companyData?.revenue || 'Pre-revenue'}
+
+SIMULATION RESULT:
+${JSON.stringify(simulation, null, 2)}
+
+VALIDATION CHECKLIST:
+1. Does the summary reference the specific decision and company situation?
+2. Are the probability numbers reasonable for the context (not too optimistic/pessimistic)?
+3. Does the recommendation include specific, actionable advice (not generic platitudes)?
+4. Are financial impacts calculated with actual numbers where available?
+5. Does the detailed explanation provide real reasoning?
+
+If the simulation passes (score > 70%), return:
+{ "valid": true, "score": <0-100>, "improvements": null }
+
+If the simulation needs improvement, return:
+{ "valid": false, "score": <0-100>, "improvements": { "summary": "Better summary if needed", "recommendation": "Better recommendation if needed", "detailedExplanation": "Better explanation if needed" } }
+
+Return ONLY valid JSON.`;
+
+        try {
+          const validationResult = await callGemini(validationPrompt);
+          const valJsonMatch = validationResult.match(/\{[\s\S]*\}/);
+          
+          if (valJsonMatch) {
+            const validation = JSON.parse(valJsonMatch[0]);
+            
+            if (validation.valid === false && validation.improvements) {
+              console.log(`⚠️ Simulation validation score: ${validation.score}, applying improvements`);
+              // Merge improvements into simulation
+              if (validation.improvements.summary) simulation.summary = validation.improvements.summary;
+              if (validation.improvements.recommendation) simulation.recommendation = validation.improvements.recommendation;
+              if (validation.improvements.detailedExplanation) simulation.detailedExplanation = validation.improvements.detailedExplanation;
+            } else {
+              console.log(`✅ Simulation validation passed (score: ${validation.score})`);
+            }
+          }
+        } catch (validationError) {
+          console.warn('Simulation validation step failed, using original:', validationError.message);
+        }
+        
       } else {
         throw new Error('No JSON found in response');
       }
@@ -4311,6 +4568,7 @@ REMEMBER: Use the ACTUAL financial numbers provided above. Do not make up generi
           { factor: "Market conditions", impact: "medium", controllable: false }
         ],
         recommendation: "Review the specific numbers and proceed with clear milestones.",
+        detailedExplanation: `This simulation for "${decision}" requires more specific financial data to provide accurate projections. The recommendation is based on general best practices for ${companyData?.stage || 'early-stage'} companies in ${companyData?.industry || 'technology'}. Key factors to consider include your current runway, team capacity, and market conditions.`,
         alternativeApproaches: [
           { approach: "Phased implementation", tradeoff: "Slower progress but lower risk" }
         ],
