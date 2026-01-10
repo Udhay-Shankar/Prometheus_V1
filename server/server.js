@@ -2725,54 +2725,11 @@ IMPORTANT: Every company in the response MUST be a real, verifiable company. Sea
     } catch (searchError) {
       console.warn('Google Search grounding failed:', searchError.message);
       
-      // Provide fallback with user-mentioned competitors from DDQ
-      if (mentionedComps && mentionedComps.length > 0) {
-        console.log('📦 Using fallback competitor data from user DDQ:', mentionedComps);
-        
-        // Build competitors from user's mentioned competitors
-        const fallbackCompetitors = mentionedComps.map((name, idx) => ({
-          name: name,
-          description: `User-mentioned competitor in ${category || 'technology'} space`,
-          location: 'India',
-          verified: false,
-          source: 'user-input',
-          category: 'user-mentioned',
-          rank: idx + 1,
-          userPick: true,
-          userMentioned: true,
-          website: null,
-          funding: 'Unknown',
-          valuation: 'Unknown',
-          revenue: 'Unknown',
-          employees: 'Unknown'
-        }));
-        
-        const result = {
-          competitors: fallbackCompetitors,
-          userPickCompetitors: fallbackCompetitors,
-          globalCompetitors: [],
-          localCompetitors: [],
-          rivalCompetitors: [],
-          summary: {
-            totalCompetitors: fallbackCompetitors.length,
-            userPickCount: fallbackCompetitors.length,
-            globalCount: 0,
-            localCount: 0,
-            rivalCount: 0,
-            verifiedCount: 0,
-            potentialCount: fallbackCompetitors.length,
-            userMentionedCount: fallbackCompetitors.length
-          },
-          notice: 'Using user-provided competitor data. Detailed analysis temporarily unavailable.'
-        };
-        
-        return res.json(result);
-      }
-      
-      // Return error - no fallback possible
+      // Return error - no static fallbacks, user should retry for real competitor data
       return res.status(503).json({ 
         error: 'Competitor analysis temporarily unavailable. Please try again in a few seconds.',
-        retryAfter: 5
+        retryAfter: 5,
+        message: 'Real-time competitor data requires AI analysis. Please retry for accurate, relevant results.'
       });
     }
 
@@ -3206,71 +3163,13 @@ Return ONLY valid JSON.`;
   } catch (error) {
     console.error('❌ AI backend failed for chatbot:', error.message);
     
-    // Provide intelligent fallback response based on the question
-    const { message = '', context = {}, ddqResponses = {} } = req.body || {};
-    const company = context.company || {};
-    const valuation = context.valuation || null;
-    const swot = context.swot || {};
-    const lowerMessage = message.toLowerCase();
-    
-    // Extract company name from DDQ responses if not in context
-    const companyName = company.name || ddqResponses[1] || 'your company';
-    const customerCount = company.customers || ddqResponses[15] || 0;
-    const acquisitionChannels = company.acquisitionStrategy || (Array.isArray(ddqResponses[20]) ? ddqResponses[20].join(', ') : ddqResponses[20]) || 'various channels';
-    
-    let fallbackResponse = '';
-    
-    // Detect question type and provide relevant fallback
-    if (lowerMessage.includes('valuation') || lowerMessage.includes('worth')) {
-      const val = valuation ? `₹${(valuation.finalValuationINR / 10000000).toFixed(2)} Cr` : 'not yet calculated';
-      fallbackResponse = `Based on your assessment, ${companyName} has an estimated valuation of ${val}. This uses the Berkus Method and Scorecard Method, considering factors like your team, product stage, market opportunity, and traction.`;
-    } else if (lowerMessage.includes('competitive') || lowerMessage.includes('advantage')) {
-      fallbackResponse = `${companyName}'s key competitive advantages include: ${company.uniqueValue || ddqResponses[7] || 'your unique value proposition'}. Focus on deepening these strengths while addressing weaknesses in ${swot.weaknesses?.[0] || 'your operations'}.`;
-    } else if (lowerMessage.includes('funding') || lowerMessage.includes('raise') || lowerMessage.includes('investment')) {
-      const needed = company.fundingNeeded || ddqResponses[22] || 'the required amount';
-      const goal = company.primaryGoal || ddqResponses[21] || 'your goals';
-      const stage = company.stage || ddqResponses[5] || 'current stage';
-      const valDisplay = valuation ? '₹' + (valuation.finalValuationINR / 10000000).toFixed(2) + ' Cr' : 'TBD';
-      fallbackResponse = `${companyName} is looking to raise ${needed} for ${goal}. Based on your ${stage} stage, consider approaching angel investors or early-stage VCs. Your valuation of ${valDisplay} will help determine equity dilution.`;
-    } else if (lowerMessage.includes('focus') || lowerMessage.includes('priorit') || lowerMessage.includes('top 3') || lowerMessage.includes('should i')) {
-      const goal = company.primaryGoal || ddqResponses[21] || 'growth';
-      const challenge = company.challenge || (Array.isArray(ddqResponses[19]) ? ddqResponses[19][0] : ddqResponses[19]) || 'market fit';
-      const teamSize = company.teamSize || ddqResponses[17] || '1';
-      fallbackResponse = `Here are the top 3 priorities for ${companyName} this month:\n\n1. **${goal}** - This aligns with your stated goal. Focus on 2-3 actionable steps this week to move toward it.\n\n2. **Address ${challenge}** - This is your biggest challenge. Develop a hypothesis and test it within 14 days.\n\n3. **Customer conversations** - With ${customerCount} customers, aim to have 5-10 conversations this week to validate your direction.\n\n**Action items:**\n• Set 3 measurable goals for this month\n• Schedule customer interviews\n• Review your progress weekly\n\nWhat specific area would you like help implementing for ${companyName}?`;
-    } else if (lowerMessage.includes('growth') || lowerMessage.includes('scale')) {
-      const teamSize = company.teamSize || ddqResponses[17] || '1';
-      fallbackResponse = `To scale ${companyName}, focus on:\n\n1. **Expanding your team** - Current size: ${teamSize}. Identify key hires that unlock growth.\n\n2. **Optimizing acquisition** - Use ${acquisitionChannels} strategically and track CAC per channel.\n\n3. **Addressing challenges** - Focus on ${company.challenge || (Array.isArray(ddqResponses[19]) ? ddqResponses[19][0] : ddqResponses[19]) || 'market fit'}.\n\nWhat specific aspect of growth would you like to discuss?`;
-    } else if (lowerMessage.includes('customer') || lowerMessage.includes('acquisition') || lowerMessage.includes('merchant')) {
-      fallbackResponse = `For ${companyName}, here are 3 key priorities to improve acquisition:\n\n1. **Optimize your current channels** - With ${customerCount} customers using ${acquisitionChannels}, focus on doubling down on what's working and measuring CAC per channel.\n\n2. **Build referral loops** - Create incentives for existing customers to refer new ones. This typically has the lowest CAC.\n\n3. **Content and partnerships** - Develop educational content for your target market and partner with complementary businesses.\n\nTrack these metrics weekly: conversion rate, CAC by channel, and customer retention rate.`;
-    } else if (lowerMessage.includes('risk') || lowerMessage.includes('threat')) {
-      const primaryRisk = company.primaryRisk || (Array.isArray(ddqResponses[23]) ? ddqResponses[23][0] : ddqResponses[23]) || 'market uncertainty';
-      fallbackResponse = `${companyName}'s primary business risk is: ${primaryRisk}. Key threats from SWOT analysis include: ${swot.threats?.join(', ') || 'competitive pressure'}. Mitigate these by leveraging your strengths in ${swot.strengths?.[0] || 'your core competency'}.`;
-    } else if (lowerMessage.includes('hello') || lowerMessage.includes('hi') || lowerMessage.includes('hey')) {
-      fallbackResponse = `Hello! I'm Daddy, your AI Strategic Advisor for ${companyName}. I can help you with:\n\n• **Valuation** - Understanding your company's worth\n• **Competitors** - Market analysis and positioning\n• **Funding** - Investment strategies and guidance\n• **Growth** - Scaling your business\n• **SWOT** - Strengths and weaknesses analysis\n\nWhat would you like to discuss about ${companyName}?`;
-    } else if (lowerMessage.includes('help') || lowerMessage.includes('what can you')) {
-      fallbackResponse = `I can help ${companyName} with:\n\n• **Valuation** - How your company is valued\n• **Competitors** - Who you're up against\n• **Funding** - Investment and grants\n• **Growth** - Scaling strategies\n• **SWOT** - Strategic analysis\n\nTry asking: "What's ${companyName}'s valuation?" or "How can ${companyName} grow faster?"`;
-    } else {
-      // Generic helpful response - ALWAYS provide value with company context
-      const stage = company.stage || ddqResponses[5] || 'early-stage';
-      const category = company.category || (Array.isArray(ddqResponses[3]) ? ddqResponses[3][0] : ddqResponses[3]) || 'technology';
-      
-      fallbackResponse = `Here's my strategic advice for ${companyName}:\n\n`;
-      
-      if (valuation) {
-        fallbackResponse += `📊 **Current Valuation**: ₹${(valuation.finalValuationINR / 10000000).toFixed(2)} Cr\n\n`;
-      }
-      
-      fallbackResponse += `Based on your ${stage} stage and ${category} focus, here are 3 key priorities:\n\n`;
-      fallbackResponse += `1. **Customer Validation** - With ${customerCount} customers, focus on understanding their pain points deeply. Conduct 10 customer interviews this week.\n\n`;
-      fallbackResponse += `2. **Unit Economics** - Track your CAC (Customer Acquisition Cost) and LTV (Lifetime Value). Aim for LTV:CAC ratio of 3:1.\n\n`;
-      fallbackResponse += `3. **Product Iteration** - Based on customer feedback, prioritize the top 3 features that will drive retention.\n\n`;
-      fallbackResponse += `What specific area would you like to dive deeper into for ${companyName}?`;
-    }
-    
-    // GUARANTEED: Always send a response
+    // Return error - no static fallbacks, user should retry for dynamic response
     if (!res.headersSent) {
-      console.log('📤 Sending fallback response');
-      res.json({ response: fallbackResponse });
+      return res.status(503).json({
+        error: 'AI advisor temporarily unavailable. Please try again in a few seconds.',
+        retryAfter: 5,
+        message: 'Our AI is processing many requests. Your question will receive a personalized response when you retry.'
+      });
     }
   }
 });
@@ -4655,61 +4554,11 @@ Return ONLY valid JSON.`;
   } catch (error) {
     console.error('Error running simulation:', error);
     
-    // Provide intelligent fallback simulation instead of error
-    const { decision, companyData, timeframe = '6 months' } = req.body || {};
-    
-    const fallbackSimulation = {
-      scenario: decision || 'Business decision',
-      summary: `Based on the decision "${(decision || '').substring(0, 50)}..." for a ${companyData?.stage || 'early-stage'} ${companyData?.industry || 'technology'} company, this requires careful analysis. The outcome will depend on execution, market conditions, and available resources.`,
-      probability: { success: 45, partial: 35, failure: 20 },
-      runwayImpact: {
-        value: 'Impact depends on specific costs and current runway',
-        direction: 'neutral'
-      },
-      growthImpact: {
-        value: 'Potential for moderate growth with proper execution',
-        direction: 'neutral'
-      },
-      impactAnalysis: {
-        runway: { value: 'Requires calculation', direction: 'neutral' },
-        growth: { value: 'Moderate potential', direction: 'positive' },
-        valuation: { value: 'Depends on execution', direction: 'neutral' },
-        riskLevel: 'medium'
-      },
-      bestCase: {
-        description: `If well executed over ${timeframe}, this decision could lead to positive growth and improved metrics.`,
-        metrics: ['Revenue growth', 'Customer acquisition', 'Market positioning'],
-        timeline: timeframe
-      },
-      worstCase: {
-        description: 'Challenges may arise from resource constraints, market timing, or execution gaps.',
-        risks: ['Resource strain', 'Market timing', 'Execution challenges'],
-        mitigation: ['Build contingency plans', 'Set clear milestones', 'Regular progress reviews']
-      },
-      keyFactors: [
-        { factor: 'Execution capability', impact: 'high', controllable: true },
-        { factor: 'Market conditions', impact: 'medium', controllable: false },
-        { factor: 'Resource availability', impact: 'high', controllable: true }
-      ],
-      recommendation: `For ${companyData?.name || 'your company'}, proceed with clear milestones and regular check-ins. Set up 14-day review cycles to measure progress. Define success metrics before starting.`,
-      detailedExplanation: `This simulation for "${(decision || '').substring(0, 100)}" is based on general best practices for ${companyData?.stage || 'early-stage'} companies in ${companyData?.industry || 'technology'}. Key considerations include: 1) Your current stage and resources, 2) Market dynamics in your industry, 3) The timeframe of ${timeframe} for seeing results. We recommend breaking this decision into smaller experiments that can show signal within 14 days.`,
-      confidence: 60,
-      alternativeApproaches: [
-        { approach: 'Phased implementation', tradeoff: 'Slower progress but lower risk' },
-        { approach: 'Pilot program first', tradeoff: 'Limited scale but validates assumptions' }
-      ],
-      nextSteps: [
-        'Define 3 success metrics for this decision',
-        'Set a 14-day checkpoint to review progress',
-        'Identify the top risk and mitigation plan'
-      ]
-    };
-    
-    res.json({
-      success: true,
-      simulation: fallbackSimulation,
-      timestamp: new Date().toISOString(),
-      notice: 'Detailed analysis temporarily unavailable. Using strategic best practices.'
+    // Return error - no static fallbacks, user should retry for product-specific simulation
+    return res.status(503).json({
+      error: 'Decision simulation temporarily unavailable. Please try again in a few seconds.',
+      retryAfter: 5,
+      message: 'Accurate simulations require AI analysis of your specific business data. Please retry for relevant results.'
     });
   }
 });
