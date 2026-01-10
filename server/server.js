@@ -3162,52 +3162,64 @@ Return ONLY valid JSON.`;
     console.error('❌ AI backend failed for chatbot:', error.message);
     
     // Provide intelligent fallback response based on the question
-    const { message = '', context = {} } = req.body || {};
+    const { message = '', context = {}, ddqResponses = {} } = req.body || {};
     const company = context.company || {};
     const valuation = context.valuation || null;
     const swot = context.swot || {};
     const lowerMessage = message.toLowerCase();
+    
+    // Extract company name from DDQ responses if not in context
+    const companyName = company.name || ddqResponses[1] || 'your company';
+    const customerCount = company.customers || ddqResponses[15] || 0;
+    const acquisitionChannels = company.acquisitionStrategy || (Array.isArray(ddqResponses[20]) ? ddqResponses[20].join(', ') : ddqResponses[20]) || 'various channels';
     
     let fallbackResponse = '';
     
     // Detect question type and provide relevant fallback
     if (lowerMessage.includes('valuation') || lowerMessage.includes('worth')) {
       const val = valuation ? `₹${(valuation.finalValuationINR / 10000000).toFixed(2)} Cr` : 'not yet calculated';
-      fallbackResponse = `Based on your assessment, ${company.name || 'your company'} has an estimated valuation of ${val}. This uses the Berkus Method and Scorecard Method, considering factors like your team, product stage, market opportunity, and traction.`;
+      fallbackResponse = `Based on your assessment, ${companyName} has an estimated valuation of ${val}. This uses the Berkus Method and Scorecard Method, considering factors like your team, product stage, market opportunity, and traction.`;
     } else if (lowerMessage.includes('competitive') || lowerMessage.includes('advantage')) {
-      fallbackResponse = `Your key competitive advantages include: ${company.uniqueValue || 'your unique value proposition'}. Focus on deepening these strengths while addressing weaknesses in ${swot.weaknesses?.[0] || 'your operations'}.`;
+      fallbackResponse = `${companyName}'s key competitive advantages include: ${company.uniqueValue || ddqResponses[7] || 'your unique value proposition'}. Focus on deepening these strengths while addressing weaknesses in ${swot.weaknesses?.[0] || 'your operations'}.`;
     } else if (lowerMessage.includes('funding') || lowerMessage.includes('raise') || lowerMessage.includes('investment')) {
-      const needed = company.fundingNeeded || 'the required amount';
-      const goal = company.primaryGoal || 'your goals';
-      const stage = company.stage || 'current stage';
+      const needed = company.fundingNeeded || ddqResponses[22] || 'the required amount';
+      const goal = company.primaryGoal || ddqResponses[21] || 'your goals';
+      const stage = company.stage || ddqResponses[5] || 'current stage';
       const valDisplay = valuation ? '₹' + (valuation.finalValuationINR / 10000000).toFixed(2) + ' Cr' : 'TBD';
-      fallbackResponse = 'You\'re looking to raise ' + needed + ' for ' + goal + '. Based on your ' + stage + ', consider approaching angel investors or early-stage VCs. Your valuation of ' + valDisplay + ' will help determine equity dilution.';
+      fallbackResponse = `${companyName} is looking to raise ${needed} for ${goal}. Based on your ${stage} stage, consider approaching angel investors or early-stage VCs. Your valuation of ${valDisplay} will help determine equity dilution.`;
+    } else if (lowerMessage.includes('focus') || lowerMessage.includes('priorit') || lowerMessage.includes('top 3') || lowerMessage.includes('should i')) {
+      const goal = company.primaryGoal || ddqResponses[21] || 'growth';
+      const challenge = company.challenge || (Array.isArray(ddqResponses[19]) ? ddqResponses[19][0] : ddqResponses[19]) || 'market fit';
+      const teamSize = company.teamSize || ddqResponses[17] || '1';
+      fallbackResponse = `Here are the top 3 priorities for ${companyName} this month:\n\n1. **${goal}** - This aligns with your stated goal. Focus on 2-3 actionable steps this week to move toward it.\n\n2. **Address ${challenge}** - This is your biggest challenge. Develop a hypothesis and test it within 14 days.\n\n3. **Customer conversations** - With ${customerCount} customers, aim to have 5-10 conversations this week to validate your direction.\n\n**Action items:**\n• Set 3 measurable goals for this month\n• Schedule customer interviews\n• Review your progress weekly\n\nWhat specific area would you like help implementing for ${companyName}?`;
     } else if (lowerMessage.includes('growth') || lowerMessage.includes('scale')) {
-      fallbackResponse = `To scale ${company.name || 'your business'}, focus on: 1) Expanding your team strategically (current size: ${company.teamSize || '1'}), 2) Optimizing ${company.marketingType || 'customer acquisition'}, and 3) Addressing your main challenge: ${company.challenge || 'market fit'}.`;
-    } else if (lowerMessage.includes('customer') || lowerMessage.includes('acquisition')) {
-      const cust = company.customers || 0;
-      fallbackResponse = `You currently have ${cust} customers. Your acquisition strategy using ${company.acquisitionStrategy || 'various channels'} is key. Focus on improving retention and word-of-mouth referrals to reduce CAC.`;
+      const teamSize = company.teamSize || ddqResponses[17] || '1';
+      fallbackResponse = `To scale ${companyName}, focus on:\n\n1. **Expanding your team** - Current size: ${teamSize}. Identify key hires that unlock growth.\n\n2. **Optimizing acquisition** - Use ${acquisitionChannels} strategically and track CAC per channel.\n\n3. **Addressing challenges** - Focus on ${company.challenge || (Array.isArray(ddqResponses[19]) ? ddqResponses[19][0] : ddqResponses[19]) || 'market fit'}.\n\nWhat specific aspect of growth would you like to discuss?`;
+    } else if (lowerMessage.includes('customer') || lowerMessage.includes('acquisition') || lowerMessage.includes('merchant')) {
+      fallbackResponse = `For ${companyName}, here are 3 key priorities to improve acquisition:\n\n1. **Optimize your current channels** - With ${customerCount} customers using ${acquisitionChannels}, focus on doubling down on what's working and measuring CAC per channel.\n\n2. **Build referral loops** - Create incentives for existing customers to refer new ones. This typically has the lowest CAC.\n\n3. **Content and partnerships** - Develop educational content for your target market and partner with complementary businesses.\n\nTrack these metrics weekly: conversion rate, CAC by channel, and customer retention rate.`;
     } else if (lowerMessage.includes('risk') || lowerMessage.includes('threat')) {
-      fallbackResponse = `Your primary business risk is: ${company.primaryRisk || 'market uncertainty'}. Key threats from SWOT analysis include: ${swot.threats?.join(', ') || 'competitive pressure'}. Mitigate these by leveraging your strengths in ${swot.strengths?.[0] || 'your core competency'}.`;
+      const primaryRisk = company.primaryRisk || (Array.isArray(ddqResponses[23]) ? ddqResponses[23][0] : ddqResponses[23]) || 'market uncertainty';
+      fallbackResponse = `${companyName}'s primary business risk is: ${primaryRisk}. Key threats from SWOT analysis include: ${swot.threats?.join(', ') || 'competitive pressure'}. Mitigate these by leveraging your strengths in ${swot.strengths?.[0] || 'your core competency'}.`;
     } else if (lowerMessage.includes('hello') || lowerMessage.includes('hi') || lowerMessage.includes('hey')) {
-      fallbackResponse = `Hello! I'm Daddy, your AI Strategic Advisor. I can help you with:\n\n• **Valuation** - Understanding your company's worth\n• **Competitors** - Market analysis and positioning\n• **Funding** - Investment strategies and guidance\n• **Growth** - Scaling your business\n• **SWOT** - Strengths and weaknesses analysis\n\nWhat would you like to discuss about ${company.name || 'your business'}?`;
+      fallbackResponse = `Hello! I'm Daddy, your AI Strategic Advisor for ${companyName}. I can help you with:\n\n• **Valuation** - Understanding your company's worth\n• **Competitors** - Market analysis and positioning\n• **Funding** - Investment strategies and guidance\n• **Growth** - Scaling your business\n• **SWOT** - Strengths and weaknesses analysis\n\nWhat would you like to discuss about ${companyName}?`;
     } else if (lowerMessage.includes('help') || lowerMessage.includes('what can you')) {
-      fallbackResponse = `I can help you with:\n\n• **Valuation** - How your company is valued\n• **Competitors** - Who you're up against\n• **Funding** - Investment and grants\n• **Growth** - Scaling strategies\n• **SWOT** - Strategic analysis\n\nTry asking: "What's my valuation?" or "How can I grow faster?"`;
+      fallbackResponse = `I can help ${companyName} with:\n\n• **Valuation** - How your company is valued\n• **Competitors** - Who you're up against\n• **Funding** - Investment and grants\n• **Growth** - Scaling strategies\n• **SWOT** - Strategic analysis\n\nTry asking: "What's ${companyName}'s valuation?" or "How can ${companyName} grow faster?"`;
     } else {
-      // Generic helpful response - ALWAYS provide value
-      fallbackResponse = `I understand you're asking about "${message.substring(0, 30)}${message.length > 30 ? '...' : ''}". Let me help you with what I know:\n\n`;
+      // Generic helpful response - ALWAYS provide value with company context
+      const stage = company.stage || ddqResponses[5] || 'early-stage';
+      const category = company.category || (Array.isArray(ddqResponses[3]) ? ddqResponses[3][0] : ddqResponses[3]) || 'technology';
+      
+      fallbackResponse = `Here's my strategic advice for ${companyName}:\n\n`;
       
       if (valuation) {
-        fallbackResponse += `📊 **Your Valuation**: ₹${(valuation.finalValuationINR / 10000000).toFixed(2)} Cr\n`;
-      }
-      if (company.stage) {
-        fallbackResponse += `🚀 **Stage**: ${company.stage}\n`;
-      }
-      if (company.category) {
-        fallbackResponse += `🏢 **Category**: ${company.category}\n`;
+        fallbackResponse += `📊 **Current Valuation**: ₹${(valuation.finalValuationINR / 10000000).toFixed(2)} Cr\n\n`;
       }
       
-      fallbackResponse += `\nTry asking more specific questions like:\n• "What's my valuation based on?"\n• "Who are my competitors?"\n• "How can I raise funding?"\n• "What are my growth opportunities?"`;
+      fallbackResponse += `Based on your ${stage} stage and ${category} focus, here are 3 key priorities:\n\n`;
+      fallbackResponse += `1. **Customer Validation** - With ${customerCount} customers, focus on understanding their pain points deeply. Conduct 10 customer interviews this week.\n\n`;
+      fallbackResponse += `2. **Unit Economics** - Track your CAC (Customer Acquisition Cost) and LTV (Lifetime Value). Aim for LTV:CAC ratio of 3:1.\n\n`;
+      fallbackResponse += `3. **Product Iteration** - Based on customer feedback, prioritize the top 3 features that will drive retention.\n\n`;
+      fallbackResponse += `What specific area would you like to dive deeper into for ${companyName}?`;
     }
     
     // GUARANTEED: Always send a response
